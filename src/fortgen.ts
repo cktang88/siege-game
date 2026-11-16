@@ -187,6 +187,6 @@ export function generateLevel(spec: GenSpec): LevelDef {
     brief: spec.brief ?? `A ${spec.theme} stronghold. Destroy the ${objectives.map((o) => (o === 'command' ? 'command post' : o)).join(' and ')}.`,
     intel, budget, wind: [-1 - d * 0.6, 1 + d * 0.6], parTime: 50 + d * 20,
     ground, cannonX, blocks, houses, objectives,
-    stars: [3000, 5500 + d * 500, 8000 + d * 800], collateralMult: 1,
+    stars: [3000, 5500 + d * 500, 8000 + d * 800], collateralMult: 1, difficulty: d,
   };
 }

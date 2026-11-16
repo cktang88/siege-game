@@ -507,6 +507,18 @@ export function barracksBlock(s: Site, kind: TargetKind = 'barracks') {
   s.x = f.x1 + 2.2;
 }
 
+/** motor pool: a low concrete vehicle shed with a fuel tank beside it; sends armoured cars (and light tanks later) at the gun */
+export function motorPool(s: Site, tanks = false) {
+  const x = s.x + 0.5, g = s.g;
+  const f = s.frame(`m${x}`, x, g, 1, 1, 4.6, 2.5, 0.8, () => ({ col: 'concrete', slab: 'concrete', back: 'concrete' }), 0.45);
+  s.place(`m${x}`, 'depot');
+  s.add(f.x1 + 0.4, g, 1.1, 1.4, 'fuel');
+  s.x = f.x1 + 2.6;
+  s.intel.push(tanks
+    ? 'A motor pool sends armoured cars and light tanks at your gun. Canister and round shot bounce off them: use AP, sticky charges, bunker busters or bombs, and hit a tank\'s sloped glacis from above.'
+    : 'A motor pool sends armoured cars at your gun. Canister and round shot bounce off: use AP, direct HE hits, sticky charges, drills or bombs.');
+}
+
 // ───────────────────────── composer ─────────────────────────
 
 export interface Composition {
@@ -530,6 +542,7 @@ export function compose(c: Composition): LevelDef {
   s.groundTo(x0 - 12, 0); s.groundTo(x0 - 5, s.g);
   s.x = x0;
   c.build(s);
+  if (c.difficulty >= 4 && s.targets.includes('barracks')) s.intel.push('Some of the infantry carry big shields that stop canister and round shot from the front. Burst shells over them, drop HE among them, or plunge fire from above.');
   s.groundTo(s.x + 4, s.g); s.groundTo(s.x + 10, 0); s.groundTo(400, 0);
   s.furnish();
   const houses: HouseDef[] = [];
@@ -556,6 +569,7 @@ export function compose(c: Composition): LevelDef {
     backdrops: s.backdrops,
     rooms: s.rooms.map((r) => ({ x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1, floorIdx: r.floorIdx, deps: r.deps })),
     era: c.era ?? 'medieval',
+    difficulty: d,
   };
 }
 
@@ -570,7 +584,7 @@ export const THEMED: Composition[] = [
   { id: 'abbey', gun: 36, name: 'St. Aldric\'s Abbey', seed: 61, difficulty: 3, brief: 'A fortified abbey. The command post sits in the nave behind the arcade; the flying buttresses hold it all up.',
     build: (s) => { curtain(s, 6); s.x += 3; abbey(s); barracksBlock(s); } },
   { id: 'greywater', gun: 36, era: 'modern', name: 'Battery Greywater', seed: 83, difficulty: 4, brief: 'Coastal battery: dragon\'s teeth, hedgehogs, Regelbau casemates and an armour-faced command bunker.',
-    build: (s) => { dragonsTeeth(s, 3); hedgehogs(s, 2); s.x += 2; casemate(s, 'artillery'); casemate(s, 'artillery'); armoredBunker(s); barracksBlock(s); casemate(s, 'ammo'); } },
+    build: (s) => { dragonsTeeth(s, 3); hedgehogs(s, 2); s.x += 2; casemate(s, 'artillery'); casemate(s, 'artillery'); armoredBunker(s); barracksBlock(s); motorPool(s); casemate(s, 'ammo'); } },
   { id: 'harrowgate', gun: 36, name: 'Harrowgate Castle', seed: 97, difficulty: 4, brief: 'A concentric castle: moat, battered curtains, a twin-towered gatehouse, a gun tower and a tall hoarded keep at the back of the ward.',
     build: (s) => {
       moat(s, 6, 2.5); curtain(s, 7, 2); s.x += 2.5; gatehouse(s); barracksBlock(s); hall(s, 'hall', 'workshop');
@@ -580,7 +594,7 @@ export const THEMED: Composition[] = [
       s.place('keep', 'ammo', (r) => r.find((q) => q.floor === 0));
     } },
   { id: 'zooflak', gun: 36, era: 'modern', name: 'Zoo Flak Tower', seed: 131, difficulty: 5, brief: 'A concrete flak tower with gun tubs at every corner, ringed by casemates.',
-    build: (s) => { hedgehogs(s, 3); casemate(s, 'barracks'); mooringMast(s); casemate(s, 'artillery'); s.x += 2; flakTower(s, 7, 4); } },
+    build: (s) => { hedgehogs(s, 3); casemate(s, 'barracks'); motorPool(s, true); mooringMast(s); casemate(s, 'artillery'); s.x += 2; flakTower(s, 7, 4); } },
   // ── great fortresses: outer works to the keep, built tall rather than deep ──
   { id: 'kestrel', gun: 36, elevation: 6, name: 'Kestrel Bastille', seed: 211, difficulty: 5,
     brief: 'A concentric castle: moat, battered outer curtain, gatehouse, bailey, a towering inner curtain, a gun bergfried and an eight-storey great keep.',
@@ -595,7 +609,7 @@ export const THEMED: Composition[] = [
   { id: 'ironcrown', gun: 44, name: 'Castle Ironcrown', seed: 307, difficulty: 6,
     brief: 'A mountain castle in iron and stone: armoured outer gate, a magazine in the bailey, twin bergfrieds and a nine-storey keep.',
     build: (s) => {
-      curtain(s, 9, 2.4, 'stone'); s.x += 3; gatehouse(s); barracksBlock(s); mooringMast(s); magazine(s); bergfried(s, { floors: 8, gun: 'flak' });
+      curtain(s, 9, 2.4, 'stone'); s.x += 3; gatehouse(s); barracksBlock(s); motorPool(s, true); mooringMast(s); magazine(s); bergfried(s, { floors: 8, gun: 'flak' });
       curtain(s, 13, 2.8); s.x += 3; bergfried(s, { floors: 11, gun: 'artillery' });
       towerKeep(s, { floors: 9, cols: 3, tag: 'iron' });
       s.place('iron', 'command', (r) => r.find((q) => q.floor === 5));
@@ -606,14 +620,14 @@ export const THEMED: Composition[] = [
     brief: 'A modern fortress line: obstacle belts, casemates under earth, an earth rampart, an armour-faced command bunker and a seven-storey flak tower.',
     build: (s) => {
       // kept short enough that a Cordite-charged gun reaches the flak tower roof
-      dragonsTeeth(s, 3); hedgehogs(s, 2); casemate(s, 'artillery'); casemate(s, 'barracks');
+      dragonsTeeth(s, 3); hedgehogs(s, 2); casemate(s, 'artillery'); casemate(s, 'barracks'); motorPool(s, true);
       starFortFront(s, 2, 10); magazine(s); armoredBunker(s); mooringMast(s); flakTower(s, 7);
     } },
   { id: 'blackcitadel', gun: 44, name: 'The Black Citadel', seed: 523, difficulty: 8,
     brief: 'The capital\'s citadel: moat, double curtain, gatehouse, a lesser keep, a thirteen-metre inner curtain, two gun bergfrieds and a ten-storey keep. End the war here.',
     build: (s) => {
       moat(s, 8, 3.5); curtain(s, 10, 2.6); s.x += 2.2; curtain(s, 8, 2.0); s.x += 3; gatehouse(s); bergfried(s, { floors: 8, gun: 'flak' });
-      barracksBlock(s); barracksBlock(s, 'workshop'); mooringMast(s); magazine(s); mooringMast(s);
+      barracksBlock(s); barracksBlock(s, 'workshop'); motorPool(s, true); mooringMast(s); magazine(s); mooringMast(s);
       towerKeep(s, { floors: 6, cols: 2, tag: 'lesser' });
       s.place('lesser', 'command', (r) => r.find((q) => q.floor === 2));
       curtain(s, 14, 3); s.x += 3; bergfried(s, { floors: 12, gun: 'artillery' });

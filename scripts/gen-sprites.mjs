@@ -29,6 +29,8 @@ const SPRITES = {
   p_cannon: `A small bronze fortress cannon on a wooden garrison carriage, facing left. ${STYLE.replace('facing right', 'facing left')}`,
   carriage: `An EMPTY wooden artillery gun carriage (a split-trail field carriage) with two large spoked wheels: just the wooden cheeks, axle and trail with an empty curved cradle on top. Absolutely NO cannon, NO barrel, NO gun tube, nothing resting in the cradle. ${STYLE}`,
   barrel: `A single long black iron cannon barrel (gun tube) lying perfectly horizontal, muzzle pointing right, no carriage, no wheels. ${STYLE}`,
+  armoredcar: `A 1940s four-wheeled military armoured car: a low angular riveted steel hull with a sloped nose plate, a small round turret with a machine gun pointing left, four big black rubber tyres, dark olive-grey steel, full vehicle seen exactly from the side, facing left. ${STYLE.replace('facing right', 'facing left')}`,
+  tank: `A 1940s light tank: a long low hull with a very sloped front glacis plate, a small cast turret with a short main gun pointing left, tracks over five road wheels, dark olive-grey steel, full vehicle seen exactly from the side, facing left. ${STYLE.replace('facing right', 'facing left')}`,
   soldier: `A single infantry soldier walking, helmet, grey-green uniform, rifle, full body, facing left. ${STYLE.replace('facing right', 'facing left')}`,
   plane: `A 1940s twin-propeller bomber airplane seen from the side, olive drab. ${STYLE}`,
   saboteur: `A crouching commando saboteur in dark clothes carrying a satchel charge, running, full body. ${STYLE}`,

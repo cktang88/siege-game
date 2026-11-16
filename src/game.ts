@@ -9,6 +9,7 @@ import { audio } from './audio';
 import { Garrison } from './dwellers';
 import { AirForce } from './aircraft';
 import { elevate } from './elevate';
+import { MotorPool } from './vehicles';
 
 type V2 = { x: number; y: number };
 
@@ -39,7 +40,7 @@ export interface Block {
 
 interface House { def: HouseDef; hp: number; maxHp: number; mesh: THREE.Mesh; collider: RAPIER.Collider; body: RAPIER.RigidBody; dead: boolean }
 
-interface Projectile {
+export interface Projectile {
   ammo: AmmoDef;
   enemy: boolean;
   body?: RAPIER.RigidBody;
@@ -72,9 +73,11 @@ interface Projectile {
   airburst?: number;
   /** flak proximity fuze: closest distance to an aircraft seen so far */
   prox?: number;
+  /** stopped by a shield: no longer harms infantry */
+  harmless?: boolean;
 }
 
-interface Soldier { x: number; y: number; rig: SoldierRig; dead: boolean; shootT: number; stopX: number; phase: number; deadT: number }
+interface Soldier { x: number; y: number; rig: SoldierRig; dead: boolean; shootT: number; stopX: number; phase: number; deadT: number; /** shield hit points (0 = none) */ shield: number }
 
 interface Plane {
   mesh: THREE.Mesh; x: number; y: number; ux: number; uy: number; speed: number; s: number;
@@ -87,7 +90,7 @@ interface Drone { mesh: THREE.Mesh; x: number; y: number; tx: number; ty: number
 interface Saboteur { mesh: THREE.Mesh; x: number; y: number; state: 'run' | 'back'; exposed: number; dead: boolean; dir: number; phase: number; target: number | null }
 
 interface PendingBlast { x: number; y: number; r: number; dmg: number; delay: number; opts: BlastOpts }
-interface BlastOpts { flak?: boolean; bonus?: Partial<Record<MatId, number>>; ignite?: number; enemy?: boolean; under?: boolean; push?: number; visual?: number; smoke?: boolean; source?: string }
+export interface BlastOpts { flak?: boolean; bonus?: Partial<Record<MatId, number>>; ignite?: number; enemy?: boolean; under?: boolean; push?: number; visual?: number; smoke?: boolean; source?: string }
 
 export type GameEvent =
   | { type: 'toast'; text: string; tone?: 'good' | 'bad' | 'info' }
@@ -182,6 +185,7 @@ export class Game {
   lastRicochetToast = -10;
   garrison = new Garrison(this);
   air = new AirForce(this);
+  motor = new MotorPool(this);
   /** flak burst timer, seconds after launch */
   flakFuse = 2.5;
   mastSprites = new Map<Block, THREE.Mesh>();
@@ -209,7 +213,7 @@ export class Game {
     this.ended = false; this.running = false; this.revealed = false;
     this.artilleryShots = 0; this.bracket = 0; this.artT = 10; this.barT = 12; this.repT = 5; this.rebT = 14;
     this.collateral = 0; this.enemyBlind = 0; this.winT = -1; this.idleT = 0;
-    this.targetsDestroyed = {}; this.targetsTotal = {};
+    this.targetsDestroyed = {}; this.targetsTotal = {}; this.shieldsSeen = false;
     this.lastPath = [];
     this.zoom = 1; this.pan = 0; this.panY = 0; this.gunFlash = 0; this.gunCritical = false; this.incoming = [];
 
@@ -315,6 +319,7 @@ export class Game {
     this.root = new THREE.Group();
     this.garrison.clear();
     this.air.clear();
+    this.motor.clear();
     this.mastSprites.clear();
     this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
     this.pending = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.gunElev.clear(); this.events = [];
@@ -733,7 +738,7 @@ export class Game {
       const names: Record<TargetKind, string> = {
         command: 'Command post destroyed!', ammo: 'Munitions store detonated!', barracks: 'Barracks destroyed. No more reinforcements.',
         artillery: 'Enemy gun silenced!', workshop: 'Engineers eliminated. No more repairs.', flak: 'Flak gun destroyed. Skies are clear.',
-        mast: 'Mooring mast down. No more aircraft from it.',
+        mast: 'Mooring mast down. No more aircraft from it.', depot: 'Motor pool destroyed. No more vehicles.',
       };
       this.toast(remaining > 0 && b.target === 'ammo' ? 'Munitions detonated! One store remains.' : names[b.target], 'good');
       if (b.target === 'ammo') {
@@ -836,7 +841,16 @@ export class Game {
     this.garrison.blast(x, y, radius);
     if (!opts.enemy) this.air.blast(x, y, radius, dmg, !!opts.flak);
     // infantry
-    for (const s of this.soldiers) if (!s.dead && Math.hypot(s.x - x, s.y + 0.6 - y) < radius * 1.15 + 0.3) this.killSoldier(s);
+    if (!opts.enemy) this.motor.blast(x, y, radius, dmg, opts);
+    for (const s of this.soldiers) {
+      if (s.dead) continue;
+      const R = radius * 1.15 + 0.3, d = Math.hypot(s.x - x, s.y + 0.6 - y);
+      if (d >= R) continue;
+      // a shield takes a weak burst in front of it (solid shot striking it); a real blast, fire, or a burst behind or over him kills
+      const e = dmg * (1 - d / R);
+      if (s.shield > 0 && !opts.ignite && e < 30 && x < s.x - 0.1 && y < s.y + 1.3) { this.hitShield(s, e); continue; }
+      this.killSoldier(s);
+    }
     for (const s of this.saboteurs) if (!s.dead && Math.hypot(s.x - x, s.y + 0.6 - y) < radius * 0.9) this.killSaboteur(s, 'Saboteur caught in the blast.');
     // player cannon
     const cx = this.level.cannonX, cy = this.groundY(cx) + 1;
@@ -923,6 +937,29 @@ export class Game {
     s.deadT = 0;
     const c = new THREE.Color(0.35, 0.4, 0.3);
     for (let i = 0; i < 4; i++) this.r.debris.spawn(s.x, s.y + 0.6, (Math.random() - 0.5) * 4, Math.random() * 4, 0.12, c);
+  }
+
+  /**
+   * A round reaching soldier s at velocity (vx, vy). A shield faces the gun: it stops rounds from the gun's side
+   * flatter than ~50° of plunge unless they carry enough energy to knock him flat. Returns true if he went down.
+   */
+  shotSoldier(s: Soldier, vx: number, vy: number, energy: number) {
+    if (s.dead) return false;
+    if (!(s.shield > 0 && vx > 0 && -vy < vx * 1.2) || energy >= 95) { this.killSoldier(s); return true; }
+    this.hitShield(s, energy);
+    return false;
+  }
+
+  hitShield(s: Soldier, dmg: number) {
+    const m = s.rig.muzzle();
+    this.sparks(s.x - 0.35, m.y - 0.1, 4);
+    if (Math.random() < 0.4) audio.play('clang', s.x, 0.4, 1.5);
+    s.shield -= dmg;
+    if (s.shield > 0) return;
+    s.shield = 0;
+    s.rig.dropShield();
+    const c = new THREE.Color(0.4, 0.42, 0.45);
+    for (let i = 0; i < 6; i++) this.r.debris.spawn(s.x - 0.35, s.y + 0.4 + Math.random() * 0.8, (Math.random() - 0.7) * 4, Math.random() * 4, 0.1 + Math.random() * 0.12, c);
   }
 
   killSaboteur(s: Saboteur, msg: string) {
@@ -1080,7 +1117,8 @@ export class Game {
       const ex = sx0 + p.vx * dt, ey = sy0 + p.vy * dt;
       for (const s of this.soldiers) {
         if (s.dead || !this.sweptHit(s, sx0, sy0, ex, ey, p.pellet ? 0.35 : 0.3)) continue;
-        this.killSoldier(s);
+        // a shield stops a pellet; AP goes through shield and man alike
+        if (!this.shotSoldier(s, p.vx, p.vy, p.pellet ? 2.5 : 999)) { this.removeProjectile(p); return; }
         p.kills = (p.kills ?? 0) + 1;
         if (p.pellet && p.kills >= 2) { this.removeProjectile(p); return; }
       }
@@ -1228,6 +1266,7 @@ export class Game {
     this.updateProjectiles(dt);
     this.updatePending(dt);
     this.updateSoldiers(dt);
+    this.motor.update(dt, this.running && !this.ended);
     this.updateAir(dt);
     this.updateSaboteurs(dt);
     if (this.running && !this.ended) this.updateEnemy(dt);
@@ -1382,6 +1421,9 @@ export class Game {
           }
         }
       }
+      // enemy armour in the way
+      this.motor.hit(p, dt);
+      if (p.dead) continue;
       if (p.airburst && !p.split && !p.impacted && p.age >= p.airburst) { this.splitCluster(p); continue; }
       if (p.body) {
         const t = p.body.translation();
@@ -1445,11 +1487,19 @@ export class Game {
         if (p.inert <= 0) { this.removeProjectile(p); continue; }
       }
       // physical projectiles vs infantry
-      if (!p.impacted || p.inert !== undefined) {
+      if ((!p.impacted || p.inert !== undefined) && !p.harmless) {
         const prev = p.prev ?? { x: p.x, y: p.y };
         p.prev = { x: p.x, y: p.y };
         for (const s of this.soldiers) if (!s.dead && this.sweptHit(s, prev.x, prev.y, p.x, p.y, 0.45)) {
-          this.killSoldier(s);
+          // pellets and penetrators meet shields in stepPenetrator
+          if (!p.body && !p.stuck) { if (!s.shield) this.killSoldier(s); continue; }
+          const fused = p.enemy || (p.ammo.blastRadius > 0 && !p.inert && !['delayed', 'sticky', 'shell', 'heavy'].includes(p.ammo.id));
+          if (!fused) {
+            // a shield stops solid shot and inert rounds unless the blow knocks him flat
+            const v = p.body?.linvel() ?? { x: p.vx, y: p.vy };
+            const down = this.shotSoldier(s, v.x, v.y, p.ammo.kinetic * (Math.hypot(v.x, v.y) / 30) ** 2 * p.dmgMul);
+            if (!down) { p.harmless = true; if (p.body) p.body.setLinvel({ x: -v.x * 0.12, y: v.y * 0.2 }, true); break; }
+          } else this.killSoldier(s);
           if (!p.body && !p.stuck) continue;
           // solid shot (round shot, heavy shell) ploughs on through the file; fuzed rounds go off
           if (p.ammo.id === 'shell' || p.ammo.id === 'heavy') { const v = p.body?.linvel(); if (v) p.body!.setLinvel({ x: v.x * 0.85, y: v.y * 0.85 }, true); continue; }
@@ -1485,10 +1535,10 @@ export class Game {
   }
 
   // ───────────────────────── Infantry ─────────────────────────
-  spawnSoldier(x: number) {
-    const rig = new SoldierRig(true);
+  spawnSoldier(x: number, shield = false) {
+    const rig = new SoldierRig(true, shield ? (this.level.era === 'modern' ? 'ballistic' : 'pavise') : undefined);
     rig.group.position.z = 7.2;
-    const s: Soldier = { x, y: this.groundY(x), rig, dead: false, shootT: 1 + Math.random(), stopX: this.level.cannonX + 13 + Math.random() * 7, phase: Math.random() * 6, deadT: 0 };
+    const s: Soldier = { x, y: this.groundY(x), rig, dead: false, shootT: 1 + Math.random(), stopX: this.level.cannonX + 13 + Math.random() * 7, phase: Math.random() * 6, deadT: 0, shield: shield ? 70 : 0 };
     rig.update(0, x, s.y, 'idle');
     this.root.add(rig.group);
     this.soldiers.push(s);
@@ -1512,7 +1562,7 @@ export class Game {
         }
       }
       if (s.x > s.stopX && !shooting) {
-        s.x -= 1.6 * dt;
+        s.x -= (s.shield > 0 ? 1.25 : 1.6) * dt;
         s.y = this.groundY(s.x);
         s.rig.update(dt, s.x, s.y, 'walk');
       } else {
@@ -1861,9 +1911,11 @@ export class Game {
           const x0 = this.fortressBounds.x0 - 1;
           for (const b of bar) {
             const t = b.body.translation();
-            for (let i = 0; i < 2 && room > 0; i++, room--) this.spawnSoldier(Math.min(t.x, x0) - i * (1.8 + Math.random() * 1.6));
+            for (let i = 0; i < 2 && room > 0; i++, room--) this.spawnSoldier(Math.min(t.x, x0) - i * (1.8 + Math.random() * 1.6), Math.random() < this.shieldChance);
           }
-          this.toast('Enemy infantry advancing!', 'bad');
+          const shields = this.soldiers.some((s) => !s.dead && s.shield > 0);
+          this.toast(shields && !this.shieldsSeen ? 'Shield infantry advancing! Shields stop canister: burst shells over them or drop HE among them.' : 'Enemy infantry advancing!', 'bad');
+          if (shields) this.shieldsSeen = true;
         }
       }
     }
@@ -1907,6 +1959,10 @@ export class Game {
       }
     }
   }
+
+  /** later operations field shield infantry: from difficulty 4, a growing share of each draft */
+  get shieldChance() { const d = this.level.difficulty ?? 0; return d >= 4 ? Math.min(0.55, 0.25 + (d - 4) * 0.08) : 0; }
+  shieldsSeen = false;
 
   checkEnd(dt: number) {
     if (!this.running || this.ended) return;

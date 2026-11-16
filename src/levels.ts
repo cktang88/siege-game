@@ -42,6 +42,8 @@ export interface LevelDef {
   siteX?: number;
   /** muzzle velocity the player is expected to have here (for keeping objectives in range) */
   gunCap?: number;
+  /** 1 (border) .. 8 (capital): later levels field shield infantry and heavier vehicles */
+  difficulty?: number;
 }
 
 class Builder {
