@@ -182,6 +182,7 @@ export function generateLevel(spec: GenSpec): LevelDef {
   if (houses.length) intel.push('Civilians nearby.');
 
   return {
+    elevation: 5.5 + d * 0.6, gunCap: d <= 3 ? 30 : d <= 5 ? 36 : 44,
     id: spec.id, name: spec.name,
     brief: spec.brief ?? `A ${spec.theme} stronghold. Destroy the ${objectives.map((o) => (o === 'command' ? 'command post' : o)).join(' and ')}.`,
     intel, budget, wind: [-1 - d * 0.6, 1 + d * 0.6], parTime: 50 + d * 20,

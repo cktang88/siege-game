@@ -36,6 +36,12 @@ export interface LevelDef {
   /** rooms for the garrison: interior bounds, the floor block under it (-1 = ground) and its frame */
   rooms?: { x0: number; x1: number; y0: number; y1: number; floorIdx: number; deps: number[] }[];
   era?: 'medieval' | 'modern';
+  /** castle sits on a hill this many metres above the plain (applied at load: src/elevate.ts) */
+  elevation?: number;
+  /** x where the castle's own terrain begins (the hill crest starts here) */
+  siteX?: number;
+  /** muzzle velocity the player is expected to have here (for keeping objectives in range) */
+  gunCap?: number;
 }
 
 class Builder {
@@ -100,7 +106,7 @@ function outpost(): LevelDef {
   b.add(72.8, f2 + 2.4, 3.2, 0.35, 'wood');
   b.add(73.6, f2 + 2.75, 1.4, 0.9, 'stone');
   return {
-    id: 'outpost', name: 'Outpost Varn',
+    id: 'outpost', elevation: 7, gunCap: 30, name: 'Outpost Varn',
     brief: 'A timber-and-stone border outpost. Their command post sits on the upper floor; the munitions store is on the ground floor, right side.',
     intel: ['Mostly timber: incendiaries will spread.', 'Barracks will send infantry toward your gun.', 'Village behind the outpost. Mind your aim.'],
     budget: 900, wind: [-2, 2], parTime: 60,
@@ -145,7 +151,7 @@ function bastion(): LevelDef {
   b.add(80, g + 5.4, 0.8, 0.8, 'stone');
   b.add(83.2, g + 5.4, 0.8, 0.8, 'stone');
   return {
-    id: 'bastion', name: 'Bastion Kell',
+    id: 'bastion', elevation: 7, gunCap: 30, name: 'Bastion Kell',
     brief: 'A modern bastion. Command is buried in a concrete bunker topped by a counter-battery gun that will fire on you. Engineers repair anything you damage.',
     intel: ['Concrete laughs at HE: bring bunker busters or go underneath.', 'Front curtain wall may be hiding something. A drone would tell you.', 'The gun bracket-fires: each shot lands closer.'],
     budget: 1300, wind: [-3, 3], parTime: 90,
@@ -199,7 +205,7 @@ function citadel(): LevelDef {
   b.add(99, g, 2.8, 1.3, 'wood', { target: 'workshop' });
   b.add(97.8, g + 2.2, 5.4, 0.35, 'wood');
   return {
-    id: 'citadel', name: 'Citadel Ostrava',
+    id: 'citadel', elevation: 8, gunCap: 36, name: 'Citadel Ostrava',
     brief: 'A layered citadel. Double walls, a keep with a counter-battery gun, munitions sealed in a firebrick vault with flak on its roof.',
     intel: ['Outer masonry + inner concrete: blasts spend themselves on the first wall.', 'Firebrick vault: incendiaries are useless there.', 'Flak will shoot down bombers. Kill it before calling an air strike.', 'Something about the keep pillars looks off.'],
     budget: 1800, wind: [-4, 4], parTime: 130,
@@ -222,7 +228,7 @@ function cleanCut(): LevelDef {
   b.add(65.2, g + 3.2, 3.6, 0.5, 'concrete');
   b.add(62.6, g, 1.4, 1, 'wood', { target: 'barracks' });
   return {
-    id: 'cleancut', name: 'Clean Cut',
+    id: 'cleancut', elevation: 6.5, gunCap: 30, name: 'Clean Cut',
     brief: 'A command bunker hidden in an occupied village. Take out the HQ and nothing else. Collateral damage counts triple.',
     intel: ['Steel roof: air strikes will bounce off.', 'Houses on both sides. One bad shot costs more than it gains.', 'A small guard post sends troops.'],
     budget: 1000, wind: [-2.5, 2.5], parTime: 50,

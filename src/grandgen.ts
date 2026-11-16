@@ -204,6 +204,7 @@ export function generateGrand(spec: GrandSpec): LevelDef {
   const objectives: TargetKind[] = ['command', 'ammo'];
 
   return {
+    elevation: 6 + d * 0.5, gunCap: 44,
     id: spec.id, name: spec.name,
     brief: spec.brief ?? `A great fortress of ${nRooms} rooms behind ${d >= 7 ? 'double' : 'a'} curtain wall. Command sits mid-keep; the munitions are spread through the works.`,
     intel: [

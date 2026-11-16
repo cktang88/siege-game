@@ -517,6 +517,8 @@ export interface Composition {
   era?: 'medieval' | 'modern';
   /** muzzle velocity the player is expected to have by this point of the campaign (30 base, 36, 44) */
   gun?: 30 | 36 | 44;
+  /** hill height override (default 6 + 0.6 × difficulty) */
+  elevation?: number;
 }
 
 export function compose(c: Composition): LevelDef {
@@ -540,9 +542,12 @@ export function compose(c: Composition): LevelDef {
   const mass = s.blocks.length * 5;
   // everything must be in range of the gun the player can have by now: move the gun up if it is not
   const firstX = Math.min(...s.blocks.map((b) => b.x));
-  const cannonX = cannonFor(s.blocks, s.ground, objectives, wind, c.gun ?? (d <= 3 ? 30 : d <= 5 ? 36 : 44), x0 - 32 - d * 2, Math.min(x0 - 16, firstX - 24));
+  const gunCap = c.gun ?? (d <= 3 ? 30 : d <= 5 ? 36 : 44);
+  const cannonX = cannonFor(s.blocks, s.ground, objectives, wind, gunCap, x0 - 32 - d * 2, Math.min(x0 - 16, firstX - 24));
   return {
     id: c.id, name: c.name, brief: c.brief,
+    // the castle stands on a hill: the gun fires level or upward at it
+    elevation: c.elevation ?? 6 + d * 0.6, siteX: x0 - 12, gunCap,
     intel: [...new Set(s.intel)],
     budget: Math.round((900 + d * 300 + width * 12 + mass) / 50) * 50,
     wind, parTime: 60 + d * 20 + Math.round(width),
@@ -560,7 +565,7 @@ export const THEMED: Composition[] = [
     build: (s) => { yagura(s, 'barracks'); yagura(s, 'workshop'); s.x += 2; japaneseCastle(s, 5); } },
   { id: 'saltworks', gun: 30, era: 'modern', name: 'Saltworks Refinery', seed: 37, difficulty: 2, brief: 'A refinery turned strongpoint. The control house directs the garrison; the solvent store is in the hangar.',
     build: (s) => { barracksBlock(s); refinery(s, 3); hangar(s); mooringMast(s); } },
-  { id: 'sainte-barbe', gun: 30, name: 'Fort Sainte-Barbe', seed: 53, difficulty: 3, brief: 'A Vauban fort: glacis, ditch, masonry escarp and an earthen rampart with guns on the terreplein.',
+  { id: 'sainte-barbe', gun: 30, elevation: 3.5, name: 'Fort Sainte-Barbe', seed: 53, difficulty: 3, brief: 'A Vauban fort: glacis, ditch, masonry escarp and an earthen rampart with guns on the terreplein.',
     build: (s) => { starFortFront(s, 2); magazine(s); hall(s, 'hall', 'command'); barracksBlock(s); } },
   { id: 'abbey', gun: 36, name: 'St. Aldric\'s Abbey', seed: 61, difficulty: 3, brief: 'A fortified abbey. The command post sits in the nave behind the arcade; the flying buttresses hold it all up.',
     build: (s) => { curtain(s, 6); s.x += 3; abbey(s); barracksBlock(s); } },
@@ -577,7 +582,7 @@ export const THEMED: Composition[] = [
   { id: 'zooflak', gun: 36, era: 'modern', name: 'Zoo Flak Tower', seed: 131, difficulty: 5, brief: 'A concrete flak tower with gun tubs at every corner, ringed by casemates.',
     build: (s) => { hedgehogs(s, 3); casemate(s, 'barracks'); mooringMast(s); casemate(s, 'artillery'); s.x += 2; flakTower(s, 7, 4); } },
   // ── great fortresses: outer works to the keep, built tall rather than deep ──
-  { id: 'kestrel', gun: 36, name: 'Kestrel Bastille', seed: 211, difficulty: 5,
+  { id: 'kestrel', gun: 36, elevation: 6, name: 'Kestrel Bastille', seed: 211, difficulty: 5,
     brief: 'A concentric castle: moat, battered outer curtain, gatehouse, bailey, a towering inner curtain, a gun bergfried and an eight-storey great keep.',
     build: (s) => {
       moat(s, 7, 3); curtain(s, 9, 2.4); s.x += 3; gatehouse(s); bergfried(s, { floors: 7, gun: 'flak' });

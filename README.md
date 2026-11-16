@@ -46,7 +46,7 @@ Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a muniti
 | Saboteur | running in to plant a charge at the wall base | enemy infantry |
 | Air Strike | a planned bomb run: heading, altitude, dive, interval, ordnance | flak |
 
-Your gun sits on a raised earthen redoubt, about 3.5 m up. Elevation goes down to −30°, so you can fire down on infantry that halt at the foot of the slope. Canister pellets each pass through up to two men, and solid shot (round shot, heavy shell) ploughs through a whole file. In the armory, press and hold + or − to keep buying or selling.
+Castles stand on hills, 3.5–11 m above the plain depending on the operation (star forts hug the ground), so most shots go level or upward; the gun is re-placed per level so every objective stays in range at the muzzle velocity you're expected to have there. Your gun sits on a raised earthen redoubt, about 3.5 m up. Elevation goes down to −30°, so you can fire down on infantry that halt at the foot of the slope. Canister pellets each pass through up to two men, and solid shot (round shot, heavy shell) ploughs through a whole file. In the armory, press and hold + or − to keep buying or selling.
 
 ## The enemy fights back
 

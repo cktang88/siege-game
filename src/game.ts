@@ -8,6 +8,7 @@ import { SoldierRig } from './soldier';
 import { audio } from './audio';
 import { Garrison } from './dwellers';
 import { AirForce } from './aircraft';
+import { elevate } from './elevate';
 
 type V2 = { x: number; y: number };
 
@@ -192,8 +193,10 @@ export class Game {
   }
 
   // ───────────────────────── Setup ─────────────────────────
-  load(level: LevelDef) {
+  load(source: LevelDef) {
     this.dispose();
+    // castles stand on hills (src/elevate.ts); lab levels without an elevation stay flat
+    const level = elevate(source);
     this.level = level;
     this.world = new RAPIER.World({ x: 0, y: PHYS.gravity });
     // tall multi-storey frames need more solver iterations to stand still
