@@ -71,19 +71,19 @@ Blocks can be any convex polygon: wedges, trapezoids, roofs, rotated beams and a
 
 Materials include earthworks (soak up blast), clay roof tiles, plaster over timber (burns) and volatile fuel tanks (chain-explode).
 
-Castles are built tall rather than deep, and each stops at its keep so every objective is in range. Columns thin with height, as bergfried and donjon walls do, and keeps step narrower above about 60% of their height, like butter-churn towers. Slender bergfrieds rise 8–12 storeys under guns or spires.
+Castles are built tall rather than deep, and each stops at its keep so every objective is in range. The gun is placed per level so every target is reachable, against the worst headwind, by the muzzle velocity the player can have at that point of the campaign: 30 m/s for the open operations, 36 m/s (Double Charge) behind the first star gates, 44 m/s (Cordite Charges) for Ironcrown, Wardenhold and the Black Citadel. `node scripts/level-stability.cjs` (with the dev server on port 5184) loads every level, lets it stand for 10 s and lists anything that moved. Columns thin with height, as bergfried and donjon walls do, and keeps step narrower above about 60% of their height, like butter-churn towers. Slender bergfrieds rise 8–12 storeys under guns or spires.
 
 Real-structure archetypes live in `src/archetypes.ts`. Proportions and sources are in `docs/RESEARCH.md`.
 
 | Operation | Built from |
 |---|---|
-| Kurogane-jō | ishigaki fan-slope stone base, four-tier tenshu with flared tile eaves, yagura turrets |
-| Saltworks Refinery | fuel tanks, pipe racks, cracking column, brick stack, concrete-arch airship hangar |
+| Kurogane-jō | ishigaki fan-slope stone base, five-tier tenshu (each tier ~80% of the one below) with flared tile eaves, yagura turrets |
+| Saltworks Refinery | fuel tanks, pipe racks, cracking column, brick stack, concrete-arch airship hangar with a cigar-shaped airship |
 | Fort Sainte-Barbe | glacis, ditch, masonry escarp, earth rampart and parapet, buried vaulted magazine |
 | St. Aldric's Abbey | arcade of arches, end buttresses, flying buttresses on pinnacled piers, bell-tower spire |
 | Battery Greywater | dragon's teeth, hedgehogs, Regelbau casemates under earth berms, steel-glacis command bunker |
 | Harrowgate Castle | moat, battered curtains with machicolations, twin-towered gatehouse with arch and portcullis, hoarded tower keep |
-| Zoo Flak Tower | thick concrete frame with cantilevered corner gun tubs |
+| Zoo Flak Tower | a squat four-bay, seven-storey concrete frame (the real tower was ~70 m square, ~39 m tall) with cantilevered corner gun tubs |
 | Kestrel Bastille | concentric castle with moat, gatehouse, bailey, inner curtain, gun towers and a five-storey great keep (47 rooms) |
 | Wardenhold | obstacle belts, casemates, earth rampart, flak tower, armoured bunker and refinery (24 rooms) |
 
