@@ -55,6 +55,10 @@ Your gun sits on a raised earthen redoubt, about 3.5 m up. Elevation goes down t
 
 - **Counter-battery gun:** fires at your cannon, with each shot landing closer (bracketing). Silence it or blind it with smoke.
 - **Barracks:** sends infantry at your gun. Destroy it to stop reinforcements.
+- **Shield infantry** (later operations, difficulty 4+): part of each draft carries a pavise or a steel ballistic shield facing your gun. The shield stops canister pellets and round shot from the front (a heavy shell still knocks the man flat, and enough hits wreck the shield). Explosions, fire, cluster bomblets, flak bursts overhead, plunging fire and anything from behind still kill them. They walk a little slower.
+- **Motor pool:** sends vehicles from the front of the fortress until destroyed. They halt on the valley floor short of your redoubt and queue behind each other; a knocked-out vehicle burns as a wreck.
+  - *Armoured car:* fast, strafes your gun with a turret MG (small, steady damage). Canister bounces off and solid shot barely dents it; one AP round, two HE hits, a sticky charge, a drill under it or a bomb kills it.
+  - *Light tank* (Zoo Flak Tower onward): slow, heavier armour with a long sloped glacis that glances flat AP and shot. Its main gun shells your gun every 6–8 s, walking its fall of shot in. Plunge AP onto it (two hits), stick two charges on it, or use bunker busters and AP bombs. Smoke blinds it.
 - **Engineers:** repair damaged blocks and rebuild destroyed wall sections, so waiting costs you.
 - **Flak:** shoots down bombers and drones.
 - **Munitions store:** detonates in a chain reaction when destroyed or burned.

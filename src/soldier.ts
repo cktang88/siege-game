@@ -62,6 +62,43 @@ function bootTex() {
   });
 }
 
+/** a big shield carried in front: a painted timber pavise (medieval) or a steel ballistic shield with a viewport (modern) */
+export type ShieldKind = 'pavise' | 'ballistic';
+const shieldTex = new Map<ShieldKind, THREE.Texture>();
+function shieldTexture(kind: ShieldKind) {
+  let t = shieldTex.get(kind);
+  if (t) return t;
+  t = partCanvas(64, 150, (g, w, h) => {
+    const path = () => {
+      g.beginPath();
+      if (kind === 'pavise') { g.moveTo(6, 22); g.quadraticCurveTo(w / 2, 2, w - 6, 22); g.lineTo(w - 8, h - 6); g.lineTo(8, h - 6); g.closePath(); }
+      else g.roundRect(5, 4, w - 10, h - 9, 9);
+    };
+    const base: [number, number, number] = kind === 'pavise' ? [96, 104, 120] : [78, 84, 92];
+    path(); g.fillStyle = rgb(base); g.fill();
+    g.save(); path(); g.clip();
+    if (kind === 'pavise') {
+      // painted field: a bone chevron over slate blue, timber showing at the rim
+      g.fillStyle = rgb([226, 220, 203]);
+      g.beginPath(); g.moveTo(0, 70); g.lineTo(w / 2, 46); g.lineTo(w, 70); g.lineTo(w, 86); g.lineTo(w / 2, 62); g.lineTo(0, 86); g.closePath(); g.fill();
+      g.strokeStyle = rgb([150, 110, 70]); g.lineWidth = 6; path(); g.stroke();
+    } else {
+      // dark viewport near the top, rivets down the edges
+      g.fillStyle = '#20262c'; g.fillRect(16, 22, w - 32, 13);
+      g.fillStyle = 'rgba(170,200,215,0.55)'; g.fillRect(19, 24, 9, 4);
+      g.fillStyle = rgb(base, 0.6);
+      for (let y = 50; y < h - 12; y += 22) { g.fillRect(10, y, 4, 4); g.fillRect(w - 14, y, 4, 4); }
+    }
+    // cel bands: lit left edge, shaded right edge
+    g.fillStyle = 'rgba(255,255,255,0.16)'; g.fillRect(0, 0, 13, h);
+    g.fillStyle = 'rgba(0,0,0,0.26)'; g.fillRect(w - 16, 0, 16, h);
+    g.restore();
+    path(); g.strokeStyle = '#1c1f26'; g.lineWidth = 4; g.stroke();
+  });
+  shieldTex.set(kind, t);
+  return t;
+}
+
 let cache: { thigh: THREE.Texture; shin: THREE.Texture; boot: THREE.Texture; upper: THREE.BufferGeometry | null } | null = null;
 function parts() {
   if (cache) return cache;
@@ -89,11 +126,12 @@ export class SoldierRig {
   phase = Math.random() * 6;
   recoil = 0;
   deadT = -1;
+  shield: THREE.Mesh | null = null;
   private thighL = 0.33;
   private shinL = 0.3;
   private lastX: number | null = null;
 
-  constructor(enemy = true) {
+  constructor(enemy = true, shield?: ShieldKind) {
     const p = parts();
     const tex = textures.soldier;
     const img = tex?.image as HTMLImageElement | undefined;
@@ -131,6 +169,12 @@ export class SoldierRig {
       this.legs.push({ hip, knee, ankle });
     }
     this.body.add(this.upper);
+    if (shield) {
+      // held out in front (the soldier faces left), from shin height to the chin
+      this.shield = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.17), mat(shieldTexture(shield)));
+      this.shield.position.set(-0.33, -0.05, 0.05);
+      this.body.add(this.shield);
+    }
     this.body.position.y = this.thighL + this.shinL + 0.09;
     this.group.add(this.body);
     if (!enemy) this.group.scale.x = -1;
@@ -153,6 +197,8 @@ export class SoldierRig {
       back.hip.rotation.z = -0.5 * k; back.knee.rotation.z = 1.2 * k;
       this.body.rotation.z = -Math.min(1.45, Math.max(0, this.deadT * 3 - 0.4) * 1.5);
       this.body.position.y = 0.72 - 0.45 * Math.min(1, this.deadT * 2.2);
+      // the shield is let go and falls flat in front of him
+      if (this.shield) { this.shield.rotation.z = Math.min(1.5, this.deadT * 2.5) + this.body.rotation.z * -1; this.shield.position.x = -0.33 - Math.min(0.5, this.deadT * 0.8); }
     } else if (state === 'walk') {
       const s = Math.sin(this.phase), c = Math.cos(this.phase);
       // thighs swing in anti-phase; the knee bends while its leg swings forward
@@ -174,6 +220,9 @@ export class SoldierRig {
     }
     this.group.position.set(x, y, this.group.position.z);
   }
+
+  /** a shield shot to pieces */
+  dropShield() { if (this.shield) { this.body.remove(this.shield); this.shield = null; } }
 
   /** muzzle position in world space (rifle tip, rows ~88 of the sheet, facing left) */
   muzzle(): THREE.Vector3 {

@@ -6,7 +6,7 @@ import { $, S, icon } from './state';
 /** short names for target kinds (TARGETS[].desc is a sentence for some kinds) */
 const TARGET_NAME: Record<TargetKind, string> = {
   command: 'Command post', ammo: 'Munitions store', barracks: 'Barracks', artillery: 'Counter-battery gun',
-  workshop: 'Engineers', flak: 'Flak battery', mast: 'Airship mast',
+  workshop: 'Engineers', flak: 'Flak battery', mast: 'Airship mast', depot: 'Motor pool',
 };
 export const targetName = (k: TargetKind) => TARGET_NAME[k] ?? TARGETS[k].desc.split(' — ')[0];
 
@@ -375,7 +375,8 @@ export function drawMinimap() {
   for (const p of g.projectiles) if (!p.dead) { ctx.fillStyle = p.enemy ? '#e2503a' : '#ffd34d'; ctx.fillRect(X(p.x) - 1, Y(p.y) - 1, 3, 3); }
   for (const p of g.planes) { ctx.fillStyle = '#ffb347'; ctx.fillRect(X(p.x) - 3, Y(p.y) - 1, 7, 3); }
   for (const u of g.air.units) { ctx.fillStyle = u.down ? '#777' : '#e2503a'; const w = u.kind === 'airship' ? 9 : 4; ctx.fillRect(X(u.x) - w / 2, Y(u.y) - 1.5, w, 3); }
-  for (const s of g.soldiers) if (!s.dead) { ctx.fillStyle = '#c9d6a0'; ctx.fillRect(X(s.x), Y(s.y + 1.3), 1.5, 3); }
+  for (const s of g.soldiers) if (!s.dead) { ctx.fillStyle = s.shield > 0 ? '#9fb0c8' : '#c9d6a0'; ctx.fillRect(X(s.x), Y(s.y + 1.3), 1.5, 3); }
+  for (const u of g.motor.units) { ctx.fillStyle = u.wreckT >= 0 ? '#5a5650' : '#e2503a'; const w = u.kind === 'tank' ? 7 : 5; ctx.fillRect(X(u.x) - w / 2, Y(u.y + 1.4), w, 4); }
   ctx.strokeStyle = 'rgba(255,179,71,0.9)'; ctx.lineWidth = 1.5;
   ctx.strokeRect(X(r.cx - r.viewW / 2), Y(r.cy + r.viewH / 2), r.viewW * sx, r.viewH * sy);
 }

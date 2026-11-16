@@ -36,6 +36,8 @@ export interface LevelDef {
   /** rooms for the garrison: interior bounds, the floor block under it (-1 = ground) and its frame */
   rooms?: { x0: number; x1: number; y0: number; y1: number; floorIdx: number; deps: number[] }[];
   era?: 'medieval' | 'modern';
+  /** 1 (border) .. 8 (capital): later levels field shield infantry and heavier vehicles */
+  difficulty?: number;
 }
 
 class Builder {

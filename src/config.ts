@@ -50,7 +50,7 @@ export const MATERIALS: Record<MatId, MaterialDef> = {
 };
 
 // ───────────────────────── Targets ─────────────────────────
-export type TargetKind = 'command' | 'ammo' | 'barracks' | 'artillery' | 'workshop' | 'flak' | 'mast';
+export type TargetKind = 'command' | 'ammo' | 'barracks' | 'artillery' | 'workshop' | 'flak' | 'mast' | 'depot';
 
 export const TARGETS: Record<TargetKind, { label: string; desc: string; color: string }> = {
   command: { label: 'HQ', desc: 'Command post', color: '#e0503a' },
@@ -60,6 +60,7 @@ export const TARGETS: Record<TargetKind, { label: string; desc: string; color: s
   workshop: { label: 'ENGINEERS', desc: 'Repairs damage and rebuilds walls', color: '#5aa6d2' },
   flak: { label: 'FLAK', desc: 'Anti-air — shoots down bombers and drones', color: '#b77ad2' },
   mast: { label: 'MAST', desc: 'Airship mast — launches gyrocopters and airships until destroyed', color: '#6fd0c0' },
+  depot: { label: 'DEPOT', desc: 'Motor pool — sends armoured cars and light tanks at your gun until destroyed', color: '#c8b46a' },
 };
 
 // ───────────────────────── Ammunition ─────────────────────────

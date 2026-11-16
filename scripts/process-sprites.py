@@ -5,7 +5,7 @@ from PIL import Image, ImageFilter
 import colorsys
 
 SRC, DST = 'public/sprites/raw', 'public/sprites'
-MAX = {'background': 1536}
+MAX = {'background': 1536, 'tank': 384, 'armoredcar': 384}
 for f in glob.glob(f'{SRC}/*.png'):
     name = os.path.splitext(os.path.basename(f))[0]
     im = Image.open(f).convert('RGBA')

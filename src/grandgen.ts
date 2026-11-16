@@ -218,7 +218,7 @@ export function generateGrand(spec: GrandSpec): LevelDef {
     wind: [-2 - d * 0.4, 2 + d * 0.4],
     parTime: 150 + nRooms * 4,
     ground, cannonX: cannonFor(blocks, ground, objectives, [-2 - d * 0.4, 2 + d * 0.4], 44, x0 - 34, Math.min(x0 - 20, Math.min(...blocks.map((b) => b.x)) - 24)), blocks, houses, objectives,
-    stars: [4000, 9000 + d * 600, 14000 + d * 900], collateralMult: 1,
+    stars: [4000, 9000 + d * 600, 14000 + d * 900], collateralMult: 1, difficulty: d,
     backdrops: rooms.map((r) => ({ x: r.x0, y: r.y0, w: r.x1 - r.x0, h: r.y1 - r.y0 + SLAB * 0.5, mat: r.mat, deps: r.deps })),
   };
 }
