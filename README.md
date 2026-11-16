@@ -1,5 +1,7 @@
 # Siege
 
+![Kestrel Bastille on its hill: curtain towers, gun towers and a spired great keep](docs/screenshots/kestrel.webp)
+
 A 2D side-view physics siege game. You plan an armament within a budget, then bring a fortress down while it fights back.
 
 Built with Vite, TypeScript, Three.js (orthographic camera, custom cel-shading GLSL, bloom) and Rapier2D physics.
@@ -10,6 +12,32 @@ npm install
 npm run dev      # http://localhost:5173
 npm run build    # type-check and production build into dist/
 ```
+
+## Screenshots
+
+### Castles
+
+Every fortress stands on its own hill, so most shots go level or upward. Only the infantry and vehicles come down into the valley between.
+
+| | |
+|---|---|
+| ![Kurogane, a Japanese castle](docs/screenshots/kurogane.webp) | ![St. Aldric's Abbey](docs/screenshots/abbey.webp) |
+| **Kurogane**: a tiered Japanese keep with sloped tile roofs and corner yagura on a stone base. | **St. Aldric's Abbey**: an arcade held up by flying buttresses, next to a spired bell tower. |
+| ![The Black Citadel](docs/screenshots/blackcitadel.webp) | ![Harrowgate keep in cutaway, with its garrison in the rooms](docs/screenshots/garrison.webp) |
+| **The Black Citadel**: the final fortress, with dozens of rooms across its towers and keep. | **Garrison**: the keeps are shown in cutaway. People and furniture fill the rooms, and they flee when fire breaks out. |
+
+### In battle
+
+| | |
+|---|---|
+| ![Ironcrown's keep collapsing](docs/screenshots/collapse.webp) | ![Outpost Varn on fire](docs/screenshots/fire.webp) |
+| **Load-bearing structures**: knock out the columns and the floors above come down. | **Fire** spreads from timber to nearby timber, and fuel stores chain-explode. |
+| ![Planning a dive-bombing run over Greywater](docs/screenshots/bombrun.webp) | ![Airships and gyrocopters over the Zoo Flak Tower](docs/screenshots/airraid.webp) |
+| **Air strikes**: set the approach, release altitude, dive angle, bomb spacing and aim point. | **Enemy air**: airships and gyrocopters come for your gun. Flak bursts bring them down. |
+| ![An armoured car and shield troops advancing across the valley](docs/screenshots/vehicles.webp) | ![The operations map](docs/screenshots/map.webp) |
+| **Vehicles and shield troops** advance across the valley in later operations. | **Operations map**: each cleared operation opens neighbouring ones. |
+| ![The research screen](docs/screenshots/research.webp) | ![The armory](docs/screenshots/armory.webp) |
+| **Research**: five branches of upgrades, refundable at any time. | **Armory**: buy rounds within the mission budget. Hold a button to buy repeatedly. |
 
 ## How to play
 
