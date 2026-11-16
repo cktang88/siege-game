@@ -291,7 +291,7 @@ function mapBounds() {
   const fb = g.fortressBounds;
   return { x0: g.level.cannonX - 8, x1: Math.max(fb.x1, ...g.level.houses.map((h) => h.x + h.w)) + 6, y1: fb.y1 + 8 };
 }
-const MAT_COL: Record<string, string> = { wood: '#9a6b3c', stone: '#9b978c', concrete: '#8f969d', steel: '#6b7684', reactive: '#717d58', fireproof: '#a7613f', crate: '#7a7240', rock: '#555' };
+const MAT_COL: Record<string, string> = { earth: '#7a6646', tile: '#8c4434', plaster: '#d8d4c6', fuel: '#9c9a80', wood: '#9a6b3c', stone: '#9b978c', concrete: '#8f969d', steel: '#6b7684', reactive: '#717d58', fireproof: '#a7613f', crate: '#7a7240', rock: '#555' };
 let mmTick = 0;
 export function drawMinimap() {
   if (mmTick++ % 3) return;

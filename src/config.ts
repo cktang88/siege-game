@@ -1,5 +1,5 @@
 // ───────────────────────── Materials ─────────────────────────
-export type MatId = 'wood' | 'stone' | 'concrete' | 'steel' | 'reactive' | 'fireproof' | 'crate' | 'rock';
+export type MatId = 'wood' | 'stone' | 'concrete' | 'steel' | 'reactive' | 'fireproof' | 'crate' | 'rock' | 'earth' | 'tile' | 'plaster' | 'fuel';
 
 export interface MaterialDef {
   name: string;
@@ -12,6 +12,8 @@ export interface MaterialDef {
   /** how easily penetrators pass through (1 = easy, low = hard) */
   pierce: number;
   flammable: boolean;
+  /** blows up when destroyed (fuel tanks) */
+  volatile?: boolean;
   friction: number;
   color: [number, number, number];
   /** shader pattern id */
@@ -27,7 +29,7 @@ export const MATERIALS: Record<MatId, MaterialDef> = {
     color: [0.62, 0.6, 0.55], kind: 1, blurb: 'Heavy, brittle under blast.' },
   concrete: { name: 'Reinforced concrete', density: 2.4, hp: 220, kinetic: 0.55, blast: 0.5, fire: 0, pierce: 0.7, flammable: false, friction: 0.9,
     color: [0.58, 0.6, 0.62], kind: 2, blurb: 'Shrugs off HE. Bunker busters crack it.' },
-  steel: { name: 'Armor plate', density: 3.6, hp: 260, kinetic: 0.35, blast: 0.55, fire: 0, pierce: 0.35, flammable: false, friction: 0.5,
+  steel: { name: 'Armor plate', density: 3.6, hp: 260, kinetic: 0.35, blast: 0.55, fire: 0, pierce: 0.35, flammable: false, friction: 0.75,
     color: [0.42, 0.46, 0.52], kind: 3, blurb: 'Stops armor-piercing rounds.' },
   reactive: { name: 'Reactive armor', density: 2.5, hp: 90, kinetic: 0.3, blast: 0.6, fire: 0, pierce: 0.4, flammable: false, friction: 0.6,
     color: [0.45, 0.5, 0.36], kind: 4, blurb: 'Detonates incoming shells. Slow charges get through.' },
@@ -35,6 +37,14 @@ export const MATERIALS: Record<MatId, MaterialDef> = {
     color: [0.66, 0.38, 0.26], kind: 5, blurb: 'Fire cannot spread through it.' },
   crate: { name: 'Munitions', density: 0.9, hp: 70, kinetic: 1.0, blast: 1.2, fire: 1.2, pierce: 1.5, flammable: true, friction: 0.8,
     color: [0.45, 0.42, 0.25], kind: 6, blurb: 'Volatile.' },
+  earth: { name: 'Earthworks', density: 1.7, hp: 260, kinetic: 0.3, blast: 0.32, fire: 0, pierce: 2.2, flammable: false, friction: 1,
+    color: [0.47, 0.4, 0.28], kind: 8, blurb: 'Rammed earth soaks up blast. Penetrators and drills cut it.' },
+  tile: { name: 'Clay roof', density: 0.9, hp: 45, kinetic: 1.3, blast: 1.3, fire: 0, pierce: 2, flammable: false, friction: 0.7,
+    color: [0.55, 0.27, 0.2], kind: 9, blurb: 'Light and brittle. Shrapnel shreds it.' },
+  plaster: { name: 'Plaster on timber', density: 0.8, hp: 70, kinetic: 1, blast: 1.05, fire: 0.9, pierce: 1.5, flammable: true, friction: 0.8,
+    color: [0.86, 0.84, 0.78], kind: 10, blurb: 'Lime plaster over a timber frame. Burns from inside.' },
+  fuel: { name: 'Fuel tank', density: 0.7, hp: 80, kinetic: 1.1, blast: 1.2, fire: 1.3, pierce: 1.6, flammable: true, volatile: true, friction: 0.6,
+    color: [0.62, 0.6, 0.5], kind: 11, blurb: 'Volatile. Explodes when breached.' },
   rock: { name: 'Bedrock', density: 3, hp: 1e9, kinetic: 0, blast: 0, fire: 0, pierce: 0.01, flammable: false, friction: 1,
     color: [0.36, 0.33, 0.3], kind: 7, indestructible: true, blurb: '' },
 };

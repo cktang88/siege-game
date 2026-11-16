@@ -81,14 +81,53 @@ vec3 pointLights(vec2 w) {
 `;
 const litVert = /* glsl */ `
 varying vec2 vUv; varying vec2 vWorld;
-void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xy; gl_Position = projectionMatrix * viewMatrix * w; }
+attribute vec4 aDA; attribute vec4 aDB; varying vec4 vDA; varying vec4 vDB;
+void main(){ vUv = uv; vDA = aDA; vDB = aDB; vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xy; gl_Position = projectionMatrix * viewMatrix * w; }
 `;
+
+/**
+ * Geometry for a convex block outline (bbox-local points, origin at the bbox centre).
+ * Each vertex carries its distance to every edge line (up to 8). Distance to a line is affine,
+ * so the interpolated values are exact everywhere inside: the shader gets pixel-true outlines
+ * and bevels on slanted edges as well as square ones.
+ */
+export function blockGeometry(w: number, h: number, poly?: [number, number][]) {
+  const pts: [number, number][] = poly ? poly.map(([x, y]) => [x - w / 2, y - h / 2]) : [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
+  const n = pts.length;
+  const normals: THREE.Vector2[] = [];
+  const lines: { nx: number; ny: number; c: number }[] = [];
+  for (let i = 0; i < 8; i++) {
+    if (i >= n) { normals.push(new THREE.Vector2(0, 0)); lines.push({ nx: 0, ny: 0, c: 99 }); continue; }
+    const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % n];
+    const ex = bx - ax, ey = by - ay, len = Math.hypot(ex, ey) || 1;
+    const nx = ey / len, ny = -ex / len; // outward for CCW polygons
+    normals.push(new THREE.Vector2(nx, ny));
+    lines.push({ nx, ny, c: -(nx * ax + ny * ay) });
+  }
+  const pos: number[] = [], uv: number[] = [], da: number[] = [], db: number[] = [], idx: number[] = [];
+  for (const [x, y] of pts) {
+    pos.push(x, y, 0);
+    uv.push(x / w + 0.5, y / h + 0.5);
+    const d = lines.map((l) => (l.c === 99 ? 99 : -(l.nx * x + l.ny * y + l.c)));
+    da.push(d[0], d[1], d[2], d[3]);
+    db.push(d[4], d[5], d[6], d[7]);
+  }
+  for (let i = 1; i < n - 1; i++) idx.push(0, i, i + 1);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('aDA', new THREE.Float32BufferAttribute(da, 4));
+  g.setAttribute('aDB', new THREE.Float32BufferAttribute(db, 4));
+  g.setIndex(idx);
+  g.userData.normals = normals;
+  return g;
+}
 
 const blockFrag = /* glsl */ `
 uniform vec3 uColor; uniform vec2 uSize; uniform float uKind; uniform float uDamage; uniform float uBurn;
 uniform float uFlash; uniform float uHighlight; uniform float uSeed; uniform float uTime; uniform float uTarget; uniform vec3 uTargetColor;
-uniform float uFade;
-varying vec2 vUv; varying vec2 vWorld;
+uniform float uFade; uniform vec2 uNorm[8];
+varying vec2 vUv; varying vec2 vWorld; varying vec4 vDA; varying vec4 vDB;
 ${NOISE}
 ${LIGHT_GLSL}
 void main(){
@@ -152,6 +191,30 @@ void main(){
     // hazard stencil
     vec2 c = p - uSize * .5; float stencil = step(abs(c.x), 0.22) * step(abs(c.y), 0.13);
     col = mix(col, vec3(0.85, 0.65, 0.2), stencil * step(0.5, fract((c.x + c.y) * 6.0)));
+  } else if (k < 8.5) {            // earthworks: rammed strata with stones and a turf cap
+    col *= 0.86 + 0.22 * fbm(p * 2.5 + uSeed);
+    col *= 0.93 + 0.07 * step(0.5, fract(p.y * 2.2 + fbm(p) * 0.6));
+    col = mix(col, col * 1.35, step(0.86, vnoise(p * 7.0)));
+    if (uSize.y - p.y < 0.22) col = vec3(0.38, 0.47, 0.25) * (0.9 + 0.2 * fbm(p * 8.0));
+  } else if (k < 9.5) {            // clay roof tiles: scalloped courses
+    float row = floor(p.y / 0.24);
+    float fx = fract(p.x / 0.32 + mod(row, 2.0) * 0.5);
+    float fy = fract(p.y / 0.24);
+    float scallop = fy - 0.25 * (1.0 - pow(2.0 * fx - 1.0, 2.0));
+    col *= 0.85 + 0.18 * hash12(vec2(floor(p.x / 0.32 + mod(row, 2.0) * 0.5), row) + uSeed);
+    col *= mix(0.7, 1.08, smoothstep(0.0, 0.3, scallop));
+  } else if (k < 10.5) {           // plaster over timber framing
+    col *= 0.96 + 0.06 * fbm(p * 4.0 + uSeed);
+    vec2 d2 = min(vUv, 1.0 - vUv) * uSize;
+    float post = step(abs(fract(p.x / 1.4) - 0.5) * 1.4, 0.09);
+    float frame = max(post, step(min(d2.y, 9.0), 0.16));
+    col = mix(col, vec3(0.24, 0.17, 0.12), frame);
+  } else if (k < 11.5) {           // fuel tank: painted steel, weld seams, hazard band
+    col *= 0.9 + 0.14 * smoothstep(0.0, 1.0, sin(p.x * 2.0 + uSeed) * 0.5 + 0.5);
+    float seam = step(abs(fract(p.y / 1.2) - 0.5) * 1.2, 0.02);
+    col *= 1.0 - seam * 0.35;
+    float band = step(abs(p.y - uSize.y * 0.6), 0.18);
+    col = mix(col, mix(vec3(0.85, 0.65, 0.12), vec3(0.12), step(0.5, fract((p.x + p.y) * 2.5))), band);
   } else {                         // bedrock
     col *= 0.85 + 0.25 * fbm(p * 2.0);
   }
@@ -163,12 +226,14 @@ void main(){
   }
   col *= 1.0 - line * 0.45;
 
-  // cel lighting: bevel bands, light from top-left
-  vec2 e0 = vUv * uSize; vec2 e1 = (1.0 - vUv) * uSize;
+  // nearest edge (exact for any convex outline)
+  float dmin = 99.0; vec2 nrm = vec2(0.0);
+  float ds[8]; ds[0] = vDA.x; ds[1] = vDA.y; ds[2] = vDA.z; ds[3] = vDA.w; ds[4] = vDB.x; ds[5] = vDB.y; ds[6] = vDB.z; ds[7] = vDB.w;
+  for (int i = 0; i < 8; i++) { if (ds[i] < dmin) { dmin = ds[i]; nrm = uNorm[i]; } }
+  // cel lighting: bevel bands, key light from the top-left
   float bev = 0.07;
   float lit = 1.0;
-  if (e1.y < bev || e0.x < bev) lit = 1.18;
-  if (e0.y < bev || e1.x < bev) lit = 0.72;
+  if (dmin < bev) { float k = dot(nrm, normalize(vec2(-0.6, 0.8))); lit = k > 0.3 ? 1.18 : k < -0.3 ? 0.72 : 1.0; }
   lit *= mix(0.9, 1.0, step(0.45, vUv.y));
   col *= lit;
 
@@ -188,7 +253,7 @@ void main(){
     col += vec3(2.4, 0.9, 0.2) * ember;
   }
   // outline
-  float edge = min(min(e0.x, e1.x) / px.x, min(e0.y, e1.y) / px.y);
+  float edge = dmin / max(px.x, 1e-4);
   col = mix(uColor * 0.18, col, smoothstep(1.2, 2.2, edge));
   // highlight (load bearing)
   if (uHighlight > 0.0) {
@@ -201,7 +266,8 @@ void main(){
 }
 `;
 
-export function makeBlockMaterial(color: [number, number, number], w: number, h: number, kind: number) {
+export function makeBlockMaterial(color: [number, number, number], w: number, h: number, kind: number, geo?: THREE.BufferGeometry) {
+  const normals: THREE.Vector2[] = geo?.userData.normals ?? [new THREE.Vector2(0, -1), new THREE.Vector2(1, 0), new THREE.Vector2(0, 1), new THREE.Vector2(-1, 0), ...Array.from({ length: 4 }, () => new THREE.Vector2())];
   return new THREE.ShaderMaterial({
     vertexShader: litVert,
     fragmentShader: blockFrag,
@@ -219,6 +285,7 @@ export function makeBlockMaterial(color: [number, number, number], w: number, h:
       uTarget: { value: 0 },
       uTargetColor: { value: new THREE.Color(1, 0, 0) },
       uFade: { value: 1 },
+      uNorm: { value: normals },
       ...LIGHTS,
     },
   });

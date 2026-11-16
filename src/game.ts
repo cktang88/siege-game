@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier2d-compat';
 import * as THREE from 'three';
 import { AMMO_BY_ID, MATERIALS, PHYS, TARGETS, type AmmoDef, type AmmoId, type MatId, type MaterialDef, type TargetKind } from './config';
 import type { BlockDef, HouseDef, LevelDef } from './levels';
-import { Renderer, makeBlockMaterial, makeGround, makeSprite } from './render';
+import { Renderer, blockGeometry, makeBlockMaterial, makeGround, makeSprite } from './render';
 import { baseStats, type Stats } from './progress';
 import { SoldierRig } from './soldier';
 import { audio } from './audio';
@@ -85,6 +85,8 @@ export type GameEvent =
   | { type: 'fired' };
 
 const DT = 1 / 60;
+/** cos(obliquity) below which rounds glance off (steel ~60°, concrete ~68°) */
+const RICOCHET: Partial<Record<MatId, number>> = { steel: 0.5, concrete: 0.37, rock: 0.5 };
 
 export class Game {
   world!: RAPIER.World;
@@ -151,6 +153,7 @@ export class Game {
   airMarker: number | null = null;
   lastCollateralToast = -10;
   baseCx = 0;
+  lastRicochetToast = -10;
   backdrops: { mesh: THREE.Mesh; deps: Block[]; home: V2[]; fade: number }[] = [];
   backdropT = 0;
 
@@ -192,8 +195,9 @@ export class Game {
     // cutaway interior walls behind each room: dark, non-colliding, gone once the room's frame fails
     for (const bd of level.backdrops ?? []) {
       const m = MATERIALS[bd.mat];
-      const mat = makeBlockMaterial(m.color.map((c) => c * 0.5) as [number, number, number], bd.w, bd.h, m.kind);
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(bd.w, bd.h), mat);
+      const geo = blockGeometry(bd.w, bd.h);
+      const mat = makeBlockMaterial(m.color.map((c) => c * 0.5) as [number, number, number], bd.w, bd.h, m.kind, geo);
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(bd.x + bd.w / 2, bd.y + bd.h / 2, 2.6);
       this.root.add(mesh);
       const deps = bd.deps.map((i) => this.blocks[i]).filter(Boolean);
@@ -274,13 +278,14 @@ export class Game {
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic().setTranslation(d.x + d.w / 2, d.y + d.h / 2).setCanSleep(true).setAngularDamping(0.4).setLinearDamping(0.05),
     );
-    const col = this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(d.w / 2 - 0.005, d.h / 2 - 0.005).setDensity(mat.density).setFriction(mat.friction).setRestitution(0.05),
-      body,
-    );
+    const shape = d.poly
+      ? RAPIER.ColliderDesc.convexHull(new Float32Array(d.poly.flatMap(([x, y]) => [x - d.w / 2, y - d.h / 2])))!
+      : RAPIER.ColliderDesc.cuboid(d.w / 2 - 0.005, d.h / 2 - 0.005);
+    const col = this.world.createCollider(shape.setDensity(mat.density).setFriction(mat.friction).setRestitution(0.05), body);
     const shown = MATERIALS[!this.revealed && d.disguise ? d.disguise : d.mat];
-    const sm = makeBlockMaterial(shown.color, d.w, d.h, shown.kind);
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(d.w, d.h), sm);
+    const geo = blockGeometry(d.w, d.h, d.poly);
+    const sm = makeBlockMaterial(shown.color, d.w, d.h, shown.kind, geo);
+    const mesh = new THREE.Mesh(geo, sm);
     mesh.position.z = 4;
     if (d.target) {
       sm.uniforms.uTarget.value = 1;
@@ -603,6 +608,7 @@ export class Game {
       this.r.smoke.spawn({ x: t.x + (Math.random() - 0.5) * b.w, y: t.y + (Math.random() - 0.5) * b.h, vx: (Math.random() - 0.5) * 2, vy: Math.random() * 1.5,
         max: 1.5 + Math.random(), size0: 0.8, size1: 2.5, c0: [0.72, 0.68, 0.6], c1: [0.6, 0.58, 0.55], a0: 0.7, a1: 0, drag: 1.5 });
     }
+    if (b.mat.volatile) this.pending.push({ x: t.x, y: t.y, r: 4, dmg: 140, delay: 0.08 + Math.random() * 0.15, opts: { ignite: 5, visual: 1.4, source: 'fuel' } });
     if (b.target) {
       this.targetsDestroyed[b.target] = (this.targetsDestroyed[b.target] ?? 0) + 1;
       this.events.push({ type: 'target', kind: b.target });
@@ -800,7 +806,20 @@ export class Game {
       return;
     }
 
-    const kin = a.kinetic * (speed / 30) ** 2;
+    // sloped armour: effective thickness grows as 1/cos(obliquity); past the critical angle the round glances off
+    let cosI = 1;
+    if (block && !p.impacted && speed > 1) {
+      this.world.contactPair(p.collider!, block.collider, (m) => { const n = m.normal(); cosI = Math.abs((v.x * n.x + v.y * n.y) / speed); });
+      const crit = RICOCHET[block.matId];
+      if (crit && cosI < crit && !['sticky', 'delayed', 'smoke'].includes(a.id) && !p.bomblet) {
+        this.ricochet(t.x, t.y, block);
+        this.damageBlock(block, a.kinetic * (speed / 30) ** 2 * block.mat.kinetic * cosI * 0.5);
+        p.impacted = true;
+        p.inert = 2;
+        return;
+      }
+    }
+    const kin = a.kinetic * (speed / 30) ** 2 * cosI;
     if (block && !p.impacted) this.damageBlock(block, kin * block.mat.kinetic);
     if (house && !p.impacted) this.damageHouse(house, kin * 0.6);
 
@@ -874,6 +893,12 @@ export class Game {
     }
   }
 
+  ricochet(x: number, y: number, b: Block) {
+    this.sparks(x, y, 14);
+    audio.play('clang', x, 0.9, 1.15);
+    if (this.time - this.lastRicochetToast > 4) { this.lastRicochetToast = this.time; this.toast(`Ricochet off sloped ${MATERIALS[this.shownMat(b)].name.toLowerCase()}. Hit it square.`, 'info'); }
+  }
+
   reactiveDetonate(b: Block, x: number, y: number) {
     audio.play('reactive', x);
     this.burst(x, y, 0.8);
@@ -899,7 +924,7 @@ export class Game {
     while (remaining > 1e-4 && guard++ < 12 && !p.dead) {
       const sp = Math.hypot(p.vx, p.vy);
       const dir = { x: p.vx / sp, y: p.vy / sp };
-      const hit = this.world.castRay(new RAPIER.Ray({ x: p.x, y: p.y }, dir), remaining, true, undefined, undefined, undefined, undefined, (c) => {
+      const hit = this.world.castRayAndGetNormal(new RAPIER.Ray({ x: p.x, y: p.y }, dir), remaining, true, undefined, undefined, undefined, undefined, (c) => {
         if (exclude.has(c.handle)) return false;
         const o = this.owners.get(c.handle);
         return !!o && o.t !== 'proj';
@@ -924,7 +949,22 @@ export class Game {
           this.removeProjectile(p);
           return;
         }
-        const eff = b.hp / b.mat.pierce;
+        const cosI = Math.max(0.2, Math.abs(dir.x * hit.normal.x + dir.y * hit.normal.y));
+        const crit = RICOCHET[b.matId];
+        if (crit && cosI < crit * 0.85) {
+          // glance: reflect off the face, lose energy and most of the penetrating power
+          const dn = dir.x * hit.normal.x + dir.y * hit.normal.y;
+          const rx = dir.x - 2 * dn * hit.normal.x, ry = dir.y - 2 * dn * hit.normal.y;
+          const sp2 = Math.hypot(p.vx, p.vy) * 0.65;
+          p.vx = rx * sp2; p.vy = ry * sp2;
+          p.pen *= 0.55;
+          p.x += hit.normal.x * 0.05; p.y += hit.normal.y * 0.05;
+          this.damageBlock(b, p.pen * b.mat.pierce * cosI * 0.3);
+          this.ricochet(p.x, p.y, b);
+          remaining *= 0.5;
+          continue;
+        }
+        const eff = b.hp / b.mat.pierce / cosI;
         b.body.applyImpulse({ x: dir.x * 4, y: dir.y * 4 }, true);
         this.sparks(p.x, p.y, 8);
         if (p.pen >= eff && !b.mat.indestructible) {
@@ -935,7 +975,7 @@ export class Game {
           p.x += dir.x * 0.01; p.y += dir.y * 0.01;
           continue;
         }
-        this.damageBlock(b, p.pen * b.mat.pierce);
+        this.damageBlock(b, p.pen * b.mat.pierce * cosI);
         if (b.matId === 'steel' && a.id === 'ap') this.toast('Armor plate stopped the AP round.', 'info');
         this.penetratorStop(p, dir, b);
         return;

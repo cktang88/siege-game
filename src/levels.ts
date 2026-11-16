@@ -9,6 +9,8 @@ export interface BlockDef {
   target?: TargetKind;
   /** looks like this material until scouted */
   disguise?: MatId;
+  /** convex outline (CCW), in metres from the bbox bottom-left; omitted = rectangle */
+  poly?: [number, number][];
 }
 
 export interface HouseDef { x: number; w: number; h: number }
