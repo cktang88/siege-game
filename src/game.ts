@@ -63,6 +63,8 @@ interface Projectile {
   radMul: number;
   fuseSetting?: number;
   airburst?: number;
+  /** flak proximity fuze: closest distance to an aircraft seen so far */
+  prox?: number;
 }
 
 interface Soldier { x: number; y: number; rig: SoldierRig; dead: boolean; shootT: number; stopX: number; phase: number; deadT: number }
@@ -87,8 +89,10 @@ export type GameEvent =
   | { type: 'fired' };
 
 const DT = 1 / 60;
-/** cos(obliquity) below which rounds glance off (steel ~60°, concrete ~68°) */
+/** cos(obliquity) below which rounds glance off (steel ~56°, concrete ~65°, bedrock 60°) */
 const RICOCHET: Partial<Record<MatId, number>> = { steel: 0.56, concrete: 0.42, rock: 0.5 };
+/** projectile colliders: member of group 2, interact with everything except group 2 */
+const PROJ_GROUPS = (0x0002 << 16) | 0xfffd;
 
 export class Game {
   world!: RAPIER.World;
@@ -291,9 +295,9 @@ export class Game {
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic().setTranslation(d.x + d.w / 2, d.y + d.h / 2).setCanSleep(true).setAngularDamping(0.4).setLinearDamping(0.05),
     );
-    const shape = d.poly
-      ? RAPIER.ColliderDesc.convexHull(new Float32Array(d.poly.flatMap(([x, y]) => [x - d.w / 2, y - d.h / 2])))!
-      : RAPIER.ColliderDesc.cuboid(d.w / 2 - 0.005, d.h / 2 - 0.005);
+    // a degenerate outline (collinear points) has no hull: fall back to the bounding box rather than crash
+    const shape = (d.poly && RAPIER.ColliderDesc.convexHull(new Float32Array(d.poly.flatMap(([x, y]) => [x - d.w / 2, y - d.h / 2]))))
+      || RAPIER.ColliderDesc.cuboid(Math.max(0.01, d.w / 2 - 0.005), Math.max(0.01, d.h / 2 - 0.005));
     const col = this.world.createCollider(shape.setDensity(mat.density).setFriction(mat.friction).setRestitution(0.05), body);
     const shown = MATERIALS[!this.revealed && d.disguise ? d.disguise : d.mat];
     const geo = blockGeometry(d.w, d.h, d.poly);
@@ -466,7 +470,10 @@ export class Game {
       const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y).setLinvel(vx, vy).setCcdEnabled(true).setAngularDamping(0.5));
       const col = this.world.createCollider(
         RAPIER.ColliderDesc.ball(r).setDensity(a.density).setRestitution(a.id === 'delayed' ? 0.45 : 0.2).setFriction(0.6)
-          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
+          // rounds don't collide with each other: bomblets spawn overlapping, and a spent ball resting at a wall
+          // would otherwise shield it (proj-vs-proj contacts are ignored by onPhysicsImpact, so the HE would bounce off unexploded)
+          .setCollisionGroups(PROJ_GROUPS),
         body,
       );
       p.body = body; p.collider = col;
@@ -696,13 +703,16 @@ export class Game {
       const t = b.body.translation();
       const dx = t.x - x, dy = t.y - y;
       const dist = Math.hypot(dx, dy);
-      const d = Math.max(0, dist - Math.min(b.w, b.h) * 0.5);
+      // distance to the block's nearest surface, not its centre: long slabs and beams take the blast where it touches them
+      const near = b.collider.projectPoint({ x, y }, true);
+      const qx = near ? near.point.x : t.x, qy = near ? near.point.y : t.y;
+      const d = near ? Math.hypot(qx - x, qy - y) : Math.max(0, dist - Math.min(b.w, b.h) * 0.5);
       let f = Math.max(0, 1 - d / radius);
       if (f <= 0) continue;
-      // occlusion: blast spends itself on the first wall
-      if (dist > 0.4) {
-        const dir = { x: dx / dist, y: dy / dist };
-        const hit = this.world.castRay(new RAPIER.Ray({ x, y }, dir), dist, true, undefined, undefined, undefined, undefined, (c) => {
+      // occlusion: blast spends itself on the first wall between the burst and this block
+      if (d > 0.4) {
+        const dir = { x: (qx - x) / d, y: (qy - y) / d };
+        const hit = this.world.castRay(new RAPIER.Ray({ x, y }, dir), d, true, undefined, undefined, undefined, undefined, (c) => {
           const o = this.owners.get(c.handle);
           return o?.t === 'block' && o.b !== b && !o.b.dead;
         });
@@ -884,7 +894,7 @@ export class Game {
         if (!p.impacted) {
           p.impacted = true;
           p.fuse = this.stats.stickyFuse;
-          if (block) {
+          if (block && !block.dead) {
             const bt = block.body.translation(), br = block.body.rotation();
             const dx = t.x - bt.x, dy = t.y - bt.y;
             const c = Math.cos(-br), s = Math.sin(-br);
@@ -897,7 +907,8 @@ export class Game {
         }
         break;
       case 'drill':
-        if (ground && !p.impacted) {
+        // earthworks are dirt like the ground: the drill bores into them too and blows from beneath
+        if ((ground || block?.matId === 'earth') && !p.impacted) {
           p.impacted = true;
           p.burrow = { dir: Math.sign(v.x) || 1, dist: 0 };
           this.owners.delete(p.collider!.handle);
@@ -973,9 +984,12 @@ export class Game {
           this.removeProjectile(p);
           return;
         }
-        const cosI = Math.max(0.2, Math.abs(dir.x * hit.normal.x + dir.y * hit.normal.y));
+        // a ray that starts inside a collider (a block fell onto the round) has no face normal: treat as head-on,
+        // otherwise it "ricochets" in place every step and never resolves
+        const inside = toi <= 1e-6 || Math.hypot(hit.normal.x, hit.normal.y) < 0.5;
+        const cosI = inside ? 1 : Math.max(0.2, Math.abs(dir.x * hit.normal.x + dir.y * hit.normal.y));
         const crit = RICOCHET[b.matId];
-        if (crit && cosI < crit * 0.95) {
+        if (crit && !inside && cosI < crit * 0.95) {
           // glance: reflect off the face, lose energy and most of the penetrating power
           const dn = dir.x * hit.normal.x + dir.y * hit.normal.y;
           const rx = dir.x - 2 * dn * hit.normal.x, ry = dir.y - 2 * dn * hit.normal.y;
@@ -1001,7 +1015,8 @@ export class Game {
         }
         this.damageBlock(b, p.pen * b.mat.pierce * cosI);
         if (b.matId === 'steel' && a.id === 'ap') this.toast('Armor plate stopped the AP round.', 'info');
-        this.penetratorStop(p, dir, b);
+        // never hand a destroyed block (its Rapier body is freed) to the embed code
+        this.penetratorStop(p, dir, b.dead ? undefined : b);
         return;
       }
       if (o?.t === 'house') {
@@ -1026,7 +1041,7 @@ export class Game {
       p.impacted = true;
       p.fuse = a.fuse;
       p.vx = 0; p.vy = 0;
-      if (b) {
+      if (b && !b.dead) {
         const bt = b.body.translation(), br = b.body.rotation();
         const x = p.x + dir.x * 0.25, y = p.y + dir.y * 0.25;
         const dx = x - bt.x, dy = y - bt.y;
@@ -1167,7 +1182,17 @@ export class Game {
       if (!p.enemy && !p.impacted && !p.stuck && !p.burrow) {
         const isFlak = p.ammo.id === 'flak';
         const u = this.air.at(p.x, p.y, isFlak ? 2.4 : 0.15);
-        if (u || (isFlak && p.age >= (p.fuseSetting ?? 2.5))) {
+        let flakGo = false;
+        if (isFlak) {
+          // proximity fuze: arm inside the sensing radius, burst at the point of closest approach
+          // (or on contact), so a well-aimed shell bursts right beside the aircraft instead of at the edge of its range
+          const d = u ? Math.hypot(u.x - p.x, u.y - p.y) : Infinity;
+          if (u && this.air.at(p.x, p.y, 0.15)) flakGo = true;
+          else if (p.prox !== undefined && d >= p.prox - 1e-3) flakGo = true;
+          else if (u) p.prox = d;
+          if (p.age >= (p.fuseSetting ?? 2.5)) flakGo = true;
+        }
+        if (flakGo || (!isFlak && u)) {
           if (isFlak) { this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage, { flak: true, visual: 0.8 }); this.removeProjectile(p); continue; }
           if (u) {
             this.air.damage(u, p.pellet ? 18 : p.ammo.kinetic * 1.4 + (p.ammo.pen ?? 0) * 0.25);
@@ -1245,6 +1270,12 @@ export class Game {
         for (const s of this.soldiers) if (!s.dead && Math.abs(s.x - p.x) < 0.6 && p.y > s.y - 0.2 && p.y < s.y + 1.5) {
           this.killSoldier(s);
           if (!p.body && !p.stuck) continue;
+          if (p.enemy) {
+            // the enemy's own shell going off among its infantry is still an enemy blast (no collateral, gun shield applies)
+            this.explode(p.x, p.y, 3.2, 70, { enemy: true });
+            this.removeProjectile(p);
+            break;
+          }
           if (p.ammo.blastRadius > 0 && !p.inert && !['delayed', 'sticky'].includes(p.ammo.id)) {
             this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage);
             this.removeProjectile(p);
@@ -1258,15 +1289,16 @@ export class Game {
   }
 
   updatePending(dt: number) {
-    let guard = 0;
-    for (let i = 0; i < this.pending.length && guard++ < 50; i++) {
-      const e = this.pending[i];
+    // every queued blast ticks each frame; at most 50 go off per frame so a long chain can't stall it
+    // (the old guard counted every visited entry, so anything past the 50th never counted down)
+    const due: PendingBlast[] = [];
+    this.pending = this.pending.filter((e) => {
       e.delay -= dt;
-      if (e.delay <= 0) {
-        this.pending.splice(i--, 1);
-        this.explode(e.x, e.y, e.r, e.dmg, e.opts);
-      }
-    }
+      if (e.delay <= 0 && due.length < 50) { due.push(e); return false; }
+      return true;
+    });
+    // blasts queued by these (fuel tanks, magazines) start ticking next frame
+    for (const e of due) this.explode(e.x, e.y, e.r, e.dmg, e.opts);
   }
 
   // ───────────────────────── Infantry ─────────────────────────
