@@ -13,11 +13,18 @@ npm run build    # type-check and production build into dist/
 
 ## How to play
 
-1. **Armory.** Each mission has a budget. Read the briefing and intel, survey the fortress (hover blocks to see their material and HP), then buy rounds. Unspent money and unfired rounds count toward your score.
-2. **Battle.** Drag anywhere and release to fire, pulling back like a slingshot. Use the arrow keys to fine-tune (hold Shift for small steps) and Space to fire. Keys 1–9 pick ammo. In flight, tap or press Space to trigger a round's special ability. The mouse wheel zooms, right-drag pans and R resets the view.
-3. **Win** by destroying every objective target (marked ◆). You lose if your cannon is destroyed or you run out of ammo. Stars come from time against par, budget left over, optional targets destroyed, your cannon's condition, and collateral damage.
+1. **Operations map.** Each cleared operation opens one or two neighbouring ones, so a few are always available. Some deep operations also need a total star count. Select a node to read its dossier.
+2. **Research.** War funds come from missions (more for new stars and first clears). Spend them across five branches: Ordnance, Gunnery, Air Wing, Special Ops and Logistics. Research unlocks munitions and upgrades muzzle velocity, reload, elevation, trajectory preview, wind readout, gun armour, bomb loads, dive bombing, bomb types, drone endurance, saboteur teams and budgets. Refunds are free.
+3. **Armory.** Buy rounds within the mission budget. Unspent money and unfired rounds count toward your score. **Survey** lets you hover blocks to read their material and HP.
+4. **Battle.** Every shot is fully controllable:
+   - **Gun:** set elevation (degrees) and muzzle velocity (m/s). Drag on the field like a sling, drag the needles on the quadrant and gauge, type exact values, or step by ±0.1 / ±1. Arrow keys also adjust (hold Shift for fine steps). The delayed fuse and the cluster airburst have their own timers.
+   - **Air strike:** set the approach (from west or east), release altitude, dive angle (needs Dive Bombing research), drop interval and ordnance (GP, firebombs or AP bombs). Click the field to set the aim point. The bomb run is solved against gravity and wind, and the preview draws the flight path, release points and predicted impacts. Fly too low or too steep and the bomber hits the ground.
+   - **Drone and saboteur:** click the field to choose where the drone loiters or where the team plants its charge.
+5. **Win** by destroying every ◆ objective. Stars come from time against par, budget left over, secondary targets, gun condition and collateral damage.
 
-The preview shows only the start of the trajectory. Wind and drop are left for you to read, and a dashed line shows your last shot.
+**Dev mode:** the `Dev` button on the map, or `?dev` in the URL, opens every castle and every technology. It also adds 12 procedurally generated proving grounds and an unlimited-budget toggle in the armory.
+
+Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a munition, the mouse wheel zooms, right-drag pans, `R` resets the view and `M` mutes.
 
 ## Munitions (15)
 
@@ -29,7 +36,7 @@ The preview shows only the start of the trajectory. Wind and drop are left for y
 | High Explosive | masonry, timber, troops | concrete, double walls (blast is occluded by the first wall) |
 | Incendiary | timber forts and munitions stores; fire spreads | firebrick vaults |
 | Bunker Buster | penetrating concrete, then detonating inside | reactive armor (premature detonation) |
-| Cluster Shell | tap in flight to scatter 8 bomblets | single hard points |
+| Cluster Shell | scatters bomblets: tap in flight, or set an airburst timer | single hard points |
 | Delayed Fuse | bouncing or rolling into rooms; blows 3 s after impact | — |
 | Sticky Charge | gluing onto pillars; too slow to set off reactive armor | wind |
 | Burrowing Drill | landing short, tunnelling forward and blowing the foundations from below | high targets |
@@ -37,7 +44,7 @@ The preview shows only the start of the trajectory. Wind and drop are left for y
 | Smoke Screen | blinding enemy guns for 15 s | — |
 | Scout Drone | revealing disguised armor, true HP and load-bearing members | flak |
 | Saboteur | running in to plant a charge at the wall base | enemy infantry |
-| Air Strike | a stick of 5 bombs on the spot you click | flak |
+| Air Strike | a planned bomb run: heading, altitude, dive, interval, ordnance | flak |
 
 ## The enemy fights back
 
@@ -51,13 +58,30 @@ The preview shows only the start of the trajectory. Wind and drop are left for y
 
 Every block is a Rapier rigid body with a material (timber, masonry, reinforced concrete, armor plate, reactive armor, firebrick, munitions). Each material has its own HP, density and modifiers against kinetic, blast, fire and penetration damage. Fortresses stand on real support, so taking out a load-bearing column drops whatever it holds up. Falling debris deals impact damage, explosions are occluded by intervening walls, and some armor is disguised until you scout it.
 
+## Castles
+
+There are 4 hand-built fortresses and a seeded generator (`src/fortgen.ts`). The generator builds stable fortresses from modules: towers, halls, concrete bunkers, firebrick vaults, sheds, front walls with optional disguised reactive skirts, and double walls. It takes a theme (timber, stone, concrete or mixed) and a difficulty.
+
+## Look and sound
+
+The rendering techniques are ported from [tinwar](https://github.com/cktang88/tinwar) onto three.js:
+
+- every blast, muzzle flash, tracer and fire is a short-lived point light with cel-stepped falloff
+- selective bloom, a colour grade, animated grain, and a chromatic split on big hits
+
+Infantry use a cut-out rig: the upper body is segmented from the generated sprite, and the rigged legs follow a gait driven by distance moved.
+
+All sound is procedural WebAudio, in tinwar's recipe style: layered tone and noise sweeps through a glue compressor and limiter, with distance falloff and pan. A small D-minor march score builds with the fighting.
+
 ## Art
 
-Sprites and the backdrop are toon cel-shaded images generated through OpenRouter (`google/gemini-2.5-flash-image`):
+Sprites, the backdrop, the operations map, textures, branch insignia and munition icons are toon cel-shaded images generated through OpenRouter (`google/gemini-2.5-flash-image`):
 
 ```bash
-OPENROUTER_API_KEY=... node scripts/gen-sprites.mjs [name ...]   # writes public/sprites/raw/
-python3 scripts/process-sprites.py                               # chroma-key, trim, downscale into public/sprites/
+OPENROUTER_API_KEY=... node scripts/gen-sprites.mjs [name ...]   # world sprites → public/sprites/raw/
+python3 scripts/process-sprites.py                               # key, trim, downscale → public/sprites/
+OPENROUTER_API_KEY=... node scripts/gen-ui.mjs [name ...]        # UI art → public/ui/raw/
+python3 scripts/process-ui.py                                    # border-sampled flood-fill key, despill → public/ui/
 ```
 
-Blocks, terrain, particles and debris are drawn procedurally in shaders.
+Blocks, terrain, particles, debris and soldier legs are drawn procedurally. Research notes and sources are in `docs/RESEARCH.md`.
