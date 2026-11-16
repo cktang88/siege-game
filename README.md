@@ -46,6 +46,8 @@ Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a muniti
 | Saboteur | running in to plant a charge at the wall base | enemy infantry |
 | Air Strike | a planned bomb run: heading, altitude, dive, interval, ordnance | flak |
 
+Your gun sits on a raised earthen redoubt, about 3.5 m up. Elevation goes down to −30°, so you can fire down on infantry that halt at the foot of the slope. Canister pellets each pass through up to two men, and solid shot (round shot, heavy shell) ploughs through a whole file. In the armory, press and hold + or − to keep buying or selling.
+
 ## The enemy fights back
 
 - **Mooring masts:** launch Storm Winds-style air raids: weaving gyrocopter gunships that strafe your gun, and armoured airships that bomb it. Shot-down aircraft fall burning and crash, onto the castle if they're over it. Answer them with **Flak Burst** shells (research *Proximity Fuzes*), which burst when an aircraft comes near or on a timer you set. Canister and other rounds hit them too.

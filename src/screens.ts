@@ -203,7 +203,27 @@ export function showArmory(level: LevelDef, keepCart = false) {
   renderArmory();
 }
 
+/** press-and-hold on +/−: one step now, then repeats that speed up while held */
+let hold: { id: AmmoId; d: number; timer: number; n: number } | null = null;
+function stopHold() { if (hold) { clearTimeout(hold.timer); hold = null; } }
+window.addEventListener('pointerup', stopHold);
+window.addEventListener('pointercancel', stopHold);
+window.addEventListener('blur', stopHold);
+
+function stepCart(id: AmmoId, d: number, mult = 1) {
+  const have = S.cart[id] ?? 0;
+  let n = Math.max(0, have + d * mult);
+  // never overspend
+  while (n > have && cartCost() + (n - have) * price(id) > budget()) n--;
+  if (n === have) return false;
+  S.cart[id] = n;
+  if (!S.cart[id]) delete S.cart[id];
+  renderArmory();
+  return true;
+}
+
 function renderArmory() {
+  const scroll = (document.querySelector('.armory .rack') as HTMLElement | null)?.scrollTop ?? 0;
   const lvl = S.level;
   const owned = new Set(availableAmmo(S.save));
   const left = budget() - cartCost();
@@ -248,16 +268,28 @@ function renderArmory() {
       }).join('')}</div>
     </div>
   </div>`;
-  screen().querySelectorAll<HTMLButtonElement>('.qty button').forEach((b) => b.addEventListener('click', (e) => {
-    const id = b.dataset.a as AmmoId;
-    const have = S.cart[id] ?? 0;
-    let n = Math.max(0, have + +b.dataset.d! * (e.shiftKey ? 5 : 1));
-    // never overspend: shift-click buys as many as the budget allows, up to five
-    while (n > have && cartCost() + (n - have) * price(id) > budget()) n--;
-    S.cart[id] = n;
-    if (!S.cart[id]) delete S.cart[id];
-    renderArmory();
-  }));
+  const rack = document.querySelector('.armory .rack') as HTMLElement | null;
+  if (rack) rack.scrollTop = scroll;
+  screen().querySelectorAll<HTMLButtonElement>('.qty button').forEach((b) => {
+    const id = b.dataset.a as AmmoId, d = +b.dataset.d!;
+    b.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      stopHold();
+      // shift buys/sells five at a time
+      if (!stepCart(id, d, e.shiftKey ? 5 : 1)) return;
+      const tick = () => {
+        if (!hold) return;
+        hold.n++;
+        if (!stepCart(id, d, e.shiftKey ? 5 : 1)) { stopHold(); return; }
+        audio.play('click');
+        hold.timer = window.setTimeout(tick, hold.n < 6 ? 120 : hold.n < 16 ? 70 : 40);
+      };
+      hold = { id, d, n: 0, timer: window.setTimeout(tick, 380) };
+    });
+    // keyboard activation (Enter/Space on a focused button) still works
+    b.addEventListener('click', (e) => { if (e.detail === 0) stepCart(id, d, 1); });
+  });
   $('#devb')?.addEventListener('change', (e) => { S.devBudget = (e.target as HTMLInputElement).checked; renderArmory(); });
   $('#deploy').addEventListener('click', () => startBattle(S.cart, cartCost(), budget()));
   $('#back').addEventListener('click', showMap);

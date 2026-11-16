@@ -53,7 +53,7 @@ export interface Stats {
 }
 
 export const baseStats = (): Stats => ({
-  maxSpeed: 30, minAngle: -10, maxAngle: 80, reload: 1.6, previewSteps: 10, windReadout: false, cannonHp: 100,
+  maxSpeed: 30, minAngle: -30, maxAngle: 80, reload: 1.6, previewSteps: 10, windReadout: false, cannonHp: 100,
   budgetMult: 1, shieldedGun: false, dmg: {}, radius: {}, pen: {}, priceMult: {},
   bombs: 3, dive: false, bombTypes: ['he'], ecm: false, droneTime: 3, droneStealth: false,
   saboteurs: 1, sabCharge: 1, clusterCount: 6, stickyFuse: 2.5, drillRange: 12,

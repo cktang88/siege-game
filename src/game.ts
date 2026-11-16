@@ -63,6 +63,10 @@ interface Projectile {
   radMul: number;
   /** where a penetrator first entered a structure */
   entry?: V2;
+  /** last frame's position, for swept hit tests against infantry */
+  prev?: V2;
+  /** infantry a pellet has already gone through */
+  kills?: number;
   fuseSetting?: number;
   airburst?: number;
   /** flak proximity fuze: closest distance to an aircraft seen so far */
@@ -207,15 +211,16 @@ export class Game {
     this.zoom = 1; this.pan = 0; this.panY = 0; this.gunFlash = 0; this.gunCritical = false; this.incoming = [];
 
     // ground
-    this.groundPts = level.ground;
-    const verts = new Float32Array(level.ground.flat());
+    const ground = this.withRedoubt(level);
+    this.groundPts = ground;
+    const verts = new Float32Array(ground.flat());
     const gb = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     const gc = this.world.createCollider(RAPIER.ColliderDesc.polyline(verts).setFriction(1), gb);
     this.owners.set(gc.handle, { t: 'ground' });
     // thick ground slab so things can't tunnel
-    const slab = this.world.createCollider(RAPIER.ColliderDesc.cuboid(400, 5).setTranslation(60, -5 + Math.min(...level.ground.map((p) => p[1]))), gb);
+    const slab = this.world.createCollider(RAPIER.ColliderDesc.cuboid(400, 5).setTranslation(60, -5 + Math.min(...ground.map((p) => p[1]))), gb);
     this.owners.set(slab.handle, { t: 'ground' });
-    this.root.add(makeGround(level.ground));
+    this.root.add(makeGround(ground));
 
     for (const d of level.blocks) this.addBlock(d);
     // cutaway interior walls behind each room: dark, non-colliding, gone once the room's frame fails
@@ -312,6 +317,23 @@ export class Game {
     this.pending = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.gunElev.clear(); this.events = [];
     if (this.world) { this.world.free(); this.eq.free(); }
     this.r.smoke.parts.length = 0; this.r.fire.parts.length = 0; this.r.flame.parts.length = 0; this.r.debris.chunks.length = 0;
+  }
+
+  /**
+   * The gun sits on a raised earthen redoubt (~3.5 m), so it can fire down on infantry at the foot of
+   * the slope. The terrain polyline gets a flat-topped mound around cannonX with a ramp toward the enemy.
+   */
+  withRedoubt(level: LevelDef): [number, number][] {
+    const cx = level.cannonX;
+    const x0 = cx - 15, x1 = cx + 12;
+    const clear = !level.houses.some((h) => h.x < x1 + 1 && h.x + h.w > x0 - 1) && !level.blocks.some((b) => b.x < x1 + 1 && b.x + b.w > x0 - 1);
+    if (!clear) return level.ground;
+    this.groundPts = level.ground;
+    const gy = this.groundY(cx);
+    const H = 3.5;
+    const out = level.ground.filter(([x]) => x < x0 || x > x1);
+    out.push([x0, this.groundY(x0)], [cx - 9, gy + H], [cx + 3, gy + H], [x1, this.groundY(x1)]);
+    return out.sort((a, b) => a[0] - b[0]);
   }
 
   groundY(x: number) {
@@ -435,7 +457,7 @@ export class Game {
       const m = this.muzzle;
       const s = this.launchSpeed;
       if (a.mode === 'pellets') {
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 14; i++) {
           const an = this.angle + (Math.random() - 0.5) * 0.14;
           const sp = s * (0.92 + Math.random() * 0.12);
           this.spawnProjectile(a, m.x, m.y, Math.cos(an) * sp, Math.sin(an) * sp, false, { pellet: true });
@@ -881,6 +903,17 @@ export class Game {
     if (this.cannonHp <= 0) this.end(false, 'Your cannon was destroyed.');
   }
 
+  /** does the path (x0,y0)->(x1,y1) pass within r of a standing soldier's body? */
+  sweptHit(s: Soldier, x0: number, y0: number, x1: number, y1: number, r: number) {
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    const n = Math.max(1, Math.ceil(len / 0.2));
+    for (let i = 0; i <= n; i++) {
+      const x = x0 + ((x1 - x0) * i) / n, y = y0 + ((y1 - y0) * i) / n;
+      if (Math.abs(x - s.x) < r && y > s.y - 0.1 && y < s.y + 1.45) return true;
+    }
+    return false;
+  }
+
   killSoldier(s: Soldier) {
     if (s.dead) return;
     s.dead = true;
@@ -1035,9 +1068,20 @@ export class Game {
   /** manual ballistic step for penetrators and pellets */
   stepPenetrator(p: Projectile, dt: number) {
     const a = p.ammo;
+    const sx0 = p.x, sy0 = p.y;
     p.vy += PHYS.gravity * dt;
     p.vx += this.wind * a.wind * 0.35 * dt;
     let remaining = Math.hypot(p.vx, p.vy) * dt;
+    // infantry along this step's path, checked before walls or ground can end the step
+    if (p.pellet || a.id === 'ap') {
+      const ex = sx0 + p.vx * dt, ey = sy0 + p.vy * dt;
+      for (const s of this.soldiers) {
+        if (s.dead || !this.sweptHit(s, sx0, sy0, ex, ey, p.pellet ? 0.35 : 0.3)) continue;
+        this.killSoldier(s);
+        p.kills = (p.kills ?? 0) + 1;
+        if (p.pellet && p.kills >= 2) { this.removeProjectile(p); return; }
+      }
+    }
     const exclude = new Set<number>();
     let guard = 0;
     while (remaining > 1e-4 && guard++ < 12 && !p.dead) {
@@ -1118,9 +1162,7 @@ export class Game {
       return;
     }
     // pellets vs infantry
-    if (p.pellet || a.id === 'ap') {
-      for (const s of this.soldiers) if (!s.dead && Math.abs(s.x - p.x) < 0.5 && p.y > s.y && p.y < s.y + 1.4) this.killSoldier(s);
-    }
+
   }
 
   penetratorStop(p: Projectile, dir: V2, b?: Block) {
@@ -1401,9 +1443,13 @@ export class Game {
       }
       // physical projectiles vs infantry
       if (!p.impacted || p.inert !== undefined) {
-        for (const s of this.soldiers) if (!s.dead && Math.abs(s.x - p.x) < 0.6 && p.y > s.y - 0.2 && p.y < s.y + 1.5) {
+        const prev = p.prev ?? { x: p.x, y: p.y };
+        p.prev = { x: p.x, y: p.y };
+        for (const s of this.soldiers) if (!s.dead && this.sweptHit(s, prev.x, prev.y, p.x, p.y, 0.45)) {
           this.killSoldier(s);
           if (!p.body && !p.stuck) continue;
+          // solid shot (round shot, heavy shell) ploughs on through the file; fuzed rounds go off
+          if (p.ammo.id === 'shell' || p.ammo.id === 'heavy') { const v = p.body?.linvel(); if (v) p.body!.setLinvel({ x: v.x * 0.85, y: v.y * 0.85 }, true); continue; }
           if (p.enemy) {
             // the enemy's own shell going off among its infantry is still an enemy blast (no collateral, gun shield applies)
             this.explode(p.x, p.y, 3.2, 70, { enemy: true });
@@ -1439,7 +1485,7 @@ export class Game {
   spawnSoldier(x: number) {
     const rig = new SoldierRig(true);
     rig.group.position.z = 7.2;
-    const s: Soldier = { x, y: this.groundY(x), rig, dead: false, shootT: 1 + Math.random(), stopX: this.level.cannonX + 6 + Math.random() * 4, phase: Math.random() * 6, deadT: 0 };
+    const s: Soldier = { x, y: this.groundY(x), rig, dead: false, shootT: 1 + Math.random(), stopX: this.level.cannonX + 13 + Math.random() * 7, phase: Math.random() * 6, deadT: 0 };
     rig.update(0, x, s.y, 'idle');
     this.root.add(rig.group);
     this.soldiers.push(s);
@@ -1812,7 +1858,7 @@ export class Game {
           const x0 = this.fortressBounds.x0 - 1;
           for (const b of bar) {
             const t = b.body.translation();
-            for (let i = 0; i < 2 && room > 0; i++, room--) this.spawnSoldier(Math.min(t.x, x0) - i * 1.2);
+            for (let i = 0; i < 2 && room > 0; i++, room--) this.spawnSoldier(Math.min(t.x, x0) - i * (1.8 + Math.random() * 1.6));
           }
           this.toast('Enemy infantry advancing!', 'bad');
         }

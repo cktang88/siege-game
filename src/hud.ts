@@ -99,9 +99,9 @@ const P = (cx: number, cy: number, r: number, deg: number) => [cx + r * Math.cos
 
 /** gunner's quadrant: the needle points the way the barrel does */
 function quadrantSvg(min: number, max: number) {
-  const cx = 16, cy = 78, r = 66;
+  const cx = 16, cy = 62, r = 56;
   let s = `<svg viewBox="0 0 120 96" data-dial="angle"><path class="face" d="M${cx} ${cy} L${P(cx, cy, r + 6, min).join(' ')} A${r + 6} ${r + 6} 0 0 0 ${P(cx, cy, r + 6, max).join(' ')} Z"/>`;
-  for (let a = -10; a <= 90; a += 5) {
+  for (let a = Math.ceil(min / 5) * 5; a <= 90; a += 5) {
     const major = a % 15 === 0;
     const [x1, y1] = P(cx, cy, r - (major ? 9 : 5), a), [x2, y2] = P(cx, cy, r, a);
     s += `<line class="tick ${major ? 'major' : ''}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
@@ -227,7 +227,7 @@ function buildFcp() {
       if (!m) return;
       const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
       const sx = pt.x, sy = pt.y;
-      if (svg.dataset.dial === 'angle') g.setAngleDeg((Math.atan2(78 - sy, sx - 16) * 180) / Math.PI);
+      if (svg.dataset.dial === 'angle') g.setAngleDeg((Math.atan2(62 - sy, sx - 16) * 180) / Math.PI);
       else {
         let deg = (Math.atan2(56 - sy, sx - 60) * 180) / Math.PI;
         if (deg < -90) deg += 360;
@@ -255,7 +255,7 @@ function updateFcp() {
   const px = fcp.querySelector<HTMLInputElement>('#in-px');
   if (px && document.activeElement !== px) px.value = g.sabTarget === null ? 'auto' : g.sabTarget.toFixed(1);
   const na = fcp.querySelector('#needle-a');
-  if (na) { const [x, y] = P(16, 78, 60, deg); na.setAttribute('x2', `${x}`); na.setAttribute('y2', `${y}`); }
+  if (na) { const [x, y] = P(16, 62, 50, deg); na.setAttribute('x2', `${x}`); na.setAttribute('y2', `${y}`); }
   const nv = fcp.querySelector('#needle-v');
   if (nv) { const [x, y] = P(60, 56, 40, 210 - (g.launchSpeed / g.stats.maxSpeed) * 240); nv.setAttribute('x2', `${x}`); nv.setAttribute('y2', `${y}`); }
   const rv = (id: string, txt: string) => { const el = fcp.querySelector(`#${id}-v`); if (el) el.textContent = txt; };
