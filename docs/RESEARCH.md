@@ -118,3 +118,13 @@ The archetype proportions below come from these sources. Where a number has no s
   - The critical ricochet angle is not fixed. It rises with velocity, e.g. 62° at 830 m/s to 80° at 1800 m/s ([LS-DYNA study](https://dynalook.com/conferences/15th-international-ls-dyna-conference/modeling/numerical-ricochet-model-of-a-7.62-mm-projectile-penetrating-an-armor-steel-plate)).
   - In-game values: steel ricochets past ~56° and concrete past ~65°, and damage scales with cos θ.
   - Lab check against a 30° steel glacis: flat fire (60° obliquity) glances off for 5–20 damage, while plunging fire (5°) does 38–251.
+
+## Tall towers and air raids (fourth iteration)
+
+- **Bergfried proportions.** Bergfrieds averaged 20–30 m tall, a few reached ~50 m, and their walls are thickest at the base, thinning markedly at the upper floors ([Wikipedia: Bergfried](https://en.wikipedia.org/wiki/Bergfried)). A butter-churn tower (*Butterfassturm*) has an upper section narrower than the lower one ([Wikipedia](https://en.wikipedia.com/wiki/Butterfassturm)). The Dover keep is ~25 m tall with walls up to 6.4 m thick (same Bergfried article).
+- **How these are used in-game:**
+  - columns taper from ~1.6–1.9 m to ~0.8 m
+  - keeps step inward at ~60% of their height
+  - bergfrieds are 8–12 storeys
+  - curtain walls step back in their upper third
+- **Storm Winds** is a steampunk browser game by Hero Interactive. Waves of gyrocopters and airships attack, and you aim the turrets yourself between upgrades ([JayIsGames](https://games.jayisgames.com/review/storm-winds.php), [TV Tropes](https://tvtropes.org/pmwiki/pmwiki.php/VideoGame/Stormwinds)). That is the model for the mooring masts, the gyrocopter strafing runs, the airship bomb runs, and hand-aimed proximity-fuzed flak.

@@ -79,6 +79,7 @@ export const TECH: TechNode[] = [
 
   // Gunnery
   { id: 'gun_charge', branch: 'gunnery', tier: 1, name: 'Double Charge', desc: 'Max muzzle velocity 30 → 36 m/s.', cost: 200, requires: [], fx: { maxSpeed: 36 } },
+  { id: 'gun_flak', branch: 'gunnery', tier: 1, name: 'Proximity Fuzes', desc: 'Unlocks Flak Burst shells against aircraft.', cost: 150, requires: [], unlocks: ['flak'] },
   { id: 'gun_sight', branch: 'gunnery', tier: 1, name: 'Quadrant Sight', desc: 'Longer trajectory preview.', cost: 150, requires: [], fx: { previewSteps: 16 } },
   { id: 'gun_wind', branch: 'gunnery', tier: 2, name: 'Anemometer', desc: 'Exact wind speed readout.', cost: 200, requires: ['gun_sight'], fx: { windReadout: true } },
   { id: 'gun_reload', branch: 'gunnery', tier: 2, name: 'Drilled Crew', desc: 'Reload 1.6s → 1.0s.', cost: 300, requires: ['gun_charge'], fx: { reload: 1 } },

@@ -38,6 +38,7 @@ const JOBS = {
   am_drill: shell('a drilling projectile with a spiral auger drill bit nose, brass and steel'),
   am_canister: shell('a tin canister shot casing spilling small lead balls'),
   am_smoke: shell('a grey smoke shell trailing white smoke'),
+  am_flak: shell('an anti-aircraft flak shell with a brass proximity fuze nose and a black-and-yellow band'),
   am_drone: `${ICON} Subject: a small military quadcopter scout drone with a camera, side view.`,
   am_saboteur: `${ICON} Subject: a satchel demolition charge with a coiled detonator wire and a plunger.`,
   am_airstrike: `${ICON} Subject: a twin-engine bomber silhouette seen from above with bombs falling.`,

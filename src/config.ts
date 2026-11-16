@@ -50,7 +50,7 @@ export const MATERIALS: Record<MatId, MaterialDef> = {
 };
 
 // ───────────────────────── Targets ─────────────────────────
-export type TargetKind = 'command' | 'ammo' | 'barracks' | 'artillery' | 'workshop' | 'flak';
+export type TargetKind = 'command' | 'ammo' | 'barracks' | 'artillery' | 'workshop' | 'flak' | 'mast';
 
 export const TARGETS: Record<TargetKind, { label: string; desc: string; color: string }> = {
   command: { label: 'HQ', desc: 'Command post', color: '#e0503a' },
@@ -59,12 +59,13 @@ export const TARGETS: Record<TargetKind, { label: string; desc: string; color: s
   artillery: { label: 'GUN', desc: 'Counter-battery gun — fires at your cannon', color: '#d27a3a' },
   workshop: { label: 'ENGINEERS', desc: 'Repairs damage and rebuilds walls', color: '#5aa6d2' },
   flak: { label: 'FLAK', desc: 'Anti-air — shoots down bombers and drones', color: '#b77ad2' },
+  mast: { label: 'MAST', desc: 'Airship mast — launches gyrocopters and airships until destroyed', color: '#6fd0c0' },
 };
 
 // ───────────────────────── Ammunition ─────────────────────────
 export type AmmoId =
   | 'shell' | 'heavy' | 'ap' | 'he' | 'incendiary' | 'bunker' | 'cluster' | 'delayed'
-  | 'sticky' | 'drill' | 'canister' | 'smoke' | 'drone' | 'saboteur' | 'airstrike'
+  | 'sticky' | 'drill' | 'canister' | 'smoke' | 'drone' | 'saboteur' | 'airstrike' | 'flak'
   | 'bomb_he' | 'bomb_inc' | 'bomb_pen';
 
 export type AmmoMode = 'physics' | 'penetrator' | 'pellets' | 'drone' | 'saboteur' | 'airstrike';
@@ -129,6 +130,8 @@ export const AMMO: AmmoDef[] = [
     good: 'Undermining foundations', bad: 'Targets high up' },
   { id: 'canister', name: 'Canister Shot', short: 'CN', price: 35, mode: 'pellets', color: [0.5, 0.5, 0.5], radius: 0.09, density: 10, speed: 1.05, wind: 0.6,
     kinetic: 8, blastRadius: 0, blastDamage: 0, desc: 'Spray of lead balls. Shreds infantry.', good: 'Advancing soldiers', bad: 'Buildings' },
+  { id: 'flak', name: 'Flak Burst', short: 'FK', price: 45, mode: 'physics', color: [0.4, 0.4, 0.22], radius: 0.22, density: 7, speed: 1.1, wind: 0.4,
+    kinetic: 20, blastRadius: 4.4, blastDamage: 65, desc: 'Proximity-fuzed AA shell: bursts near aircraft, or on its timer.', good: 'Gyrocopters, airships', bad: 'Walls' },
   { id: 'smoke', name: 'Smoke Screen', short: 'SM', price: 60, mode: 'physics', color: [0.75, 0.75, 0.72], radius: 0.24, density: 5, speed: 1, wind: 0.6,
     kinetic: 5, blastRadius: 0, blastDamage: 0, desc: 'Blinds the enemy guns for 15s.', good: 'Shutting down counter-battery fire', bad: 'Does no damage' },
   { id: 'drone', name: 'Scout Drone', short: 'UAV', price: 80, mode: 'drone', color: [0.3, 0.3, 0.32], radius: 0, density: 0, speed: 0, wind: 0,

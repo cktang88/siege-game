@@ -472,6 +472,16 @@ export function hangar(s: Site) {
   s.intel.push('Hydrogen airship in the hangar. It burns.');
 }
 
+/** airship mooring mast on a concrete footing: launches gyrocopters and airships until it falls */
+export function mooringMast(s: Site) {
+  const x = s.x + 1.5, g = s.g; // clear of neighbouring berms
+  s.push(trap(x - 0.6, g, 2.6, 0.8, 'concrete', 0.4, 0.4));
+  s.add(x + 0.25, g + 0.8, 0.9, 8, 'wood', { target: 'mast' });
+  s.targets.push('mast');
+  s.x = x + 4.5;
+  s.intel.push('A mooring mast launches gyrocopters and airships at your gun. Flak Burst shells (Proximity Fuzes) bring them down.');
+}
+
 /** a barracks block with a pitched roof */
 export function barracksBlock(s: Site, kind: TargetKind = 'barracks') {
   const x = s.x, g = s.g;
@@ -525,7 +535,7 @@ export const THEMED: Composition[] = [
   { id: 'kurogane', name: 'Kurogane-jō', seed: 41, difficulty: 2, brief: 'A five-tier castle on a fan-sloped stone base. Timber and plaster above the stones.',
     build: (s) => { yagura(s, 'barracks'); yagura(s, 'workshop'); s.x += 2; japaneseCastle(s, 5); } },
   { id: 'saltworks', era: 'modern', name: 'Saltworks Refinery', seed: 37, difficulty: 2, brief: 'A refinery turned strongpoint. The control house directs the garrison; the solvent store is in the hangar.',
-    build: (s) => { barracksBlock(s); refinery(s, 3); hangar(s); } },
+    build: (s) => { barracksBlock(s); refinery(s, 3); hangar(s); mooringMast(s); } },
   { id: 'sainte-barbe', name: 'Fort Sainte-Barbe', seed: 53, difficulty: 3, brief: 'A Vauban fort: glacis, ditch, masonry escarp and an earthen rampart with guns on the terreplein.',
     build: (s) => { starFortFront(s, 2); magazine(s); hall(s, 'hall', 'command'); barracksBlock(s); } },
   { id: 'abbey', name: 'St. Aldric\'s Abbey', seed: 61, difficulty: 3, brief: 'A fortified abbey. The command post sits in the nave behind the arcade; the flying buttresses hold it all up.',
@@ -541,13 +551,13 @@ export const THEMED: Composition[] = [
       s.place('keep', 'ammo', (r) => r.find((q) => q.floor === 0));
     } },
   { id: 'zooflak', era: 'modern', name: 'Zoo Flak Tower', seed: 131, difficulty: 5, brief: 'A concrete flak tower with gun tubs at every corner, ringed by casemates.',
-    build: (s) => { hedgehogs(s, 3); casemate(s, 'barracks'); casemate(s, 'artillery'); s.x += 2; flakTower(s, 8); } },
+    build: (s) => { hedgehogs(s, 3); casemate(s, 'barracks'); mooringMast(s); casemate(s, 'artillery'); s.x += 2; flakTower(s, 8); } },
   // ── great fortresses: outer works to the keep, built tall rather than deep ──
   { id: 'kestrel', name: 'Kestrel Bastille', seed: 211, difficulty: 5,
     brief: 'A concentric castle: moat, battered outer curtain, gatehouse, bailey, a towering inner curtain, a gun bergfried and an eight-storey great keep.',
     build: (s) => {
       moat(s, 7, 3); curtain(s, 9, 2.4); s.x += 3; gatehouse(s); bergfried(s, { floors: 7, gun: 'flak' });
-      barracksBlock(s); barracksBlock(s, 'workshop');
+      barracksBlock(s); barracksBlock(s, 'workshop'); mooringMast(s);
       curtain(s, 12, 2.6); s.x += 3; bergfried(s, { floors: 10, gun: 'artillery' });
       towerKeep(s, { floors: 8, cols: 3, tag: 'great' });
       s.place('great', 'command', (r) => r.find((q) => q.floor === 4));
@@ -556,7 +566,7 @@ export const THEMED: Composition[] = [
   { id: 'ironcrown', name: 'Castle Ironcrown', seed: 307, difficulty: 6,
     brief: 'A mountain castle in iron and stone: armoured outer gate, a magazine in the bailey, twin bergfrieds and a nine-storey keep.',
     build: (s) => {
-      curtain(s, 9, 2.4, 'stone'); s.x += 3; gatehouse(s); barracksBlock(s); magazine(s); bergfried(s, { floors: 8, gun: 'flak' });
+      curtain(s, 9, 2.4, 'stone'); s.x += 3; gatehouse(s); barracksBlock(s); mooringMast(s); magazine(s); bergfried(s, { floors: 8, gun: 'flak' });
       curtain(s, 13, 2.8); s.x += 3; bergfried(s, { floors: 11, gun: 'artillery' });
       towerKeep(s, { floors: 9, cols: 3, tag: 'iron' });
       s.place('iron', 'command', (r) => r.find((q) => q.floor === 5));
@@ -567,13 +577,13 @@ export const THEMED: Composition[] = [
     brief: 'A modern fortress line: obstacle belts, casemates under earth, an earth rampart, an armour-faced command bunker and a seven-storey flak tower.',
     build: (s) => {
       dragonsTeeth(s, 4); hedgehogs(s, 3); casemate(s, 'artillery'); casemate(s, 'barracks');
-      starFortFront(s, 2); magazine(s); armoredBunker(s); flakTower(s, 7);
+      starFortFront(s, 2); mooringMast(s); magazine(s); armoredBunker(s); mooringMast(s); flakTower(s, 7);
     } },
   { id: 'blackcitadel', name: 'The Black Citadel', seed: 523, difficulty: 8,
     brief: 'The capital\'s citadel: moat, double curtain, gatehouse, a lesser keep, a thirteen-metre inner curtain, two gun bergfrieds and a ten-storey keep. End the war here.',
     build: (s) => {
       moat(s, 8, 3.5); curtain(s, 10, 2.6); s.x += 2.2; curtain(s, 8, 2.0); s.x += 3; gatehouse(s); bergfried(s, { floors: 8, gun: 'flak' });
-      barracksBlock(s); barracksBlock(s, 'workshop'); magazine(s);
+      barracksBlock(s); barracksBlock(s, 'workshop'); mooringMast(s); magazine(s); mooringMast(s);
       towerKeep(s, { floors: 6, cols: 2, tag: 'lesser' });
       s.place('lesser', 'command', (r) => r.find((q) => q.floor === 2));
       curtain(s, 14, 3); s.x += 3; bergfried(s, { floors: 12, gun: 'artillery' });

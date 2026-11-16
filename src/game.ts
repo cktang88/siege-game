@@ -7,6 +7,7 @@ import { baseStats, type Stats } from './progress';
 import { SoldierRig } from './soldier';
 import { audio } from './audio';
 import { Garrison } from './dwellers';
+import { AirForce } from './aircraft';
 
 type V2 = { x: number; y: number };
 
@@ -77,7 +78,7 @@ interface Drone { mesh: THREE.Mesh; x: number; y: number; tx: number; ty: number
 interface Saboteur { mesh: THREE.Mesh; x: number; y: number; state: 'run' | 'back'; exposed: number; dead: boolean; dir: number; phase: number; target: number | null }
 
 interface PendingBlast { x: number; y: number; r: number; dmg: number; delay: number; opts: BlastOpts }
-interface BlastOpts { bonus?: Partial<Record<MatId, number>>; ignite?: number; enemy?: boolean; under?: boolean; push?: number; visual?: number; smoke?: boolean; source?: string }
+interface BlastOpts { flak?: boolean; bonus?: Partial<Record<MatId, number>>; ignite?: number; enemy?: boolean; under?: boolean; push?: number; visual?: number; smoke?: boolean; source?: string }
 
 export type GameEvent =
   | { type: 'toast'; text: string; tone?: 'good' | 'bad' | 'info' }
@@ -156,6 +157,10 @@ export class Game {
   baseCx = 0;
   lastRicochetToast = -10;
   garrison = new Garrison(this);
+  air = new AirForce(this);
+  /** flak burst timer, seconds after launch */
+  flakFuse = 2.5;
+  mastSprites = new Map<Block, THREE.Mesh>();
   backdrops: { mesh: THREE.Mesh; deps: Block[]; home: V2[]; fade: number }[] = [];
   backdropT = 0;
 
@@ -258,6 +263,8 @@ export class Game {
     this.r.world.remove(this.root);
     this.root = new THREE.Group();
     this.garrison.clear();
+    this.air.clear();
+    this.mastSprites.clear();
     this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
     this.pending = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.events = [];
     if (this.world) { this.world.free(); this.eq.free(); }
@@ -304,6 +311,11 @@ export class Game {
       target: d.target, dead: false, burning: 0, burnAmt: 0, flash: 0, lastVel: { x: 0, y: 0 }, cookoff: -1, highlight: 0, spreadT: 0,
       rebuilt: fadeIn ? 0 : 1,
     };
+    if (d.target === 'mast') {
+      const m = makeSprite('mast', d.h * 1.06, 4.2);
+      this.root.add(m);
+      this.mastSprites.set(b, m);
+    }
     if (d.target === 'artillery') {
       const gun = makeSprite('barrel', 0.45, 3.9);
       gun.scale.x = -1;
@@ -389,6 +401,7 @@ export class Game {
         const p = this.spawnProjectile(a, m.x, m.y, Math.cos(this.angle) * s, Math.sin(this.angle) * s, false);
         p.path = [{ x: m.x, y: m.y }];
         if (a.id === 'delayed') p.fuseSetting = this.fuseSetting;
+        if (a.id === 'flak') p.fuseSetting = this.flakFuse;
         if (a.id === 'cluster' && this.airburst > 0) p.airburst = this.airburst;
       }
       this.muzzleBlast(m.x, m.y, this.angle, 1);
@@ -600,6 +613,8 @@ export class Game {
     this.root.remove(b.mesh);
     const gun = this.enemyGuns.get(b);
     if (gun) { this.root.remove(gun); this.enemyGuns.delete(b); }
+    const mast = this.mastSprites.get(b);
+    if (mast) { this.root.remove(mast); this.mastSprites.delete(b); }
     audio.play(b.matId === 'wood' || b.matId === 'crate' ? 'splinter' : b.matId === 'steel' || b.matId === 'reactive' ? 'clang' : 'crumble', t.x, 0.7);
     // debris
     const c = new THREE.Color(...MATERIALS[this.shownMat(b)].color);
@@ -622,6 +637,7 @@ export class Game {
       const names: Record<TargetKind, string> = {
         command: 'Command post destroyed!', ammo: 'Munitions store detonated!', barracks: 'Barracks destroyed. No more reinforcements.',
         artillery: 'Enemy gun silenced!', workshop: 'Engineers eliminated. No more repairs.', flak: 'Flak gun destroyed. Skies are clear.',
+        mast: 'Mooring mast down. No more aircraft from it.',
       };
       this.toast(remaining > 0 && b.target === 'ammo' ? 'Munitions detonated! One store remains.' : names[b.target], 'good');
       if (b.target === 'ammo') {
@@ -719,6 +735,7 @@ export class Game {
       }
     }
     this.garrison.blast(x, y, radius);
+    if (!opts.enemy) this.air.blast(x, y, radius, dmg, !!opts.flak);
     // infantry
     for (const s of this.soldiers) if (!s.dead && Math.hypot(s.x - x, s.y + 0.6 - y) < radius * 1.15 + 0.3) this.killSoldier(s);
     for (const s of this.saboteurs) if (!s.dead && Math.hypot(s.x - x, s.y + 0.6 - y) < radius * 0.9) this.killSaboteur(s, 'Saboteur caught in the blast.');
@@ -1057,6 +1074,7 @@ export class Game {
     this.updateBlocks(dt);
     this.updateBackdrops(dt);
     this.garrison.update(dt);
+    this.air.update(dt, this.running && !this.ended);
     this.updateProjectiles(dt);
     this.updatePending(dt);
     this.updateSoldiers(dt);
@@ -1145,6 +1163,21 @@ export class Game {
     for (const p of this.projectiles) {
       if (p.dead) continue;
       p.age += dt;
+      // aircraft: flak bursts by proximity or timer; everything else hits what it touches
+      if (!p.enemy && !p.impacted && !p.stuck && !p.burrow) {
+        const isFlak = p.ammo.id === 'flak';
+        const u = this.air.at(p.x, p.y, isFlak ? 2.4 : 0.15);
+        if (u || (isFlak && p.age >= (p.fuseSetting ?? 2.5))) {
+          if (isFlak) { this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage, { flak: true, visual: 0.8 }); this.removeProjectile(p); continue; }
+          if (u) {
+            this.air.damage(u, p.pellet ? 18 : p.ammo.kinetic * 1.4 + (p.ammo.pen ?? 0) * 0.25);
+            if (p.ammo.blastRadius > 0) this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage);
+            else this.sparks(p.x, p.y, 8);
+            this.removeProjectile(p);
+            continue;
+          }
+        }
+      }
       if (p.airburst && !p.split && !p.impacted && p.age >= p.airburst) { this.splitCluster(p); continue; }
       if (p.body) {
         const t = p.body.translation();
@@ -1641,6 +1674,7 @@ export class Game {
       if (b.rebuilt < 1) { b.rebuilt = Math.min(1, b.rebuilt + 0.02); b.uni.uFade.value = b.rebuilt; }
     }
     for (const p of this.projectiles) if (!p.dead) p.mesh.position.set(p.x, p.y, 10);
+    for (const [b, m] of this.mastSprites) { const t = b.body.translation(); m.position.set(t.x, t.y + b.h * 0.03, 4.2); m.rotation.z = b.body.rotation(); }
     this.barrel.rotation.z = this.angle;
   }
 

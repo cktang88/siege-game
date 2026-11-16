@@ -168,6 +168,7 @@ function buildFcp() {
       <div class="opts">
         ${a.id === 'delayed' ? range('o-fuse', 'Fuse delay', 0.5, 8, 0.1, g.fuseSetting) : ''}
         ${a.id === 'cluster' ? range('o-burst', 'Airburst', 0, 5, 0.1, g.airburst, true, '0 = burst manually with tap/space') : ''}
+        ${a.id === 'flak' ? range('o-flak', 'Burst time', 0.5, 6, 0.1, g.flakFuse, true, 'bursts on this timer if no aircraft comes within range of the proximity fuze') : ''}
       </div>
       <div class="firerow"><button class="btn firebtn" id="fire">Fire</button></div>`;
   }
@@ -186,6 +187,7 @@ function buildFcp() {
   bindRange('s-spc', (v) => { g.strike.spacing = v; });
   bindRange('o-fuse', (v) => { g.fuseSetting = v; });
   bindRange('o-burst', (v) => { g.airburst = v; });
+  bindRange('o-flak', (v) => { g.flakFuse = v; });
   const setters: Record<string, (v: number) => void> = {
     ang: (v) => g.setAngleDeg(v),
     vel: (v) => g.setSpeed(v),
@@ -249,6 +251,7 @@ function updateFcp() {
   rv('s-spc', `${g.strike.spacing.toFixed(1)}m`);
   rv('o-fuse', `${g.fuseSetting.toFixed(1)}s`);
   rv('o-burst', g.airburst > 0 ? `${g.airburst.toFixed(1)}s` : 'manual');
+  rv('o-flak', `${g.flakFuse.toFixed(1)}s`);
   const fire = fcp.querySelector<HTMLButtonElement>('#fire');
   if (fire) {
     const ability = g.hasAbilityProjectile();
@@ -324,6 +327,7 @@ export function drawMinimap() {
   ctx.fillRect(X(g.level.cannonX) - 2, Y(g.groundY(g.level.cannonX) + 1.5), 5, 5);
   for (const p of g.projectiles) if (!p.dead) { ctx.fillStyle = p.enemy ? '#e2503a' : '#ffd34d'; ctx.fillRect(X(p.x) - 1, Y(p.y) - 1, 3, 3); }
   for (const p of g.planes) { ctx.fillStyle = '#ffb347'; ctx.fillRect(X(p.x) - 3, Y(p.y) - 1, 7, 3); }
+  for (const u of g.air.units) { ctx.fillStyle = u.down ? '#777' : '#e2503a'; const w = u.kind === 'airship' ? 9 : 4; ctx.fillRect(X(u.x) - w / 2, Y(u.y) - 1.5, w, 3); }
   for (const s of g.soldiers) if (!s.dead) { ctx.fillStyle = '#c9d6a0'; ctx.fillRect(X(s.x), Y(s.y + 1.3), 1.5, 3); }
   ctx.strokeStyle = 'rgba(255,179,71,0.9)'; ctx.lineWidth = 1.5;
   ctx.strokeRect(X(r.cx - r.viewW / 2), Y(r.cy + r.viewH / 2), r.viewW * sx, r.viewH * sy);

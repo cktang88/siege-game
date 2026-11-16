@@ -48,6 +48,9 @@ Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a muniti
 
 ## The enemy fights back
 
+- **Mooring masts:** launch Storm Winds-style air raids: weaving gyrocopter gunships that strafe your gun, and armoured airships that bomb it. Shot-down aircraft fall burning and crash, onto the castle if they're over it. Answer them with **Flak Burst** shells (research *Proximity Fuzes*), which burst when an aircraft comes near or on a timer you set. Canister and other rounds hit them too.
+- **Garrison:** soldiers pace the rooms among era-appropriate furniture: banners, bunks, weapon racks, cauldrons, war tables and field radios. They ride their floors, fall when a room fails, and die to blasts, falling masonry, long falls and fire. Casualties are scored.
+
 - **Counter-battery gun:** fires at your cannon, with each shot landing closer (bracketing). Silence it or blind it with smoke.
 - **Barracks:** sends infantry at your gun. Destroy it to stop reinforcements.
 - **Engineers:** repair damaged blocks and rebuild destroyed wall sections, so waiting costs you.
@@ -67,6 +70,8 @@ Blocks can be any convex polygon: wedges, trapezoids, roofs, rotated beams and a
 - Low, flat shots skip off a sloped glacis. High plunging fire, air-dropped AP bombs or bunker busters get through.
 
 Materials include earthworks (soak up blast), clay roof tiles, plaster over timber (burns) and volatile fuel tanks (chain-explode).
+
+Castles are built tall rather than deep, and each stops at its keep so every objective is in range. Columns thin with height, as bergfried and donjon walls do, and keeps step narrower above about 60% of their height, like butter-churn towers. Slender bergfrieds rise 8–12 storeys under guns or spires.
 
 Real-structure archetypes live in `src/archetypes.ts`. Proportions and sources are in `docs/RESEARCH.md`.
 
