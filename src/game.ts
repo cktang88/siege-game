@@ -144,6 +144,8 @@ export class Game {
   zoom = 1;
   pan = 0;
   aimMarker!: THREE.Mesh;
+  strikeLine!: THREE.Line;
+  strikeMarks!: THREE.InstancedMesh;
   airMarker: number | null = null;
   lastCollateralToast = -10;
 
@@ -211,6 +213,11 @@ export class Game {
     this.aimMarker = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.2, 32), new THREE.MeshBasicMaterial({ color: 0xff5040, transparent: true, opacity: 0.8 }));
     this.aimMarker.position.z = 13; this.aimMarker.visible = false;
     this.root.add(this.aimMarker);
+    this.strikeLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0xffb347, dashSize: 0.8, gapSize: 0.5, transparent: true, opacity: 0.8 }));
+    this.strikeLine.position.z = 13; this.strikeLine.frustumCulled = false; this.strikeLine.visible = false;
+    this.strikeMarks = new THREE.InstancedMesh(new THREE.RingGeometry(0.28, 0.45, 16), new THREE.MeshBasicMaterial({ color: 0xff5a1f }), 24);
+    this.strikeMarks.position.z = 13; this.strikeMarks.frustumCulled = false; this.strikeMarks.visible = false;
+    this.root.add(this.strikeLine, this.strikeMarks);
 
     // settle the structures quietly
     for (let i = 0; i < 90; i++) this.world.step(this.eq);
@@ -1557,6 +1564,32 @@ export class Game {
       this.previewDots.setMatrixAt(i, m);
     }
     this.previewDots.instanceMatrix.needsUpdate = true;
+  }
+
+  /** bomb-run preview: flight path, release points and predicted impacts */
+  updateStrikePreview(show: boolean) {
+    this.strikeLine.visible = show;
+    this.strikeMarks.visible = show;
+    if (!show) return;
+    const sol = this.planStrike();
+    const last = Math.max(...sol.releases);
+    const pts: THREE.Vector3[] = [];
+    for (let sp = 0; sp <= last + 6; sp += 1) pts.push(new THREE.Vector3(sol.sx + sol.ux * sp, sol.sy + sol.uy * sp, 0));
+    this.strikeLine.geometry.dispose();
+    this.strikeLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    this.strikeLine.computeLineDistances();
+    (this.strikeLine.material as THREE.LineDashedMaterial).color.set(sol.ok ? 0xffb347 : 0xff3030);
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < 24; i++) {
+      const k = i >> 1;
+      if (k < sol.impacts.length) {
+        const q = i % 2 === 0 ? sol.impacts[k] : sol.releasePts[k];
+        const sc = i % 2 === 0 ? 1.4 : 0.7;
+        m.makeScale(sc, sc, 1); m.setPosition(q.x, q.y + (i % 2 === 0 ? 0.3 : 0), 0);
+      } else m.makeScale(0, 0, 0);
+      this.strikeMarks.setMatrixAt(i, m);
+    }
+    this.strikeMarks.instanceMatrix.needsUpdate = true;
   }
 
   pickBlock(x: number, y: number): Block | null {
