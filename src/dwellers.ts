@@ -8,6 +8,9 @@ import { SoldierRig } from './soldier';
   The garrison: people and furniture inside the rooms. They are not physics bodies; each rides
   the floor slab under its room (so a tilting floor tips them) and drops when the room's frame
   fails. Blasts, falling masonry, long falls and fire kill people; furniture just goes with the room.
+  Fire: when part of a room's frame is alight, people panic and run for the far end, and may die
+  of smoke and heat; on a ground floor the end of the room is a way out, so they bolt outside.
+  Furniture in a burning room catches, chars, and carries the fire to the rest of the room's timbers.
 */
 
 type V2 = { x: number; y: number };
@@ -23,11 +26,14 @@ interface Dweller {
   deps: Block[];
   home: V2[];
   x: number; y: number; vx: number; vy: number;
-  state: 'home' | 'falling' | 'dead';
+  /** fled: ran out of a burning ground-floor room (out the back, fading away; not a casualty) */
+  state: 'home' | 'falling' | 'dead' | 'fled';
   pace: { x0: number; x1: number; dir: number; speed: number; wait: number };
   fallFrom: number;
   deadT: number;
   h: number;
+  /** furniture: how far it has burnt (0..1) */
+  char: number;
 }
 
 const PROPS = {
@@ -39,6 +45,8 @@ export class Garrison {
   list: Dweller[] = [];
   casualties = 0;
   total = 0;
+  /** people who escaped a burning room */
+  fled = 0;
   constructor(private g: Game) {}
 
   clear() {
@@ -46,6 +54,7 @@ export class Garrison {
     this.list = [];
     this.casualties = 0;
     this.total = 0;
+    this.fled = 0;
   }
 
   spawn(level: LevelDef, root: THREE.Group) {
@@ -97,7 +106,7 @@ export class Garrison {
     const d: Dweller = {
       person: o.person, rig: o.rig, mesh: o.mesh, floor: o.floor, deps: o.deps, lx: 0, ly: 0, h: o.h,
       home: o.deps.map((b) => { const t = b.body.translation(); return { x: t.x, y: t.y }; }),
-      x: o.x + sx, y: o.y + sy, vx: 0, vy: 0, state: 'home', fallFrom: 0, deadT: 0,
+      x: o.x + sx, y: o.y + sy, vx: 0, vy: 0, state: 'home', fallFrom: 0, deadT: 0, char: 0,
       pace: { x0: o.room.x0 + 0.4 + sx, x1: o.room.x1 - 0.4 + sx, dir: Math.random() < 0.5 ? -1 : 1, speed: 0.5 + Math.random() * 0.5, wait: Math.random() * 3 },
     };
     this.toLocal(d);
@@ -130,7 +139,7 @@ export class Garrison {
   }
 
   kill(d: Dweller, fling?: V2) {
-    if (d.state === 'dead') return;
+    if (d.state === 'dead' || d.state === 'fled') return;
     if (d.person) {
       this.casualties++;
       if (fling) { d.vx = fling.x; d.vy = fling.y; }
@@ -139,10 +148,59 @@ export class Garrison {
     if (!d.person) { d.vx = fling?.x ?? (Math.random() - 0.5) * 2; d.vy = fling?.y ?? 1; }
   }
 
+  /** burning blocks this frame (centre and half extents), gathered once per update */
+  private fires: { x: number; y: number; hw: number; hh: number }[] = [];
+
+  /** how much fire is around this person or prop (0..1, roughly the share of the room alight) and where it is, or null */
+  private fireIn(d: Dweller): { frac: number; x: number } | null {
+    let lit = 0, x = 0;
+    for (const f of this.fires) {
+      // within ~1 m sideways and overlapping the room height (floor below to ceiling above)
+      if (Math.abs(f.x - d.x) < f.hw + 1 && f.y + f.hh > d.y - 0.6 && f.y - f.hh < d.y + 2) { lit++; x += f.x; }
+    }
+    return lit ? { frac: Math.min(1, lit / 3), x: x / lit } : null;
+  }
+
+  /** people in a burning room run for the far end; smoke and heat kill some; a ground-floor room lets them out */
+  private panic(d: Dweller, fire: { frac: number; x: number }, dt: number) {
+    const p = d.pace;
+    p.wait = 0;
+    p.speed = 1.8;
+    p.dir = d.x < fire.x ? -1 : 1;
+    if (Math.random() < dt * (0.06 + 0.3 * fire.frac)) { this.kill(d); return; }
+    const atEnd = p.dir < 0 ? d.x <= p.x0 + 0.1 : d.x >= p.x1 - 0.1;
+    const low = d.y - this.g.groundY(d.x) < 0.8;
+    if (atEnd && low) {
+      // out of the back door and away from the fire
+      d.state = 'fled';
+      d.deadT = 0;
+      d.vx = p.dir * 1.8;
+      this.fled++;
+    }
+  }
+
+  /** furniture in a burning room catches, chars, flickers, and helps the fire across the room */
+  private burnProp(d: Dweller, dt: number) {
+    if (d.char >= 1) return;
+    d.char = Math.min(1, d.char + dt / 12);
+    const mat = (d.mesh as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+    if (mat?.color) mat.color.setScalar(1 - 0.7 * d.char);
+    const g = this.g;
+    if (d.char < 0.85 && Math.random() < dt * 8) {
+      g.r.flame.spawn({ x: d.x + (Math.random() - 0.5) * 0.6, y: d.y + Math.random() * d.h * 0.8, vx: g.wind * 0.3, vy: 1.2 + Math.random(), max: 0.5, size0: 0.45, size1: 0.1,
+        c0: [1.4, 0.75, 0.15], c1: [0.75, 0.16, 0.03], a0: 0.95, a1: 0, drag: 1 });
+    }
+    // a burning cot or rack is a fire against the walls and the floor it stands on
+    if (d.char > 0.15 && d.char < 0.85) {
+      for (const b of d.deps) if (b.mat.flammable && b.burning <= 0 && Math.random() < dt * 0.05) g.ignite(b);
+      if (d.floor && d.floor.mat.flammable && d.floor.burning <= 0 && Math.random() < dt * 0.05) g.ignite(d.floor);
+    }
+  }
+
   /** blast at (x,y): people inside the radius die, furniture is thrown */
   blast(x: number, y: number, r: number) {
     for (const d of this.list) {
-      if (d.state === 'dead') continue;
+      if (d.state === 'dead' || d.state === 'fled') continue;
       const dist = Math.hypot(d.x - x, d.y + 0.6 - y);
       if (dist > r * 1.1) continue;
       const k = (1 - dist / (r * 1.1)) * 9;
@@ -168,7 +226,20 @@ export class Garrison {
 
   update(dt: number) {
     const g = this.g;
+    this.fires.length = 0;
+    for (const b of g.blocks) {
+      if (b.dead || b.burning <= 0) continue;
+      const t = b.body.translation();
+      this.fires.push({ x: t.x, y: t.y, hw: b.w / 2, hh: b.h / 2 });
+    }
     for (const d of this.list) {
+      if (d.state === 'fled') {
+        d.deadT += dt;
+        d.x += d.vx * dt;
+        d.rig?.update(dt, d.x, d.y, 'walk');
+        d.rig?.fade(Math.max(0, 1 - d.deadT / 1.2));
+        continue;
+      }
       if (d.state === 'home') {
         // the room has failed if its frame moved or broke
         const failed = (d.floor && d.floor.dead) || d.deps.some((b, i) => b.dead || Math.hypot(b.body.translation().x - d.home[i].x, b.body.translation().y - d.home[i].y) > 0.6);
@@ -177,6 +248,10 @@ export class Garrison {
           const v = d.floor && !d.floor.dead ? d.floor.body.linvel() : { x: 0, y: 0 };
           d.vx = v.x; d.vy = v.y;
         } else {
+          const fire = this.fires.length ? this.fireIn(d) : null;
+          if (d.person && fire) this.panic(d, fire, dt);
+          if (d.state !== 'home') continue;
+          if (!d.person && fire) this.burnProp(d, dt);
           if (d.person) {
             const p = d.pace;
             if (p.wait > 0) p.wait -= dt;
@@ -192,8 +267,6 @@ export class Garrison {
           if (Math.abs(rot) > 0.5) { d.state = 'falling'; d.fallFrom = d.y; }
           if (d.rig) { d.rig.update(dt, d.x, d.y, d.pace.wait > 0 ? 'idle' : 'walk'); d.rig.group.scale.x = (d.pace.dir > 0 ? -1 : 1) * 0.92; d.rig.group.rotation.z = rot; }
           else this.place(d, rot);
-          // fire in the room
-          if (d.person && d.deps.some((b) => b.burning > 0) && Math.random() < dt * 0.4) this.kill(d);
           continue;
         }
       }
@@ -231,8 +304,8 @@ export class Garrison {
       const v = b.body.linvel();
       if (v.x * v.x + v.y * v.y < 6) continue;
       const t = b.body.translation();
-      for (const d of this.list) if (d.person && d.state !== 'dead' && Math.abs(d.x - t.x) < b.w / 2 + 0.25 && d.y + 1.2 > t.y - b.h / 2 && d.y < t.y + b.h / 2) this.kill(d);
+      for (const d of this.list) if (d.person && d.state !== 'dead' && d.state !== 'fled' && Math.abs(d.x - t.x) < b.w / 2 + 0.25 && d.y + 1.2 > t.y - b.h / 2 && d.y < t.y + b.h / 2) this.kill(d);
     }
-    this.list = this.list.filter((d) => { if (d.state === 'dead' && d.deadT > 8) { d.mesh.parent?.remove(d.mesh); return false; } return true; });
+    this.list = this.list.filter((d) => { if ((d.state === 'dead' && d.deadT > 8) || (d.state === 'fled' && d.deadT > 1.2)) { d.mesh.parent?.remove(d.mesh); return false; } return true; });
   }
 }
