@@ -14,7 +14,6 @@ const STYLE = 'Toon cel-shaded game art, clean bold dark outlines, 2-3 flat shad
   'side view facing right, on a perfectly flat solid pure magenta (#FF00FF) background with no shadow on the ground.';
 
 const SPRITES = {
-  cannon: `A heavy field siege cannon on a wooden carriage with two big wheels, iron barrel. ${STYLE}`,
   carriage: `An empty wooden siege-cannon carriage with two large spoked wheels and a trail, WITHOUT any barrel or gun tube. ${STYLE}`,
   barrel: `A single long black iron cannon barrel (gun tube) lying perfectly horizontal, muzzle pointing right, no carriage, no wheels. ${STYLE}`,
   soldier: `A single infantry soldier walking, helmet, grey-green uniform, rifle, full body, facing left. ${STYLE.replace('facing right', 'facing left')}`,
