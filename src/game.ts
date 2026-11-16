@@ -6,6 +6,7 @@ import { Renderer, blockGeometry, makeBlockMaterial, makeGround, makeSprite } fr
 import { baseStats, type Stats } from './progress';
 import { SoldierRig } from './soldier';
 import { audio } from './audio';
+import { Garrison } from './dwellers';
 
 type V2 = { x: number; y: number };
 
@@ -154,6 +155,7 @@ export class Game {
   lastCollateralToast = -10;
   baseCx = 0;
   lastRicochetToast = -10;
+  garrison = new Garrison(this);
   backdrops: { mesh: THREE.Mesh; deps: Block[]; home: V2[]; fade: number }[] = [];
   backdropT = 0;
 
@@ -245,6 +247,7 @@ export class Game {
     for (const b of this.blocks) { const v = b.body.linvel(); b.lastVel = { x: v.x, y: v.y }; }
     // back walls remember where their frame came to rest, not where it was spawned
     for (const bd of this.backdrops) bd.home = bd.deps.map((b) => { const t = b.body.translation(); return { x: t.x, y: t.y }; });
+    this.garrison.spawn(level, this.root);
     this.syncMeshes();
     this.frameCamera(true);
   }
@@ -254,6 +257,7 @@ export class Game {
     this.root.clear();
     this.r.world.remove(this.root);
     this.root = new THREE.Group();
+    this.garrison.clear();
     this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
     this.pending = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.events = [];
     if (this.world) { this.world.free(); this.eq.free(); }
@@ -714,6 +718,7 @@ export class Game {
         if (d < radius && d > 0.01) p.body.applyImpulse({ x: (t.x - x) / d * dmg * 0.01, y: (t.y - y) / d * dmg * 0.01 + 0.5 }, true);
       }
     }
+    this.garrison.blast(x, y, radius);
     // infantry
     for (const s of this.soldiers) if (!s.dead && Math.hypot(s.x - x, s.y + 0.6 - y) < radius * 1.15 + 0.3) this.killSoldier(s);
     for (const s of this.saboteurs) if (!s.dead && Math.hypot(s.x - x, s.y + 0.6 - y) < radius * 0.9) this.killSaboteur(s, 'Saboteur caught in the blast.');
@@ -1051,6 +1056,7 @@ export class Game {
 
     this.updateBlocks(dt);
     this.updateBackdrops(dt);
+    this.garrison.update(dt);
     this.updateProjectiles(dt);
     this.updatePending(dt);
     this.updateSoldiers(dt);
@@ -1584,6 +1590,7 @@ export class Game {
       time: Math.max(0, Math.round((this.level.parTime - this.battleTime) * 60)),
       budget: Math.round((this.moneyLeft + unused * 0.5) * 3),
       optional: opt * 400,
+      garrison: this.garrison.casualties * 25,
       cannon: Math.round(this.cannonHp * 10),
       collateral: -Math.round(this.collateral) || 0,
     };

@@ -525,7 +525,8 @@ export class DebrisPool {
 export const textures: Record<string, THREE.Texture> = {};
 export async function loadTextures() {
   const loader = new THREE.TextureLoader();
-  const names = ['carriage', 'barrel', 'soldier', 'plane', 'saboteur', 'drone', 'house'];
+  const names = ['carriage', 'barrel', 'soldier', 'plane', 'saboteur', 'drone', 'house', 'airship', 'gyro', 'mast',
+    'p_barrel', 'p_table', 'p_bunk', 'p_rack', 'p_banner', 'p_shells', 'p_radio', 'p_cauldron', 'p_shelf', 'p_cannon'];
   await Promise.all([
     ...names.map((n) => loader.loadAsync(`sprites/${n}.png`).then((t) => { t.anisotropy = 4; textures[n] = t; }).catch(() => {})),
     loader.loadAsync('sprites/background.jpg').then((t) => { t.wrapS = THREE.MirroredRepeatWrapping; textures.background = t; }).catch(() => {}),

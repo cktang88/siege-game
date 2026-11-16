@@ -23,6 +23,7 @@ export function buildHud() {
       <div class="row"><span class="label">Wind</span><span class="windvane"><svg viewBox="0 0 38 14"><path id="windarrow" d="M2 7 H30 M24 2 L32 7 L24 12" stroke="#ffb347" stroke-width="2.4" fill="none"/></svg><span id="wind" class="readout"></span></span></div>
       <div class="row"><span class="label">Gun</span><div class="meter" id="hp"></div></div>
       <div class="row"><span class="label">Collateral</span><span id="collateral" class="readout">0</span></div>
+      <div class="row"><span class="label">Garrison down</span><span id="garrison" class="readout">0</span></div>
       <div class="row" id="blind-row"><span class="label">Enemy guns</span><span id="blind" class="readout"></span></div>
     </div>
     <div id="rack" class="plate"></div>
@@ -269,6 +270,7 @@ export function updateHud() {
   hp.className = `meter ${frac < 0.25 ? 'crit' : frac < 0.5 ? 'warn' : ''}`;
   hp.querySelectorAll('i').forEach((el, i) => el.classList.toggle('on', i < Math.ceil(frac * 12)));
   $('#collateral').textContent = String(Math.round(g.collateral));
+  $('#garrison').textContent = `${g.garrison.casualties}/${g.garrison.total}`;
   $('#collateral').style.color = g.collateral > 0 ? 'var(--bad)' : '';
   const hasGuns = g.liveTargets('artillery').length > 0;
   $('#blind-row').classList.toggle('hidden', !hasGuns);

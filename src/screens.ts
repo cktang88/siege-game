@@ -252,7 +252,7 @@ export function showResult(win: boolean, reason: string) {
   }
   const rows: [string, number][] = [
     ['Base', sc.parts.base], ['Time vs. par', sc.parts.time], ['Budget discipline', sc.parts.budget],
-    ['Secondary targets', sc.parts.optional], ['Gun condition', sc.parts.cannon], ['Collateral', sc.parts.collateral],
+    ['Secondary targets', sc.parts.optional], ['Garrison casualties', sc.parts.garrison], ['Gun condition', sc.parts.cannon], ['Collateral', sc.parts.collateral],
   ];
   audio.play(win ? 'win' : 'fail');
   setTimeout(() => {

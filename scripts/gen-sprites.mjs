@@ -21,7 +21,7 @@ const SPRITES = {
   p_table: `A heavy wooden war-room table with a map and a lantern on it, side view. ${STYLE.replace('side view facing right, ', '')}`,
   p_bunk: `A simple military wooden bunk bed with grey blankets, side view. ${STYLE.replace('side view facing right, ', '')}`,
   p_rack: `A wooden weapon rack holding rifles and a sword, side view. ${STYLE.replace('side view facing right, ', '')}`,
-  p_banner: `A hanging heraldic war banner, dark red with a black eagle, on a pole. ${STYLE.replace('side view facing right, ', '')}`,
+  p_banner: `A hanging heraldic war banner, deep navy blue with a golden eagle, on a pole. ${STYLE.replace('side view facing right, ', '')}`,
   p_shells: `A stack of artillery shells in a wooden cradle, side view. ${STYLE.replace('side view facing right, ', '')}`,
   p_radio: `A WW2 field radio set on a small table with a headset, side view. ${STYLE.replace('side view facing right, ', '')}`,
   p_cauldron: `An iron cooking cauldron on a tripod over a small fire, side view. ${STYLE.replace('side view facing right, ', '')}`,

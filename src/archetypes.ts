@@ -488,6 +488,7 @@ export interface Composition {
   build: (s: Site) => void;
   objectives?: TargetKind[];
   village?: boolean;
+  era?: 'medieval' | 'modern';
 }
 
 export function compose(c: Composition): LevelDef {
@@ -514,6 +515,8 @@ export function compose(c: Composition): LevelDef {
     ground: s.ground, cannonX: x0 - 32 - d * 2, blocks: s.blocks, houses, objectives,
     stars: [3000, 6000 + d * 600, 9000 + d * 900], collateralMult: 1,
     backdrops: s.backdrops,
+    rooms: s.rooms.map((r) => ({ x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1, floorIdx: r.floorIdx, deps: r.deps })),
+    era: c.era ?? 'medieval',
   };
 }
 
@@ -521,13 +524,13 @@ export function compose(c: Composition): LevelDef {
 export const THEMED: Composition[] = [
   { id: 'kurogane', name: 'Kurogane-jō', seed: 41, difficulty: 2, brief: 'A five-tier castle on a fan-sloped stone base. Timber and plaster above the stones.',
     build: (s) => { yagura(s, 'barracks'); yagura(s, 'workshop'); s.x += 2; japaneseCastle(s, 5); } },
-  { id: 'saltworks', name: 'Saltworks Refinery', seed: 37, difficulty: 2, brief: 'A refinery turned strongpoint. The control house directs the garrison; the solvent store is in the hangar.',
+  { id: 'saltworks', era: 'modern', name: 'Saltworks Refinery', seed: 37, difficulty: 2, brief: 'A refinery turned strongpoint. The control house directs the garrison; the solvent store is in the hangar.',
     build: (s) => { barracksBlock(s); refinery(s, 3); hangar(s); } },
   { id: 'sainte-barbe', name: 'Fort Sainte-Barbe', seed: 53, difficulty: 3, brief: 'A Vauban fort: glacis, ditch, masonry escarp and an earthen rampart with guns on the terreplein.',
     build: (s) => { starFortFront(s, 2); magazine(s); hall(s, 'hall', 'command'); barracksBlock(s); } },
   { id: 'abbey', name: 'St. Aldric\'s Abbey', seed: 61, difficulty: 3, brief: 'A fortified abbey. The command post sits in the nave behind the arcade; the flying buttresses hold it all up.',
     build: (s) => { curtain(s, 6); s.x += 3; abbey(s); barracksBlock(s); } },
-  { id: 'greywater', name: 'Battery Greywater', seed: 83, difficulty: 4, brief: 'Coastal battery: dragon\'s teeth, hedgehogs, Regelbau casemates and an armour-faced command bunker.',
+  { id: 'greywater', era: 'modern', name: 'Battery Greywater', seed: 83, difficulty: 4, brief: 'Coastal battery: dragon\'s teeth, hedgehogs, Regelbau casemates and an armour-faced command bunker.',
     build: (s) => { dragonsTeeth(s, 3); hedgehogs(s, 2); s.x += 2; casemate(s, 'artillery'); casemate(s, 'artillery'); armoredBunker(s); barracksBlock(s); casemate(s, 'ammo'); } },
   { id: 'harrowgate', name: 'Harrowgate Castle', seed: 97, difficulty: 4, brief: 'A concentric castle: moat, battered curtains, a twin-towered gatehouse, a gun tower and a tall hoarded keep at the back of the ward.',
     build: (s) => {
@@ -537,7 +540,7 @@ export const THEMED: Composition[] = [
       s.place('keep', 'command', (r) => r.find((q) => q.floor === 3));
       s.place('keep', 'ammo', (r) => r.find((q) => q.floor === 0));
     } },
-  { id: 'zooflak', name: 'Zoo Flak Tower', seed: 131, difficulty: 5, brief: 'A concrete flak tower with gun tubs at every corner, ringed by casemates.',
+  { id: 'zooflak', era: 'modern', name: 'Zoo Flak Tower', seed: 131, difficulty: 5, brief: 'A concrete flak tower with gun tubs at every corner, ringed by casemates.',
     build: (s) => { hedgehogs(s, 3); casemate(s, 'barracks'); casemate(s, 'artillery'); s.x += 2; flakTower(s, 8); } },
   // ── great fortresses: outer works to the keep, built tall rather than deep ──
   { id: 'kestrel', name: 'Kestrel Bastille', seed: 211, difficulty: 5,
@@ -560,7 +563,7 @@ export const THEMED: Composition[] = [
       s.place('iron', 'ammo', (r) => r.find((q) => q.floor === 1));
       s.place('iron', 'workshop', (r) => r.find((q) => q.floor === 0));
     } },
-  { id: 'warden', name: 'Wardenhold', seed: 419, difficulty: 7,
+  { id: 'warden', era: 'modern', name: 'Wardenhold', seed: 419, difficulty: 7,
     brief: 'A modern fortress line: obstacle belts, casemates under earth, an earth rampart, an armour-faced command bunker and a seven-storey flak tower.',
     build: (s) => {
       dragonsTeeth(s, 4); hedgehogs(s, 3); casemate(s, 'artillery'); casemate(s, 'barracks');
