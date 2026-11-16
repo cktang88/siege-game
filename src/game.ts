@@ -4,6 +4,7 @@ import { AMMO_BY_ID, MATERIALS, PHYS, TARGETS, type AmmoDef, type AmmoId, type M
 import type { BlockDef, HouseDef, LevelDef } from './levels';
 import { Renderer, makeBlockMaterial, makeGround, makeSprite } from './render';
 import { baseStats, type Stats } from './progress';
+import { SoldierRig } from './soldier';
 
 type V2 = { x: number; y: number };
 
@@ -61,7 +62,7 @@ interface Projectile {
   airburst?: number;
 }
 
-interface Soldier { x: number; y: number; mesh: THREE.Mesh; dead: boolean; shootT: number; stopX: number; phase: number; deadT: number }
+interface Soldier { x: number; y: number; rig: SoldierRig; dead: boolean; shootT: number; stopX: number; phase: number; deadT: number }
 
 interface Plane {
   mesh: THREE.Mesh; x: number; y: number; ux: number; uy: number; speed: number; s: number;
@@ -1141,10 +1142,11 @@ export class Game {
 
   // ───────────────────────── Infantry ─────────────────────────
   spawnSoldier(x: number) {
-    const mesh = makeSprite('soldier', 1.25, 7.2);
-    mesh.scale.x = -1;
-    const s: Soldier = { x, y: this.groundY(x), mesh, dead: false, shootT: 1 + Math.random(), stopX: this.level.cannonX + 6 + Math.random() * 4, phase: Math.random() * 6, deadT: 0 };
-    this.root.add(mesh);
+    const rig = new SoldierRig(true);
+    rig.group.position.z = 7.2;
+    const s: Soldier = { x, y: this.groundY(x), rig, dead: false, shootT: 1 + Math.random(), stopX: this.level.cannonX + 6 + Math.random() * 4, phase: Math.random() * 6, deadT: 0 };
+    rig.update(0, x, s.y, 'idle');
+    this.root.add(rig.group);
     this.soldiers.push(s);
   }
 
@@ -1152,38 +1154,38 @@ export class Game {
     for (const s of this.soldiers) {
       if (s.dead) {
         s.deadT += dt;
-        s.mesh.rotation.z = Math.min(Math.PI / 2, s.deadT * 6);
-        (s.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - s.deadT / 2);
-        (s.mesh.material as THREE.MeshBasicMaterial).transparent = true;
-        s.mesh.position.set(s.x - Math.min(0.5, s.deadT * 3), s.y + 0.35, 7.2);
+        s.rig.update(dt, s.x, s.y, 'dead');
+        if (s.deadT > 2.2) s.rig.fade(Math.max(0, 1 - (s.deadT - 2.2) / 1.5));
         continue;
       }
-      s.phase += dt * 8;
+      let shooting = false;
       // saboteur engagement
       for (const sb of this.saboteurs) {
         if (!sb.dead && Math.abs(sb.x - s.x) < 13) {
           sb.exposed += dt;
-          if (Math.random() < dt * 4) this.tracer(s.x - 0.4, s.y + 1, sb.x, sb.y + 0.8);
+          shooting = true;
+          if (Math.random() < dt * 4) { const m = s.rig.muzzle(); s.rig.recoil = 1; this.tracer(m.x, m.y, sb.x, sb.y + 0.8); }
         }
       }
-      if (s.x > s.stopX) {
+      if (s.x > s.stopX && !shooting) {
         s.x -= 1.6 * dt;
         s.y = this.groundY(s.x);
+        s.rig.update(dt, s.x, s.y, 'walk');
       } else {
+        s.rig.update(dt, s.x, s.y, 'shoot');
         s.shootT -= dt;
-        if (s.shootT <= 0 && this.running && !this.ended) {
+        if (!shooting && s.shootT <= 0 && this.running && !this.ended) {
           s.shootT = 0.9 + Math.random() * 0.4;
           const c = this.barrel.position;
-          this.tracer(s.x - 0.4, s.y + 1, c.x, c.y);
+          const m = s.rig.muzzle();
+          s.rig.recoil = 1;
+          this.tracer(m.x, m.y, c.x, c.y);
           this.damageCannon(1.1);
         }
       }
-      const bob = s.x > s.stopX ? Math.abs(Math.sin(s.phase)) * 0.08 : 0;
-      s.mesh.position.set(s.x, s.y + 0.62 + bob, 7.2);
-      s.mesh.rotation.z = s.x > s.stopX ? Math.sin(s.phase) * 0.05 : 0;
     }
     const before = this.soldiers.length;
-    this.soldiers = this.soldiers.filter((s) => { if (s.dead && s.deadT > 2) { this.root.remove(s.mesh); return false; } return true; });
+    this.soldiers = this.soldiers.filter((s) => { if (s.dead && s.deadT > 3.7) { this.root.remove(s.rig.group); return false; } return true; });
     void before;
   }
 
