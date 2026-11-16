@@ -216,7 +216,7 @@ function updateHud() {
   const a = AMMO_BY_ID[game.selected];
   const ab = game.hasAbilityProjectile() ? ' · <b style="color:var(--accent)">TAP / SPACE: scatter</b>' : '';
   $('#aim-readout').innerHTML = a.mode === 'airstrike' ? 'Click the map to call in the bomber' : a.mode === 'drone' || a.mode === 'saboteur' ? 'Click or Space to deploy' + ab
-    : `Angle ${(game.angle * 180 / Math.PI).toFixed(1)}° · Power ${Math.round(game.power * 100)}%${ab}`;
+    : `Angle ${(game.angle * 180 / Math.PI).toFixed(1)}° · ${game.launchSpeed.toFixed(1)} m/s${ab}`;
   updateAmmoBar();
 }
 
@@ -271,8 +271,8 @@ canvas.addEventListener('pointermove', (e) => {
   if (!aiming && Math.hypot(dx, dy) > 10) aiming = true;
   if (aiming) {
     const vx = -dx, vy = dy; // pull back like a slingshot (screen y is down)
-    game.angle = Math.max(-0.15, Math.min(1.45, Math.atan2(vy, vx)));
-    game.power = Math.max(0.03, Math.min(1, Math.hypot(dx, dy) / Math.min(320, renderer.height * 0.4)));
+    game.setAngleDeg((Math.atan2(vy, vx) * 180) / Math.PI);
+    game.setSpeed(6 + (game.stats.maxSpeed - 6) * Math.min(1, Math.hypot(dx, dy) / Math.min(320, renderer.height * 0.4)));
   }
 });
 canvas.addEventListener('pointerup', (e) => {
@@ -315,10 +315,11 @@ window.addEventListener('keyup', (e) => keys.delete(e.key));
 
 function handleKeys(dt: number) {
   const fine = keys.has('Shift') ? 0.25 : 1;
-  if (keys.has('ArrowUp')) game.angle = Math.min(1.45, game.angle + dt * 0.35 * fine);
-  if (keys.has('ArrowDown')) game.angle = Math.max(-0.15, game.angle - dt * 0.35 * fine);
-  if (keys.has('ArrowRight')) game.power = Math.min(1, game.power + dt * 0.25 * fine);
-  if (keys.has('ArrowLeft')) game.power = Math.max(0.03, game.power - dt * 0.25 * fine);
+  const deg = (game.angle * 180) / Math.PI;
+  if (keys.has('ArrowUp')) game.setAngleDeg(deg + dt * 20 * fine);
+  if (keys.has('ArrowDown')) game.setAngleDeg(deg - dt * 20 * fine);
+  if (keys.has('ArrowRight')) game.setSpeed(game.speed + dt * 6 * fine);
+  if (keys.has('ArrowLeft')) game.setSpeed(game.speed - dt * 6 * fine);
 }
 
 function updateTooltip() {

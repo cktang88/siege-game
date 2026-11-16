@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { AMMO_BY_ID, MATERIALS, PHYS, TARGETS, type AmmoDef, type AmmoId, type MatId, type MaterialDef, type TargetKind } from './config';
 import type { BlockDef, HouseDef, LevelDef } from './levels';
 import { Renderer, makeBlockMaterial, makeGround, makeSprite } from './render';
+import { baseStats, type Stats } from './progress';
 
 type V2 = { x: number; y: number };
 
@@ -54,13 +55,23 @@ interface Projectile {
   path?: V2[];
   pellet?: boolean;
   blastScale: number;
+  dmgMul: number;
+  radMul: number;
+  fuseSetting?: number;
+  airburst?: number;
 }
 
 interface Soldier { x: number; y: number; mesh: THREE.Mesh; dead: boolean; shootT: number; stopX: number; phase: number; deadT: number }
 
-interface Plane { mesh: THREE.Mesh; x: number; y: number; vx: number; vy: number; drops: number[]; down: boolean; dead: boolean; flakT: number }
+interface Plane {
+  mesh: THREE.Mesh; x: number; y: number; ux: number; uy: number; speed: number; s: number;
+  releases: number[]; ammo: AmmoDef; down: boolean; dead: boolean; flakT: number; exposure: number; vy: number; climbing: boolean;
+}
+
+export interface StrikePlan { x: number; dir: 1 | -1; alt: number; dive: number; spacing: number; ordnance: 'he' | 'incendiary' | 'penetrator' }
+export interface StrikeSolution { sx: number; sy: number; ux: number; uy: number; speed: number; releases: number[]; impacts: V2[]; releasePts: V2[]; ok: boolean }
 interface Drone { mesh: THREE.Mesh; x: number; y: number; tx: number; ty: number; state: 'out' | 'hover' | 'back' | 'down'; t: number; vy: number; dead: boolean }
-interface Saboteur { mesh: THREE.Mesh; x: number; y: number; state: 'run' | 'back'; exposed: number; dead: boolean; dir: number; phase: number }
+interface Saboteur { mesh: THREE.Mesh; x: number; y: number; state: 'run' | 'back'; exposed: number; dead: boolean; dir: number; phase: number; target: number | null }
 
 interface PendingBlast { x: number; y: number; r: number; dmg: number; delay: number; opts: BlastOpts }
 interface BlastOpts { bonus?: Partial<Record<MatId, number>>; ignite?: number; enemy?: boolean; under?: boolean; push?: number; visual?: number; smoke?: boolean; source?: string }
@@ -92,7 +103,16 @@ export class Game {
   inventory: Partial<Record<AmmoId, number>> = {};
   selected: AmmoId = 'shell';
   angle = 0.6;
-  power = 0.6;
+  /** muzzle velocity, m/s */
+  speed = 22;
+  /** delayed-fuse setting, seconds */
+  fuseSetting = 3;
+  /** cluster airburst timer, seconds after launch (0 = manual) */
+  airburst = 0;
+  stats: Stats = baseStats();
+  strike: StrikePlan = { x: 60, dir: 1, alt: 24, dive: 0, spacing: 2.4, ordnance: 'he' };
+  droneTarget: V2 | null = null;
+  sabTarget: number | null = null;
   reload = 0;
   wind = 0;
   time = 0;
@@ -180,7 +200,7 @@ export class Game {
     this.root.add(this.carriage, this.barrel);
 
     // aim preview dots
-    this.previewDots = new THREE.InstancedMesh(new THREE.CircleGeometry(0.11, 10), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }), 40);
+    this.previewDots = new THREE.InstancedMesh(new THREE.CircleGeometry(0.11, 10), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }), 60);
     this.previewDots.position.z = 12;
     this.previewDots.frustumCulled = false;
     this.root.add(this.previewDots);
@@ -281,10 +301,16 @@ export class Game {
   }
 
   // ───────────────────────── Battle control ─────────────────────────
-  start(inventory: Partial<Record<AmmoId, number>>, spent: number) {
+  start(inventory: Partial<Record<AmmoId, number>>, spent: number, budget = this.level.budget) {
     this.inventory = { ...inventory };
+    this.cannonHp = this.stats.cannonHp;
+    this.speed = Math.min(this.speed, this.stats.maxSpeed);
+    const fb = this.fortressBounds;
+    this.strike.x = (fb.x0 + fb.x1) / 2;
+    this.droneTarget = { x: (fb.x0 + fb.x1) / 2, y: fb.y1 + 6 };
+    this.sabTarget = null;
     this.spentBudget = spent;
-    this.moneyLeft = this.level.budget - spent;
+    this.moneyLeft = budget - spent;
     this.running = true;
     const first = (Object.keys(this.inventory) as AmmoId[]).find((k) => (this.inventory[k] ?? 0) > 0);
     if (first) this.selected = first;
@@ -295,10 +321,11 @@ export class Game {
     return { x: bx + Math.cos(this.angle) * 2.5, y: by + Math.sin(this.angle) * 2.5 };
   }
 
-  get launchSpeed() {
-    const a = AMMO_BY_ID[this.selected];
-    return (PHYS.minSpeed + (PHYS.maxSpeed - PHYS.minSpeed) * this.power) * (a.speed || 1);
-  }
+  /** max muzzle velocity for the selected round (light charges fly faster, heavy ones slower) */
+  get maxSpeedFor() { return this.stats.maxSpeed * (AMMO_BY_ID[this.selected].speed || 1); }
+  get launchSpeed() { return Math.max(PHYS.minSpeed, Math.min(this.speed, this.maxSpeedFor)); }
+  setAngleDeg(d: number) { this.angle = (Math.max(this.stats.minAngle, Math.min(this.stats.maxAngle, d)) * Math.PI) / 180; }
+  setSpeed(v: number) { this.speed = Math.max(PHYS.minSpeed, Math.min(this.stats.maxSpeed, v)); }
 
   canFire() {
     return this.running && !this.ended && this.reload <= 0 && (this.inventory[this.selected] ?? 0) > 0;
@@ -309,12 +336,12 @@ export class Game {
     if (!this.canFire()) return false;
     const a = AMMO_BY_ID[this.selected];
     if (a.mode === 'airstrike') {
-      if (!worldTarget) return false;
-      this.launchAirstrike(worldTarget.x);
+      if (worldTarget) this.strike.x = worldTarget.x;
+      if (!this.launchAirstrike()) return false;
     } else if (a.mode === 'drone') {
       this.launchDrone();
     } else if (a.mode === 'saboteur') {
-      this.launchSaboteur();
+      for (let i = 0; i < this.stats.saboteurs; i++) this.launchSaboteur(i);
     } else {
       const m = this.muzzle;
       const s = this.launchSpeed;
@@ -327,12 +354,14 @@ export class Game {
       } else {
         const p = this.spawnProjectile(a, m.x, m.y, Math.cos(this.angle) * s, Math.sin(this.angle) * s, false);
         p.path = [{ x: m.x, y: m.y }];
+        if (a.id === 'delayed') p.fuseSetting = this.fuseSetting;
+        if (a.id === 'cluster' && this.airburst > 0) p.airburst = this.airburst;
       }
       this.muzzleBlast(m.x, m.y, this.angle, 1);
       this.r.shake = Math.max(this.r.shake, 0.5);
     }
     this.inventory[this.selected] = (this.inventory[this.selected] ?? 0) - 1;
-    this.reload = PHYS.reload;
+    this.reload = this.stats.reload;
     this.events.push({ type: 'fired' });
     if ((this.inventory[this.selected] ?? 0) <= 0) {
       const next = (Object.keys(this.inventory) as AmmoId[]).find((k) => (this.inventory[k] ?? 0) > 0);
@@ -382,7 +411,7 @@ export class Game {
     g.position.set(x, y, 10);
     this.root.add(g);
     const p: Projectile = {
-      ammo: a, enemy, mesh: g, x, y, vx, vy, age: 0, impacted: false, fuse: -1, pen: a.pen ?? 0, dead: false, trail: 0, blastScale: 1, ...extra,
+      ammo: a, enemy, dmgMul: this.stats.dmg[a.id] ?? 1, radMul: this.stats.radius[a.id] ?? 1, mesh: g, x, y, vx, vy, age: 0, impacted: false, fuse: -1, pen: (a.pen ?? 0) * (this.stats.pen[a.id] ?? 1), dead: false, trail: 0, blastScale: 1, ...extra,
     };
     if ((a.mode === 'physics' || a.mode === 'airstrike') && !extra.pellet) {
       const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y).setLinvel(vx, vy).setCcdEnabled(true).setAngularDamping(0.5));
@@ -415,44 +444,103 @@ export class Game {
   }
 
   // ───────────────────────── Special launches ─────────────────────────
-  launchAirstrike(tx: number) {
+  /** ballistic impact point for a free-falling/flying body (bombsight solution, includes wind) */
+  predictImpact(x: number, y: number, vx: number, vy: number, windSens: number): V2 {
+    for (let i = 0; i < 900; i++) {
+      vy += PHYS.gravity * DT; vx += this.wind * windSens * 0.35 * DT;
+      x += vx * DT; y += vy * DT;
+      if (y <= this.groundY(x)) return { x, y: this.groundY(x) };
+    }
+    return { x, y };
+  }
+
+  bombAmmo(): AmmoDef {
+    const o = this.strike.ordnance;
+    return AMMO_BY_ID[o === 'incendiary' ? 'bomb_inc' : o === 'penetrator' ? 'bomb_pen' : 'bomb_he'];
+  }
+
+  /**
+   * Solve the bomb run: the bomber flies a straight line at the chosen dive angle and heading.
+   * The middle of the stick is released at the chosen altitude so that it lands on the aim point;
+   * each bomb's release point is found by bisection so the stick lands at the chosen spacing.
+   */
+  planStrike(): StrikeSolution {
+    const st = this.strike;
+    const n = this.stats.bombs;
+    const speed = 26;
+    const dive = this.stats.dive ? Math.max(0, Math.min(70, st.dive)) : 0;
+    const th = (dive * Math.PI) / 180;
+    const ux = st.dir * Math.cos(th), uy = -Math.sin(th);
+    const a = this.bombAmmo();
+    const ry = this.groundY(st.x) + Math.max(6, st.alt);
+    let rx = st.x;
+    for (let k = 0; k < 8; k++) {
+      const imp = this.predictImpact(rx, ry, ux * speed, uy * speed, a.wind);
+      rx += st.x - imp.x;
+    }
+    const impactAt = (sp: number) => this.predictImpact(rx + ux * sp, ry + uy * sp, ux * speed, uy * speed, a.wind);
+    const releases: number[] = [];
+    const impacts: V2[] = [];
+    const releasePts: V2[] = [];
+    for (let i = 0; i < n; i++) {
+      const want = st.x + (i - (n - 1) / 2) * st.spacing * st.dir;
+      let lo = -80, hi = 80;
+      for (let k = 0; k < 30; k++) {
+        const mid = (lo + hi) / 2;
+        if ((impactAt(mid).x - want) * st.dir < 0) lo = mid; else hi = mid;
+      }
+      const sp = (lo + hi) / 2;
+      releases.push(sp);
+      impacts.push(impactAt(sp));
+      releasePts.push({ x: rx + ux * sp, y: ry + uy * sp });
+    }
+    const first = Math.min(...releases);
+    const back = 45;
+    const sx = rx + ux * (first - back), sy = ry + uy * (first - back);
+    const lowest = Math.min(...releasePts.map((q) => q.y - this.groundY(q.x)));
+    return { sx, sy, ux, uy, speed, releases: releases.map((r) => r - (first - back)), impacts, releasePts, ok: lowest > 4 };
+  }
+
+  launchAirstrike(): boolean {
+    const sol = this.planStrike();
     const mesh = makeSprite('plane', 2.2, 14);
-    const y = this.groundY(tx) + 24;
-    const x = this.level.cannonX - 30;
-    const vx = 22;
-    const fall = Math.sqrt((2 * 24) / 9.81);
-    const drops = [-2, -1, 0, 1, 2].map((i) => tx + i * 2.4 - vx * fall);
-    const p: Plane = { mesh, x, y, vx, vy: 0, drops, down: false, dead: false, flakT: 0 };
-    mesh.position.set(x, y, 14);
+    if (sol.ux < 0) mesh.scale.x = -1;
+    const p: Plane = {
+      mesh, x: sol.sx, y: sol.sy, ux: sol.ux, uy: sol.uy, speed: sol.speed, s: 0, releases: [...sol.releases].sort((a, b) => a - b),
+      ammo: this.bombAmmo(), down: false, dead: false, flakT: 0, exposure: 0, vy: 0, climbing: false,
+    };
+    mesh.position.set(p.x, p.y, 14);
     this.root.add(mesh);
     this.planes.push(p);
-    this.airMarker = tx;
-    this.toast('Bomber inbound.', 'info');
+    this.airMarker = this.strike.x;
+    this.toast(sol.ok ? 'Bomber inbound.' : 'Bomber inbound. That run is dangerously low!', sol.ok ? 'info' : 'bad');
+    return true;
   }
 
   launchDrone() {
     const fb = this.fortressBounds;
+    const tgt = this.droneTarget ?? { x: (fb.x0 + fb.x1) / 2, y: fb.y1 + 6 };
     const mesh = makeSprite('drone', 0.9, 14);
-    const d: Drone = { mesh, x: this.level.cannonX, y: this.groundY(this.level.cannonX) + 3, tx: (fb.x0 + fb.x1) / 2, ty: fb.y1 + 6, state: 'out', t: 0, vy: 0, dead: false };
+    const d: Drone = { mesh, x: this.level.cannonX, y: this.groundY(this.level.cannonX) + 3, tx: tgt.x, ty: Math.max(tgt.y, this.groundY(tgt.x) + 3), state: 'out', t: 0, vy: 0, dead: false };
     mesh.position.set(d.x, d.y, 14);
     this.root.add(mesh);
     this.drones.push(d);
   }
 
-  launchSaboteur() {
+  launchSaboteur(i = 0) {
     const mesh = makeSprite('saboteur', 1.3, 7.5);
-    const x = this.level.cannonX + 1.5;
-    const s: Saboteur = { mesh, x, y: this.groundY(x), state: 'run', exposed: 0, dead: false, dir: 1, phase: 0 };
+    const x = this.level.cannonX + 1.5 - i * 1.4;
+    const s: Saboteur = { mesh, x, y: this.groundY(x), state: 'run', exposed: -i * 0.4, dead: false, dir: 1, phase: i, target: this.sabTarget };
     this.root.add(mesh);
     this.saboteurs.push(s);
-    this.toast('Saboteur moving out.', 'info');
+    if (i === 0) this.toast(this.stats.saboteurs > 1 ? 'Fire team moving out.' : 'Saboteur moving out.', 'info');
   }
 
   splitCluster(p: Projectile) {
     p.split = true;
     const v = p.body ? p.body.linvel() : { x: p.vx, y: p.vy };
     const t = p.body ? p.body.translation() : { x: p.x, y: p.y };
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < this.stats.clusterCount; i++) {
       const s = 0.7 + Math.random() * 0.6;
       this.spawnProjectile(p.ammo, t.x, t.y, v.x * s + (Math.random() - 0.5) * 6, v.y * s + (Math.random() - 0.5) * 6, false, { bomblet: true });
     }
@@ -531,6 +619,11 @@ export class Game {
     }
   }
 
+  /** player ordnance blast, scaled by researched upgrades */
+  boom(p: Projectile, x: number, y: number, radius: number, dmg: number, opts: BlastOpts = {}) {
+    this.explode(x, y, radius * p.radMul, dmg * p.dmgMul, opts);
+  }
+
   explode(x: number, y: number, radius: number, dmg: number, opts: BlastOpts = {}) {
     const vis = opts.visual ?? radius / 3;
     // visuals
@@ -596,7 +689,7 @@ export class Game {
     // player cannon
     const cx = this.level.cannonX, cy = this.groundY(cx) + 1;
     const cd = Math.hypot(cx - x, cy - y);
-    if (cd < radius + 1.2) this.damageCannon(dmg * 0.32 * (1 - cd / (radius + 1.2)) + (opts.enemy ? 6 : 0));
+    if (cd < radius + 1.2) this.damageCannon((dmg * 0.32 * (1 - cd / (radius + 1.2)) + (opts.enemy ? 6 : 0)) * (opts.enemy && this.stats.shieldedGun ? 0.5 : 1));
   }
 
   burst(x: number, y: number, s: number, smokeOnly = false) {
@@ -689,24 +782,25 @@ export class Game {
     if (house && !p.impacted) this.damageHouse(house, kin * 0.6);
 
     if (p.bomblet) {
-      this.explode(t.x, t.y, a.blastRadius, a.blastDamage);
+      this.boom(p, t.x, t.y, a.blastRadius, a.blastDamage);
       this.removeProjectile(p);
       return;
     }
     switch (a.id) {
       case 'shell':
       case 'heavy':
-        if (!p.impacted) this.explode(t.x, t.y, a.blastRadius, a.blastDamage, { push: a.id === 'heavy' ? 1.6 : 1 });
+        if (!p.impacted) this.boom(p, t.x, t.y, a.blastRadius, a.blastDamage, { push: a.id === 'heavy' ? 1.6 : 1 });
         p.impacted = true;
         p.inert = 2.5;
         break;
       case 'he':
       case 'cluster':
-        this.explode(t.x, t.y, a.blastRadius, a.blastDamage);
+        this.boom(p, t.x, t.y, a.blastRadius, a.blastDamage);
         this.removeProjectile(p);
         break;
       case 'incendiary':
-        this.explode(t.x, t.y, a.blastRadius, a.blastDamage, { ignite: a.ignite, visual: 0.9 });
+      case 'bomb_inc':
+        this.boom(p, t.x, t.y, a.blastRadius, a.blastDamage, { ignite: a.ignite, visual: 0.9 });
         for (let i = 0; i < 40; i++) {
           const an = Math.random() * Math.PI;
           this.r.fire.spawn({ x: t.x, y: t.y, vx: Math.cos(an) * 6, vy: Math.sin(an) * 6, max: 1 + Math.random(), size0: 0.5, size1: 0.1, c0: [3, 1.2, 0.2], c1: [1.5, 0.3, 0], a0: 1, a1: 0, grav: -9, drag: 0.5 });
@@ -718,12 +812,12 @@ export class Game {
         this.removeProjectile(p);
         break;
       case 'delayed':
-        if (!p.impacted) { p.impacted = true; p.fuse = a.fuse ?? 3; }
+        if (!p.impacted) { p.impacted = true; p.fuse = p.fuseSetting ?? a.fuse ?? 3; }
         break;
       case 'sticky':
         if (!p.impacted) {
           p.impacted = true;
-          p.fuse = a.fuse ?? 2.5;
+          p.fuse = this.stats.stickyFuse;
           if (block) {
             const bt = block.body.translation(), br = block.body.rotation();
             const dx = t.x - bt.x, dy = t.y - bt.y;
@@ -752,7 +846,7 @@ export class Game {
         }
         break;
       default:
-        this.explode(t.x, t.y, a.blastRadius, a.blastDamage);
+        this.boom(p, t.x, t.y, a.blastRadius, a.blastDamage);
         this.removeProjectile(p);
     }
   }
@@ -802,7 +896,7 @@ export class Game {
         const b = o.b;
         if (b.matId === 'reactive') {
           this.reactiveDetonate(b, p.x, p.y);
-          if (a.id === 'bunker') { this.explode(p.x - dir.x * 0.5, p.y - dir.y * 0.5, a.blastRadius * 0.7, a.blastDamage * 0.5); this.toast('Bunker buster detonated prematurely.', 'bad'); }
+          if (a.id === 'bunker') { this.boom(p, p.x - dir.x * 0.5, p.y - dir.y * 0.5, a.blastRadius * 0.7, a.blastDamage * 0.5); this.toast('Bunker buster detonated prematurely.', 'bad'); }
           this.removeProjectile(p);
           return;
         }
@@ -852,7 +946,7 @@ export class Game {
         p.stuck = { block: b, lx: dx * c - dy * s, ly: dx * s + dy * c, rot: 0 };
       } else p.stuck = { lx: p.x + dir.x * 0.6, ly: p.y + dir.y * 0.6, rot: 0 };
     } else {
-      this.explode(p.x, p.y, a.blastRadius, a.blastDamage);
+      this.boom(p, p.x, p.y, a.blastRadius, a.blastDamage);
       this.removeProjectile(p);
     }
   }
@@ -952,6 +1046,7 @@ export class Game {
     for (const p of this.projectiles) {
       if (p.dead) continue;
       p.age += dt;
+      if (p.airburst && !p.split && !p.impacted && p.age >= p.airburst) { this.splitCluster(p); continue; }
       if (p.body) {
         const t = p.body.translation();
         p.x = t.x; p.y = t.y;
@@ -964,9 +1059,9 @@ export class Game {
         // is there a structure above?
         const hit = this.world.castRay(new RAPIER.Ray({ x: p.x, y: this.groundY(p.x) + 0.05 }, { x: 0, y: 1 }), 1.2, true, undefined, undefined, undefined, undefined,
           (c) => this.owners.get(c.handle)?.t === 'block');
-        if (hit || p.burrow.dist > 16) {
+        if (hit || p.burrow.dist > this.stats.drillRange) {
           const gy = this.groundY(p.x);
-          this.explode(p.x, gy - 0.4, p.ammo.blastRadius, p.ammo.blastDamage, { under: true, push: 1.4 });
+          this.boom(p, p.x, gy - 0.4, p.ammo.blastRadius, p.ammo.blastDamage, { under: true, push: 1.4 });
           this.removeProjectile(p);
           continue;
         }
@@ -1003,8 +1098,8 @@ export class Game {
           const a = p.ammo;
           // charges in contact with (or buried in) a block hit it with the full, focused blast
           const host = p.stuck?.block;
-          if (host && !host.dead) this.damageBlock(host, a.blastDamage * (a.id === 'bunker' ? 1.6 : 0.8) * host.mat.blast * (a.bonus?.[host.matId] ?? 1));
-          this.explode(p.x, p.y, a.blastRadius, a.blastDamage, { bonus: a.bonus, push: a.id === 'bunker' ? 1.3 : 1 });
+          if (host && !host.dead) this.damageBlock(host, p.dmgMul * a.blastDamage * (a.id === 'bunker' || a.id === 'bomb_pen' ? 1.6 : 0.8) * host.mat.blast * (a.bonus?.[host.matId] ?? 1));
+          this.boom(p, p.x, p.y, a.blastRadius, a.blastDamage, { bonus: a.bonus, push: a.id === 'bunker' ? 1.3 : 1 });
           this.removeProjectile(p);
           continue;
         }
@@ -1019,7 +1114,7 @@ export class Game {
           this.killSoldier(s);
           if (!p.body && !p.stuck) continue;
           if (p.ammo.blastRadius > 0 && !p.inert && !['delayed', 'sticky'].includes(p.ammo.id)) {
-            this.explode(p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage);
+            this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage);
             this.removeProjectile(p);
             break;
           }
@@ -1105,30 +1200,52 @@ export class Game {
     for (const pl of this.planes) {
       if (pl.dead) continue;
       if (!pl.down) {
-        pl.x += pl.vx * dt;
-        while (pl.drops.length && pl.x >= pl.drops[0]) {
-          pl.drops.shift();
-          this.spawnProjectile(AMMO_BY_ID.airstrike, pl.x, pl.y - 0.6, pl.vx, -1, false, { bomblet: false });
+        const vx = pl.ux * pl.speed, vy = pl.uy * pl.speed;
+        pl.s += pl.speed * dt;
+        pl.x += vx * dt; pl.y += vy * dt;
+        while (pl.releases.length && pl.s >= pl.releases[0]) {
+          pl.releases.shift();
+          const b = this.spawnProjectile(pl.ammo, pl.x, pl.y - 0.5, vx, vy, false);
+          b.path = undefined;
+        }
+        // pull out of the dive once the stick is gone
+        if (!pl.releases.length) {
+          pl.climbing = true;
+          const ang = Math.atan2(pl.uy, pl.ux);
+          const target = pl.ux >= 0 ? 0.35 : Math.PI - 0.35;
+          let d = target - ang;
+          while (d > Math.PI) d -= Math.PI * 2;
+          while (d < -Math.PI) d += Math.PI * 2;
+          const na = ang + Math.sign(d) * Math.min(Math.abs(d), dt * 1.6);
+          pl.ux = Math.cos(na); pl.uy = Math.sin(na);
+        }
+        if (pl.y < this.groundY(pl.x) + 0.8) {
+          pl.dead = true;
+          this.toast('The bomber flew into the ground. Pull out sooner.', 'bad');
+          this.explode(pl.x, this.groundY(pl.x) + 0.5, 3.5, 80);
         }
         if (flak.length) {
           const f = flak[0].body.translation();
-          if (pl.x > f.x - 45) {
+          const d = Math.hypot(pl.x - f.x, pl.y - f.y);
+          if (d < 48) {
             pl.flakT -= dt;
             if (pl.flakT <= 0) {
               pl.flakT = 0.15;
-              const bx = pl.x + (Math.random() - 0.2) * 6, by = pl.y + (Math.random() - 0.5) * 5;
+              const bx = pl.x + (Math.random() - 0.3) * 6, by = pl.y + (Math.random() - 0.5) * 5;
               this.burst(bx, by, 0.3, false);
               this.tracer(f.x, f.y + 0.5, bx, by);
             }
+            pl.exposure += dt * (d < 30 ? 1 : 0.4);
+            if (pl.exposure > (this.stats.ecm ? 5 : 1.6)) { pl.down = true; pl.vy = pl.uy * pl.speed; this.toast('Flak shot down your bomber!', 'bad'); }
           }
-          if (pl.x > f.x - 30) { pl.down = true; this.toast('Flak shot down your bomber!', 'bad'); }
         }
-        if (pl.x > this.level.cannonX + 250) pl.dead = true;
+        if (Math.abs(pl.x - this.level.cannonX) > 300 || pl.y > 120) pl.dead = true;
+        pl.mesh.rotation.z = Math.atan2(pl.uy, Math.abs(pl.ux)) * Math.sign(pl.ux || 1);
       } else {
         pl.vy -= 9.81 * dt;
-        pl.x += pl.vx * dt * 0.7;
+        pl.x += pl.ux * pl.speed * dt * 0.7;
         pl.y += pl.vy * dt;
-        pl.mesh.rotation.z = Math.max(-1.1, pl.mesh.rotation.z - dt * 0.8);
+        pl.mesh.rotation.z += -Math.sign(pl.ux || 1) * dt * 0.8;
         if (Math.random() < 0.6) this.r.smoke.spawn({ x: pl.x, y: pl.y, vx: -2, vy: 1, max: 2.5, size0: 1, size1: 3, c0: [0.15, 0.14, 0.14], c1: [0.4, 0.4, 0.4], a0: 0.8, a1: 0, drag: 0.5 });
         if (Math.random() < 0.5) this.r.fire.spawn({ x: pl.x, y: pl.y, max: 0.3, size0: 1, size1: 0.2, c0: [2.8, 1.2, 0.3], c1: [1, 0.2, 0], a0: 1, a1: 0 });
         if (pl.y < this.groundY(pl.x) + 0.5) {
@@ -1152,11 +1269,11 @@ export class Game {
         else { d.x += (dx / dist) * sp; d.y += (dy / dist) * sp; }
       } else if (d.state === 'hover') {
         d.x += Math.sin(d.t * 2) * dt * 2;
-        if (flak.length && d.t > 1.5) {
+        if (flak.length && d.t > (this.stats.droneStealth ? 4 : 1.5)) {
           d.state = 'down'; this.toast('Drone shot down by flak (intel already sent).', 'info');
           const f = flak[0].body.translation();
           this.tracer(f.x, f.y, d.x, d.y);
-        } else if (d.t > 3) d.state = 'back';
+        } else if (d.t > this.stats.droneTime) d.state = 'back';
       } else if (d.state === 'back') {
         d.x -= 20 * dt; d.y += 4 * dt;
         if (d.x < this.level.cannonX - 40) d.dead = true;
@@ -1210,11 +1327,19 @@ export class Game {
         if (s.exposed > 1.0) { this.killSaboteur(s, 'Saboteur was gunned down.'); continue; }
         const hit = this.world.castRay(new RAPIER.Ray({ x: s.x, y: s.y + 0.4 }, { x: 1, y: 0 }), 0.7, true, undefined, undefined, undefined, undefined,
           (c) => { const o = this.owners.get(c.handle); return o?.t === 'block' || o?.t === 'house'; });
-        if (hit) {
-          const o = this.owners.get(hit.collider.handle);
+        let atTarget: { t: 'block'; b: Block } | null = null;
+        if (!hit && s.target !== null && s.x >= s.target) {
+          this.world.intersectionsWithPoint({ x: s.x + 0.3, y: s.y + 0.4 }, (c) => {
+            const o = this.owners.get(c.handle);
+            if (o?.t === 'block') { atTarget = o; return false; }
+            return true;
+          });
+        }
+        if (hit || (s.target !== null && s.x >= s.target)) {
+          const o = hit ? this.owners.get(hit.collider.handle) : atTarget;
           const a = AMMO_BY_ID.saboteur;
-          const p = this.spawnProjectile(a, s.x + hit.timeOfImpact, s.y + 0.4, 0, 0, false);
-          p.fuse = a.fuse ?? 3; p.impacted = true;
+          const p = this.spawnProjectile(a, s.x + (hit ? hit.timeOfImpact : 0.3), s.y + 0.4, 0, 0, false);
+          p.fuse = a.fuse ?? 3; p.impacted = true; p.dmgMul = this.stats.sabCharge;
           if (o?.t === 'block') {
             const b = o.b; const bt = b.body.translation(), br = b.body.rotation();
             const dx = p.x - bt.x, dy = p.y - bt.y, c = Math.cos(-br), sn = Math.sin(-br);
@@ -1419,14 +1544,14 @@ export class Game {
     const s = this.launchSpeed;
     let { x, y } = this.muzzle;
     let vx = Math.cos(this.angle) * s, vy = Math.sin(this.angle) * s;
-    const n = 14;
-    for (let i = 0; i < 40; i++) {
+    const n = Math.min(60, this.stats.previewSteps);
+    for (let i = 0; i < 60; i++) {
       if (i < n) {
         for (let k = 0; k < 4; k++) {
           vy += PHYS.gravity * DT; vx += this.wind * a.wind * 0.35 * DT;
           x += vx * DT; y += vy * DT;
         }
-        const sc = 1 - i / n;
+        const sc = 1 - (i / n) * 0.7;
         m.makeScale(sc, sc, 1); m.setPosition(x, y, 0);
       } else m.makeScale(0, 0, 0);
       this.previewDots.setMatrixAt(i, m);

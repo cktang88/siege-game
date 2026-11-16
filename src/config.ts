@@ -54,7 +54,8 @@ export const TARGETS: Record<TargetKind, { label: string; desc: string; color: s
 // ───────────────────────── Ammunition ─────────────────────────
 export type AmmoId =
   | 'shell' | 'heavy' | 'ap' | 'he' | 'incendiary' | 'bunker' | 'cluster' | 'delayed'
-  | 'sticky' | 'drill' | 'canister' | 'smoke' | 'drone' | 'saboteur' | 'airstrike';
+  | 'sticky' | 'drill' | 'canister' | 'smoke' | 'drone' | 'saboteur' | 'airstrike'
+  | 'bomb_he' | 'bomb_inc' | 'bomb_pen';
 
 export type AmmoMode = 'physics' | 'penetrator' | 'pellets' | 'drone' | 'saboteur' | 'airstrike';
 
@@ -86,6 +87,8 @@ export interface AmmoDef {
   bonus?: Partial<Record<MatId, number>>;
   /** player can tap during flight */
   ability?: string;
+  /** not sold in the armory (air-dropped ordnance) */
+  internal?: boolean;
 }
 
 export const AMMO: AmmoDef[] = [
@@ -126,13 +129,20 @@ export const AMMO: AmmoDef[] = [
   { id: 'airstrike', name: 'Air Strike', short: 'AIR', price: 340, mode: 'airstrike', color: [0.4, 0.42, 0.3], radius: 0.3, density: 8, speed: 0, wind: 0.1,
     kinetic: 40, blastRadius: 3.2, blastDamage: 120, desc: 'Click a spot: a bomber drops a stick of 5 bombs across it.',
     good: 'Roofs, anything without overhead cover', bad: 'Flak guns' },
+  // air-dropped ordnance (carried by the bomber)
+  { id: 'bomb_he', name: 'GP Bomb', short: 'B', price: 0, mode: 'physics', color: [0.35, 0.38, 0.28], radius: 0.3, density: 8, speed: 0, wind: 0.1,
+    kinetic: 40, blastRadius: 3.2, blastDamage: 120, desc: '', good: '', bad: '', internal: true },
+  { id: 'bomb_inc', name: 'Firebomb', short: 'B', price: 0, mode: 'physics', color: [0.7, 0.35, 0.12], radius: 0.3, density: 6, speed: 0, wind: 0.15,
+    kinetic: 25, blastRadius: 2.6, blastDamage: 35, ignite: 3.5, desc: '', good: '', bad: '', internal: true },
+  { id: 'bomb_pen', name: 'AP Bomb', short: 'B', price: 0, mode: 'penetrator', color: [0.3, 0.3, 0.32], radius: 0.24, density: 12, speed: 0, wind: 0.05,
+    kinetic: 0, blastRadius: 3, blastDamage: 170, pen: 650, fuse: 0.25, bonus: { concrete: 2.4, steel: 1.5 }, desc: '', good: '', bad: '', internal: true },
 ];
+
+export const SHOP_AMMO = () => AMMO.filter((a) => !a.internal);
 
 export const AMMO_BY_ID = Object.fromEntries(AMMO.map((a) => [a.id, a])) as Record<AmmoId, AmmoDef>;
 
 export const PHYS = {
   gravity: -9.81,
-  minSpeed: 8,
-  maxSpeed: 32,
-  reload: 1.4,
+  minSpeed: 6,
 };
