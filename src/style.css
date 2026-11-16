@@ -267,7 +267,9 @@ button { font: inherit; color: inherit; }
 .tlabel .hp { height: 3px; margin-top: 3px; background: rgba(255, 255, 255, 0.15); }
 .tlabel .hp i { display: block; height: 100%; background: currentColor; }
 .tlabel.obj::before { content: '◆ '; }
-#help { position: absolute; bottom: 104px; right: 14px; max-width: min(560px, calc(100vw - 470px)); text-align: right; font: 10.5px/1.45 var(--mono); color: rgba(226, 220, 203, 0.55); text-shadow: 0 1px 2px #000; pointer-events: none; }
+#help { position: absolute; bottom: 2px; right: 12px; max-width: calc(100vw - 640px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 10.5px var(--mono); color: rgba(226, 220, 203, 0.5); animation: helpfade 2s ease 25s forwards; }
+#help:hover { animation: none; opacity: 1; white-space: normal; }
+@keyframes helpfade { to { opacity: 0.12; } }
 @media (max-width: 1000px) { #help { display: none; } }
 
 .modalwrap { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(8, 9, 11, 0.55); }
