@@ -804,17 +804,24 @@ export class Game {
       let f = Math.max(0, 1 - d / radius);
       if (f <= 0) continue;
       // occlusion: blast spends itself on the first wall between the burst and this block
+      let shielded = false;
       if (d > 0.4) {
         const dir = { x: (qx - x) / d, y: (qy - y) / d };
         const hit = this.world.castRay(new RAPIER.Ray({ x, y }, dir), d, true, undefined, undefined, undefined, undefined, (c) => {
           const o = this.owners.get(c.handle);
           return o?.t === 'block' && o.b !== b && !o.b.dead;
         });
-        if (hit && hit.timeOfImpact > 0.15) f *= 0.35;
+        if (hit && hit.timeOfImpact > 0.15) {
+          f *= 0.35;
+          const o = this.owners.get(hit.collider.handle);
+          shielded = !(o?.t === 'block' && o.b.mat.flammable);
+        }
       }
       const bonus = opts.bonus?.[b.matId] ?? 1;
-      this.damageBlock(b, dmg * f * b.mat.blast * bonus, opts.source);
-      if (opts.ignite && b.mat.flammable && f > 0.25) this.ignite(b, opts.ignite * 2.5);
+      // flak shells are thin-walled fragmentation rounds: little effect on masonry
+      this.damageBlock(b, dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1), opts.source);
+      // the fireball does not lick round a wall: a firebrick (or other non-flammable) wall in the way keeps the flames off
+      if (opts.ignite && b.mat.flammable && f > 0.25 && !shielded) this.ignite(b, opts.ignite * 2.5);
       if (!b.dead) {
         const push = (opts.push ?? 1) * dmg * f * 0.075;
         const nx = dist > 0.01 ? dx / dist : 0, ny = dist > 0.01 ? dy / dist : 1;
@@ -1040,6 +1047,10 @@ export class Game {
         }
         this.removeProjectile(p);
         break;
+      case 'flak':
+        this.boom(p, t.x, t.y, a.blastRadius, a.blastDamage, { flak: true, visual: 0.8 });
+        this.removeProjectile(p);
+        break;
       case 'smoke':
         this.smokeScreen(t.x, t.y);
         this.removeProjectile(p);
@@ -1140,8 +1151,8 @@ export class Game {
       const o = this.owners.get(hit.collider.handle);
       if (p.pellet) {
         this.garrison.blast(p.x, p.y, 0.55);
-        if (o?.t === 'block') this.damageBlock(o.b, a.kinetic * o.b.mat.kinetic);
-        if (o?.t === 'house') this.damageHouse(o.h, 3);
+        if (o?.t === 'block') this.damageBlock(o.b, a.kinetic * o.b.mat.kinetic * p.dmgMul);
+        if (o?.t === 'house') this.damageHouse(o.h, 3 * p.dmgMul);
         this.sparks(p.x, p.y, 4);
         this.removeProjectile(p);
         return;
@@ -1412,7 +1423,7 @@ export class Game {
         if (flakGo || (!isFlak && u)) {
           if (isFlak) { this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage, { flak: true, visual: 0.8 }); this.removeProjectile(p); continue; }
           if (u) {
-            this.air.damage(u, p.pellet ? 18 : p.ammo.kinetic * 1.4 + (p.ammo.pen ?? 0) * 0.25);
+            this.air.damage(u, p.pellet ? 18 * p.dmgMul : p.ammo.kinetic * 1.4 + (p.ammo.pen ?? 0) * 0.25);
             if (p.ammo.blastRadius > 0) this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage);
             else if (p.ammo.id === 'smoke') this.smokeScreen(p.x, p.y);
             else this.sparks(p.x, p.y, 8);
@@ -1439,7 +1450,12 @@ export class Game {
           (c) => this.owners.get(c.handle)?.t === 'block');
         if (hit || p.burrow.dist > this.stats.drillRange) {
           const gy = this.groundY(p.x);
-          this.boom(p, p.x, gy - 0.4, p.ammo.blastRadius, p.ammo.blastDamage, { under: true, push: 1.4 });
+          const a = p.ammo;
+          // a tamped charge: the block sitting over the drill takes the focused blast (like a planted charge);
+          // earthworks are dirt like the ground, so the drill cuts them where shells only soak in
+          const over = hit ? this.owners.get(hit.collider.handle) : undefined;
+          if (over?.t === 'block' && !over.b.dead) this.damageBlock(over.b, p.dmgMul * a.blastDamage * over.b.mat.blast * (a.bonus?.[over.b.matId] ?? 1));
+          this.boom(p, p.x, gy - 0.4, a.blastRadius, a.blastDamage, { under: true, push: 1.4, bonus: a.bonus });
           this.removeProjectile(p);
           continue;
         }
@@ -1614,10 +1630,13 @@ export class Game {
         const vx = pl.ux * pl.speed, vy = pl.uy * pl.speed;
         pl.s += pl.speed * dt;
         pl.x += vx * dt; pl.y += vy * dt;
+        // a bomb-aimer under flak fire is thrown off: bombs released inside a flak gun's reach scatter
+        const underFire = pl.releases.length && pl.s >= pl.releases[0] ? this.nearestFlak(flak, pl.x, pl.y) : null;
+        const jolt = underFire && underFire.d < 48 ? (2.5 + 3.5 * Math.min(1, pl.exposure)) * (this.stats.ecm ? 0.4 : 1) : 0;
         while (pl.releases.length && pl.s >= pl.releases[0]) {
           // release where the bombsight solution put it, not up to a frame's flight later
           const back = pl.s - pl.releases.shift()!;
-          const b = this.spawnProjectile(pl.ammo, pl.x - pl.ux * back, pl.y - pl.uy * back, vx, vy, false);
+          const b = this.spawnProjectile(pl.ammo, pl.x - pl.ux * back, pl.y - pl.uy * back, vx + (Math.random() - 0.5) * 2 * jolt, vy + (Math.random() - 0.5) * jolt, false);
           b.path = undefined;
         }
         // pull out of the dive once the stick is gone
@@ -1647,7 +1666,8 @@ export class Game {
               this.burst(bx, by, 0.3, false);
               this.tracer(f.x, f.y + 0.5, bx, by, 'flak');
             }
-            pl.exposure += dt * (d < 30 ? 1 : 0.4);
+            // the whole run inside the gun's reach counts: a bomber that releases short of the flak still flies on over it
+            pl.exposure += dt * (d < 30 ? 1.6 : 1);
             if (pl.exposure > (this.stats.ecm ? 5 : 1.6)) { pl.down = true; pl.vy = pl.uy * pl.speed; this.toast('Flak shot down your bomber!', 'bad'); }
           }
         }
