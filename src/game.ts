@@ -404,8 +404,9 @@ export class Game {
       } else {
         const p = this.spawnProjectile(a, m.x, m.y, Math.cos(this.angle) * s, Math.sin(this.angle) * s, false);
         p.path = [{ x: m.x, y: m.y }];
-        if (a.id === 'delayed') p.fuseSetting = this.fuseSetting;
-        if (a.id === 'flak') p.fuseSetting = this.flakFuse;
+        // a zero/NaN fuse would never count down (fuse > 0 gate) and the round would sit inert until it expired
+        if (a.id === 'delayed') p.fuseSetting = Math.max(0.1, this.fuseSetting || 0);
+        if (a.id === 'flak') p.fuseSetting = Math.max(0.2, this.flakFuse || 0);
         if (a.id === 'cluster' && this.airburst > 0) p.airburst = this.airburst;
       }
       this.muzzleBlast(m.x, m.y, this.angle, 1);
@@ -1197,6 +1198,7 @@ export class Game {
           if (u) {
             this.air.damage(u, p.pellet ? 18 : p.ammo.kinetic * 1.4 + (p.ammo.pen ?? 0) * 0.25);
             if (p.ammo.blastRadius > 0) this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage);
+            else if (p.ammo.id === 'smoke') this.smokeScreen(p.x, p.y);
             else this.sparks(p.x, p.y, 8);
             this.removeProjectile(p);
             continue;
