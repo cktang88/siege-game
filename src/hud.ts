@@ -21,7 +21,7 @@ export function buildHud() {
     <div id="hud-left" class="plate"><div id="lvl-name"></div><div id="timer"></div><ul id="objectives"></ul></div>
     <div id="hud-right" class="plate">
       <div class="row"><span class="label">Wind</span><span class="windvane"><svg viewBox="0 0 38 14"><path id="windarrow" d="M2 7 H30 M24 2 L32 7 L24 12" stroke="#ffb347" stroke-width="2.4" fill="none"/></svg><span id="wind" class="readout"></span></span></div>
-      <div class="row"><span class="label">Gun</span><div class="meter" id="hp"></div></div>
+      <div class="row"><span class="label">Gun</span><div class="meter" id="hp"></div><span id="hpnum" class="readout"></span></div>
       <div class="row"><span class="label">Collateral</span><span id="collateral" class="readout">0</span></div>
       <div class="row"><span class="label">Garrison down</span><span id="garrison" class="readout">0</span></div>
       <div class="row" id="blind-row"><span class="label">Enemy guns</span><span id="blind" class="readout"></span></div>
@@ -30,8 +30,10 @@ export function buildHud() {
     <div id="fcp" class="plate"></div>
     <canvas id="minimap" class="plate" width="520" height="84" title="Click to look there"></canvas>
     <div id="toasts"></div>
+    <div id="dmgflash"></div>
+    <div id="floaters"></div>
     <div id="tooltip" class="hidden"></div>
-    <div id="help">drag to aim · ↑↓ elevation · ←→ velocity (shift fine) · space fire · 1-9 munitions · wheel zoom · right-drag pan · R reset view · M mute</div>`;
+    <div id="help">drag to aim · ↑↓ elevation · ←→ velocity (shift fine) · space fire · 1-9 munitions · WASD scroll · Q/E or wheel zoom · R reset view · M mute</div>`;
   $('#lvl-name').textContent = S.game.level.name;
   $('#hp').innerHTML = '<i></i>'.repeat(12);
   buildRack();
@@ -262,6 +264,34 @@ function updateFcp() {
   }
 }
 
+/** gun hit: shake the meter, pulse the screen edge, float the damage over the gun */
+export function gunHit(dmg: number) {
+  const hp = document.querySelector<HTMLElement>('#hp');
+  if (hp) { hp.classList.remove('hit'); void hp.offsetWidth; hp.classList.add('hit'); }
+  const fl = document.querySelector<HTMLElement>('#dmgflash');
+  if (fl) { fl.style.opacity = String(Math.min(0.7, 0.2 + dmg / 30)); fl.classList.remove('fade'); void fl.offsetWidth; fl.classList.add('fade'); }
+  const box = document.querySelector<HTMLElement>('#floaters');
+  if (!box || dmg < 0.5) return;
+  const g = S.game;
+  const p = S.renderer.worldToScreen(g.barrel.position.x, g.barrel.position.y + 2.3);
+  // merge rapid small hits (machine guns) into one rising number
+  const last = box.lastElementChild as HTMLElement | null;
+  if (last && performance.now() - +(last.dataset.t ?? 0) < 350) {
+    const v = +(last.dataset.v ?? 0) + dmg;
+    last.dataset.v = String(v); last.dataset.t = String(performance.now());
+    last.textContent = `−${Math.round(v)}`;
+    return;
+  }
+  const el = document.createElement('div');
+  el.className = `floater ${dmg >= 8 ? 'big' : ''}`;
+  el.dataset.v = String(dmg); el.dataset.t = String(performance.now());
+  el.textContent = `−${Math.round(dmg)}`;
+  el.style.left = `${p.x + (Math.random() - 0.5) * 30}px`;
+  el.style.top = `${p.y}px`;
+  box.appendChild(el);
+  setTimeout(() => el.remove(), 1300);
+}
+
 export function updateHud() {
   const g = S.game;
   $('#timer').textContent = `T+${fmtTime(g.battleTime)}  ·  par ${fmtTime(g.level.parTime)}`;
@@ -272,6 +302,7 @@ export function updateHud() {
   const hp = $('#hp');
   hp.className = `meter ${frac < 0.25 ? 'crit' : frac < 0.5 ? 'warn' : ''}`;
   hp.querySelectorAll('i').forEach((el, i) => el.classList.toggle('on', i < Math.ceil(frac * 12)));
+  $('#hpnum').textContent = `${Math.ceil(g.cannonHp)}`;
   $('#collateral').textContent = String(Math.round(g.collateral));
   $('#garrison').textContent = `${g.garrison.casualties}/${g.garrison.total}`;
   $('#collateral').style.color = g.collateral > 0 ? 'var(--bad)' : '';

@@ -267,3 +267,19 @@ button { font: inherit; color: inherit; }
 .aar .stamp { position: absolute; right: 22px; top: 24px; }
 .aar .earn { font: 700 18px var(--mono); color: #6a4a08; }
 .row-btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* gun damage feedback */
+#hpnum { min-width: 34px; text-align: right; font-size: 13px; }
+.meter.hit { animation: meterhit 0.35s ease-out; }
+@keyframes meterhit { 0% { transform: translateX(-4px); filter: brightness(2.2); } 30% { transform: translateX(4px); } 60% { transform: translateX(-2px); } 100% { transform: none; filter: none; } }
+.meter.crit { animation: critpulse 0.9s ease-in-out infinite; }
+@keyframes critpulse { 50% { box-shadow: 0 0 0 2px rgba(226, 80, 58, 0.6), 0 0 12px rgba(226, 80, 58, 0.5); } }
+#dmgflash { position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(226, 60, 40, 0) 58%, rgba(226, 60, 40, 0.5) 100%); }
+#dmgflash.fade { animation: dmgfade 0.45s ease-out forwards; }
+@keyframes dmgfade { to { opacity: 0; } }
+#floaters { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.floater { position: absolute; transform: translate(-50%, -50%); font: 800 20px/1 var(--stencil); color: #ff6a4a; letter-spacing: 0.04em;
+  text-shadow: 0 2px 0 #000, 0 0 8px rgba(255, 60, 30, 0.6); animation: floatup 1.2s ease-out forwards; }
+.floater.big { font-size: 28px; }
+@keyframes floatup { 0% { opacity: 0; margin-top: 8px; } 12% { opacity: 1; } 100% { opacity: 0; margin-top: -60px; } }

@@ -84,7 +84,8 @@ export type GameEvent =
   | { type: 'toast'; text: string; tone?: 'good' | 'bad' | 'info' }
   | { type: 'target'; kind: TargetKind }
   | { type: 'end'; win: boolean; reason: string }
-  | { type: 'fired' };
+  | { type: 'fired' }
+  | { type: 'gunhit'; dmg: number };
 
 const DT = 1 / 60;
 /** cos(obliquity) below which rounds glance off (steel ~60°, concrete ~68°) */
@@ -149,12 +150,20 @@ export class Game {
   nextId = 1;
   zoom = 1;
   pan = 0;
+  panY = 0;
+  /** gun hit flash (0..1) */
+  gunFlash = 0;
+  gunCritical = false;
+  /** predicted impact points of incoming enemy shells */
+  incoming: { x: number; t: number; mesh: THREE.Mesh }[] = [];
+  hpBar!: THREE.Group;
   aimMarker!: THREE.Mesh;
   strikeLine!: THREE.Line;
   strikeMarks!: THREE.InstancedMesh;
   airMarker: number | null = null;
   lastCollateralToast = -10;
   baseCx = 0;
+  hpLag = 1;
   lastRicochetToast = -10;
   garrison = new Garrison(this);
   air = new AirForce(this);
@@ -185,7 +194,7 @@ export class Game {
     this.collateral = 0; this.enemyBlind = 0; this.winT = -1; this.idleT = 0;
     this.targetsDestroyed = {}; this.targetsTotal = {};
     this.lastPath = [];
-    this.zoom = 1; this.pan = 0;
+    this.zoom = 1; this.pan = 0; this.panY = 0; this.gunFlash = 0; this.gunCritical = false; this.incoming = [];
 
     // ground
     this.groundPts = level.ground;
@@ -226,6 +235,30 @@ export class Game {
     bm.position.x = 1.1;
     this.barrel.add(bm);
     this.barrel.position.set(level.cannonX + 0.15, gy + 1.15, 6.5);
+    // world-space health bar over the gun: dark backing, coloured fill, tick marks
+    this.hpBar = new THREE.Group();
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.34), new THREE.MeshBasicMaterial({ color: 0x0b0c0e, transparent: true, opacity: 0.85, depthTest: false }));
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.22), new THREE.MeshBasicMaterial({ color: 0x8fc46a, depthTest: false }));
+    fill.geometry.translate(1.25, 0, 0);
+    fill.position.set(-1.25, 0, 0.01);
+    fill.name = 'fill';
+    const lag = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.22), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
+    lag.geometry.translate(1.25, 0, 0);
+    lag.position.set(-1.25, 0, 0.005);
+    lag.name = 'lag';
+    this.hpBar.add(back, lag, fill);
+    for (let i = 1; i < 4; i++) {
+      const tick = new THREE.Mesh(new THREE.PlaneGeometry(0.04, 0.26), new THREE.MeshBasicMaterial({ color: 0x0b0c0e, depthTest: false }));
+      tick.position.set(-1.25 + i * 0.625, 0, 0.02);
+      this.hpBar.add(tick);
+    }
+    this.hpBar.position.set(level.cannonX - 0.1, gy + 2.9, 14);
+    // draw order: backing, lost-health trail, fill, ticks
+    back.renderOrder = 30; lag.renderOrder = 31; fill.renderOrder = 32;
+    this.hpBar.children.slice(3).forEach((t) => { t.renderOrder = 33; });
+    for (const m of [lag, fill]) (m.material as THREE.MeshBasicMaterial).transparent = true;
+    this.root.add(this.hpBar);
+    this.hpLag = 1;
     this.root.add(this.carriage, this.barrel);
 
     // aim preview dots
@@ -785,6 +818,15 @@ export class Game {
   damageCannon(d: number) {
     if (d <= 0 || this.ended) return;
     this.cannonHp = Math.max(0, this.cannonHp - d);
+    this.gunFlash = 1;
+    this.events.push({ type: 'gunhit', dmg: d });
+    const b = this.barrel.position;
+    this.sparks(b.x, b.y, Math.min(14, 3 + Math.round(d)));
+    if (!this.gunCritical && this.cannonHp / this.stats.cannonHp < 0.3 && this.cannonHp > 0) {
+      this.gunCritical = true;
+      this.toast('Gun critical! Silence the guns or blind them with smoke.', 'bad');
+      audio.play('fail', undefined, 0.6, 1.4);
+    }
     if (this.cannonHp <= 0) this.end(false, 'Your cannon was destroyed.');
   }
 
@@ -1074,6 +1116,7 @@ export class Game {
     this.updateBlocks(dt);
     this.updateBackdrops(dt);
     this.garrison.update(dt);
+    this.updateGunFx(dt);
     this.air.update(dt, this.running && !this.ended);
     this.updateProjectiles(dt);
     this.updatePending(dt);
@@ -1107,6 +1150,46 @@ export class Game {
         if (bd.fade <= 0) bd.mesh.visible = false;
       }
     }
+  }
+
+  /** gun damage feedback: flash, health bar with a trailing 'lost' segment, smoke and fire when critical, incoming markers */
+  updateGunFx(dt: number) {
+    if (!this.hpBar) return;
+    const frac = Math.max(0, this.cannonHp / this.stats.cannonHp);
+    this.gunFlash = Math.max(0, this.gunFlash - dt * 4);
+    this.hpLag = this.hpLag > frac ? Math.max(frac, this.hpLag - dt * 0.35) : frac;
+    const fill = this.hpBar.getObjectByName('fill') as THREE.Mesh;
+    const lag = this.hpBar.getObjectByName('lag') as THREE.Mesh;
+    fill.scale.x = Math.max(0.001, frac);
+    lag.scale.x = Math.max(0.001, this.hpLag);
+    (fill.material as THREE.MeshBasicMaterial).color.set(frac > 0.5 ? 0x8fc46a : frac > 0.3 ? 0xffb347 : 0xe2503a);
+    (lag.material as THREE.MeshBasicMaterial).color.setRGB(1, 0.85 - this.gunFlash * 0.5, 0.6 - this.gunFlash * 0.5);
+    const jit = this.gunFlash * 0.08;
+    this.hpBar.position.x = this.level.cannonX - 0.1 + (Math.random() - 0.5) * jit;
+    // the gun itself flashes red when hit
+    for (const m of [this.carriage, this.barrel.children[0] as THREE.Mesh]) {
+      const mat = m.material as THREE.MeshBasicMaterial;
+      mat.color.setRGB(1 + this.gunFlash * 1.5, 1 - this.gunFlash * 0.6, 1 - this.gunFlash * 0.6);
+    }
+    // a damaged gun smokes; a critical one burns
+    const b = this.barrel.position;
+    if (frac < 0.6 && Math.random() < dt * (frac < 0.3 ? 18 : 6)) {
+      this.r.smoke.spawn({ x: b.x - 0.4 + Math.random() * 0.8, y: b.y + 0.2, vx: this.wind * 0.4, vy: 1.2, max: 2.5, size0: 0.5, size1: 2.2, c0: [0.2, 0.19, 0.18], c1: [0.45, 0.44, 0.42], a0: 0.7, a1: 0, drag: 0.6 });
+    }
+    if (frac < 0.3 && frac > 0) {
+      if (Math.random() < dt * 14) this.r.fire.spawn({ x: b.x - 0.6 + Math.random() * 1.2, y: b.y - 0.1, vy: 1.6, max: 0.5, size0: 0.55, size1: 0.1, c0: [2.6, 1.1, 0.25], c1: [1.2, 0.2, 0.02], a0: 1, a1: 0 });
+      this.r.lights.set('gunfire', b.x, b.y, 3, [1, 0.5, 0.15], 0.8, 0.5);
+    }
+    // incoming shell markers pulse and tighten as the shell nears
+    for (const m of this.incoming) {
+      m.t -= dt;
+      const k = Math.max(0, m.t);
+      const s = 0.8 + Math.min(1.6, k * 0.4) + Math.sin(this.time * 14) * 0.08;
+      m.mesh.scale.set(s, s * 0.35, 1);
+      (m.mesh.material as THREE.MeshBasicMaterial).opacity = 0.5 + 0.5 * Math.abs(Math.sin(this.time * (k < 1 ? 16 : 7)));
+      if (m.t < -0.4) this.root.remove(m.mesh);
+    }
+    this.incoming = this.incoming.filter((m) => m.t >= -0.4);
   }
 
   updateBlocks(dt: number) {
@@ -1528,6 +1611,12 @@ export class Game {
           const denom = 2 * c * c * (dx * Math.tan(th) - dy);
           const v = Math.sqrt(Math.max(1, (-PHYS.gravity * dx * dx) / Math.max(0.01, denom)));
           this.spawnProjectile(AMMO_BY_ID.he, sx, sy, c * v, s * v, true);
+          const imp = this.predictImpact(sx, sy, c * v, s * v, 0);
+          const mk = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.25, 28), new THREE.MeshBasicMaterial({ color: 0xff3b1f, transparent: true, opacity: 0.9, depthTest: false }));
+          mk.position.set(imp.x, imp.y + 0.15, 12);
+          mk.scale.y = 0.35;
+          this.root.add(mk);
+          this.incoming.push({ x: imp.x, t: Math.abs((imp.x - sx) / (c * v)), mesh: mk });
           this.muzzleBlast(sx, sy, th, 0.8);
           audio.play('enemyGun', sx);
           const flight = Math.abs(dx / (c * v)) * 1000;
@@ -1643,7 +1732,7 @@ export class Game {
     let viewH = Math.max(16, (x1 - x0) / aspect, Math.min(40, (fb.y1 - this.groundY(fb.x0)) * 1.7)) / this.zoom;
     this.baseCx = (x0 + x1) / 2;
     let cx = this.baseCx + this.pan;
-    let cy = Math.min(this.groundY(this.level.cannonX), this.groundY(fb.x0)) + viewH * 0.3;
+    let cy = Math.min(this.groundY(this.level.cannonX), this.groundY(fb.x0)) + viewH * 0.3 + this.panY;
     // keep the whole battlefield in view, expanding to include whatever is in flight
     if (this.focus) {
       const fx = this.focus.x, fy = this.focus.y;

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { audio } from './audio';
 import { AMMO_BY_ID } from './config';
 import { Game } from './game';
-import { rackIds, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
+import { gunHit, rackIds, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
 import { writeSave } from './progress';
 import { Renderer, loadTextures } from './render';
 import { showMap, showResult } from './screens';
@@ -77,7 +77,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === ' ') { e.preventDefault(); if (!g.triggerAbility()) g.fire(); }
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= 9) { const ids = rackIds(); if (ids[n - 1]) g.selected = ids[n - 1]; }
-  if (e.key === 'r' || e.key === 'R') { g.zoom = 1; g.pan = 0; }
+  if (e.key === 'r' || e.key === 'R') { g.zoom = 1; g.pan = 0; g.panY = 0; }
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key));
 
@@ -89,6 +89,16 @@ function handleKeys(dt: number) {
   if (keys.has('ArrowDown')) g.setAngleDeg(deg - dt * 20 * fine);
   if (keys.has('ArrowRight')) g.setSpeed(g.speed + dt * 8 * fine);
   if (keys.has('ArrowLeft')) g.setSpeed(g.speed - dt * 8 * fine);
+  // WASD scrolls the camera, Q/E zoom (pan speed scales with how much is in view)
+  const k = (c: string) => keys.has(c) || keys.has(c.toUpperCase());
+  const span = S.renderer.viewW;
+  const fast = keys.has('Shift') ? 2.2 : 1;
+  if (k('a')) g.pan -= span * 0.6 * dt * fast;
+  if (k('d')) g.pan += span * 0.6 * dt * fast;
+  if (k('w')) g.panY += S.renderer.viewH * 0.6 * dt * fast;
+  if (k('s')) g.panY = Math.max(-S.renderer.viewH * 0.25, g.panY - S.renderer.viewH * 0.6 * dt * fast);
+  if (k('q')) g.zoom = Math.max(0.5, g.zoom * Math.exp(-dt * 1.4));
+  if (k('e')) g.zoom = Math.min(4, g.zoom * Math.exp(dt * 1.4));
 }
 
 // ───────────────────────── loop ─────────────────────────
@@ -121,6 +131,7 @@ function frame(now: number) {
     for (const ev of g.events) {
       if (ev.type === 'toast') toast(ev.text, ev.tone);
       else if (ev.type === 'target') updateObjectives();
+      else if (ev.type === 'gunhit') gunHit(ev.dmg);
       else if (ev.type === 'end') showResult(ev.win, ev.reason);
     }
     g.events.length = 0;

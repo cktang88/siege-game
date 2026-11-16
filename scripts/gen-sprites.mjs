@@ -27,7 +27,7 @@ const SPRITES = {
   p_cauldron: `An iron cooking cauldron on a tripod over a small fire, side view. ${STYLE.replace('side view facing right, ', '')}`,
   p_shelf: `A tall wooden shelf with sacks, jars and crates of supplies, side view. ${STYLE.replace('side view facing right, ', '')}`,
   p_cannon: `A small bronze fortress cannon on a wooden garrison carriage, facing left. ${STYLE.replace('facing right', 'facing left')}`,
-  carriage: `An empty wooden siege-cannon carriage with two large spoked wheels and a trail, WITHOUT any barrel or gun tube. ${STYLE}`,
+  carriage: `An EMPTY wooden artillery gun carriage (a split-trail field carriage) with two large spoked wheels: just the wooden cheeks, axle and trail with an empty curved cradle on top. Absolutely NO cannon, NO barrel, NO gun tube, nothing resting in the cradle. ${STYLE}`,
   barrel: `A single long black iron cannon barrel (gun tube) lying perfectly horizontal, muzzle pointing right, no carriage, no wheels. ${STYLE}`,
   soldier: `A single infantry soldier walking, helmet, grey-green uniform, rifle, full body, facing left. ${STYLE.replace('facing right', 'facing left')}`,
   plane: `A 1940s twin-propeller bomber airplane seen from the side, olive drab. ${STYLE}`,
