@@ -25,12 +25,72 @@ varying vec2 vUv;
 void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
 `;
 
+// ───────────────────────── Light pool ─────────────────────────
+/*
+  After tinwar's lighting.ts: every bright thing is a light. Blasts, muzzle flashes, tracers and fires
+  register short-lived point lights; blocks and terrain add them in their shaders (cel-stepped falloff).
+*/
+export const MAX_LIGHTS = 16;
+export const LIGHTS = {
+  uLightPos: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector4(0, 0, 1, 0)) }, // x, y, radius, unused
+  uLightCol: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3()) },
+  uLightCount: { value: 0 },
+};
+interface Light { x: number; y: number; r: number; c: [number, number, number]; i: number; life: number; max: number; flicker: number; key?: string; seen?: boolean }
+export class LightPool {
+  lights: Light[] = [];
+  /** transient light */
+  add(x: number, y: number, r: number, c: [number, number, number], i: number, life: number, flicker = 0) {
+    this.lights.push({ x, y, r, c, i, life, max: life, flicker });
+  }
+  /** persistent light: refresh every frame or it goes out */
+  set(key: string, x: number, y: number, r: number, c: [number, number, number], i: number, flicker = 0.3) {
+    const l = this.lights.find((q) => q.key === key);
+    if (l) { l.x = x; l.y = y; l.r = r; l.i = i; l.seen = true; return; }
+    this.lights.push({ x, y, r, c, i, life: 1, max: 1, flicker, key, seen: true });
+  }
+  update(dt: number, time: number) {
+    this.lights = this.lights.filter((l) => {
+      if (l.key) { const keep = !!l.seen; l.seen = false; return keep; }
+      l.life -= dt; return l.life > 0;
+    });
+    const ranked = [...this.lights].sort((a, b) => b.i * b.r - a.i * a.r).slice(0, MAX_LIGHTS);
+    ranked.forEach((l, k) => {
+      const fade = l.key ? 1 : (l.life / l.max) ** 1.5;
+      const fl = 1 - l.flicker * (0.5 + 0.5 * Math.sin(time * 23 + k * 7.1) * Math.sin(time * 13.7 + k));
+      const I = l.i * fade * fl;
+      LIGHTS.uLightPos.value[k].set(l.x, l.y, l.r, 0);
+      LIGHTS.uLightCol.value[k].set(l.c[0] * I, l.c[1] * I, l.c[2] * I);
+    });
+    LIGHTS.uLightCount.value = ranked.length;
+  }
+}
+const LIGHT_GLSL = /* glsl */ `
+uniform vec4 uLightPos[${MAX_LIGHTS}]; uniform vec3 uLightCol[${MAX_LIGHTS}]; uniform int uLightCount;
+vec3 pointLights(vec2 w) {
+  vec3 acc = vec3(0.0);
+  for (int i = 0; i < ${MAX_LIGHTS}; i++) {
+    if (i >= uLightCount) break;
+    float d = length(w - uLightPos[i].xy) / uLightPos[i].z;
+    float f = clamp(1.0 - d, 0.0, 1.0);
+    f = floor(f * f * 4.0 + 0.5) / 4.0; // hard cel steps: light as a toy would see it
+    acc += uLightCol[i] * f;
+  }
+  return acc;
+}
+`;
+const litVert = /* glsl */ `
+varying vec2 vUv; varying vec2 vWorld;
+void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xy; gl_Position = projectionMatrix * viewMatrix * w; }
+`;
+
 const blockFrag = /* glsl */ `
 uniform vec3 uColor; uniform vec2 uSize; uniform float uKind; uniform float uDamage; uniform float uBurn;
 uniform float uFlash; uniform float uHighlight; uniform float uSeed; uniform float uTime; uniform float uTarget; uniform vec3 uTargetColor;
 uniform float uFade;
-varying vec2 vUv;
+varying vec2 vUv; varying vec2 vWorld;
 ${NOISE}
+${LIGHT_GLSL}
 void main(){
   vec2 p = vUv * uSize;            // meters
   vec2 px = fwidth(p);             // meters per pixel
@@ -135,6 +195,7 @@ void main(){
     float rim = 1.0 - smoothstep(2.0, 5.0, edge);
     col = mix(col, vec3(1.6, 1.25, 0.25), rim * (0.6 + 0.4 * sin(uTime * 6.0)) * uHighlight);
   }
+  col += col * pointLights(vWorld) * 0.8;
   col = mix(col, vec3(2.0), uFlash);
   gl_FragColor = vec4(col, uFade);
 }
@@ -142,7 +203,7 @@ void main(){
 
 export function makeBlockMaterial(color: [number, number, number], w: number, h: number, kind: number) {
   return new THREE.ShaderMaterial({
-    vertexShader: blockVert,
+    vertexShader: litVert,
     fragmentShader: blockFrag,
     transparent: true,
     uniforms: {
@@ -158,6 +219,7 @@ export function makeBlockMaterial(color: [number, number, number], w: number, h:
       uTarget: { value: 0 },
       uTargetColor: { value: new THREE.Color(1, 0, 0) },
       uFade: { value: 1 },
+      ...LIGHTS,
     },
   });
 }
@@ -170,6 +232,7 @@ void main(){ vDepth = aDepth; vec4 w = modelMatrix * vec4(position,1.0); vW = w.
 const groundFrag = /* glsl */ `
 varying float vDepth; varying vec2 vW;
 ${NOISE}
+${LIGHT_GLSL}
 void main(){
   float px = fwidth(vDepth);
   float n = fbm(vW * 0.8);
@@ -184,6 +247,7 @@ void main(){
   vec3 col = vDepth < grassEdge ? grass : dirt;
   if (vDepth < grassEdge && vDepth > grassEdge - 0.08) col *= 0.7;
   col = mix(vec3(0.1, 0.12, 0.08), col, smoothstep(0.0, px * 2.5, vDepth));
+  col += col * pointLights(vW) * 0.7 * (1.0 - clamp(vDepth / 3.0, 0.0, 1.0));
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -205,7 +269,7 @@ export function makeGround(points: [number, number][]) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('aDepth', new THREE.Float32BufferAttribute(depth, 1));
   geo.setIndex(idx);
-  const mat = new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag });
+  const mat = new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: { ...LIGHTS } });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.z = 1;
   return mesh;
@@ -413,12 +477,26 @@ export function makeSprite(name: string, height: number, z = 5, fallback = 0x333
 }
 
 // ───────────────────────── Renderer ─────────────────────────
+/* final grade, after tinwar's postfx.ts: colour grade, soft vignette, animated grain, chromatic split on big hits */
 const vignetteShader = {
-  uniforms: { tDiffuse: { value: null }, uFlash: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uFlash: { value: 0 }, uTime: { value: 0 }, uSplit: { value: 0 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uFlash; varying vec2 vUv;
-    void main(){ vec4 c = texture2D(tDiffuse, vUv); vec2 d = vUv - .5; float v = 1.0 - dot(d, d) * 0.9;
-      c.rgb *= v; c.rgb = mix(c.rgb, vec3(1.0, 0.95, 0.85), uFlash); gl_FragColor = c; }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uFlash; uniform float uTime; uniform float uSplit; varying vec2 vUv;
+    float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main(){
+      vec2 d = vUv - .5;
+      vec2 off = d * uSplit * 0.012;
+      vec4 c = texture2D(tDiffuse, vUv);
+      c.r = texture2D(tDiffuse, vUv + off).r;
+      c.b = texture2D(tDiffuse, vUv - off).b;
+      // grade: cool shadows, warm highlights, a touch of contrast
+      float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      c.rgb = mix(c.rgb * vec3(0.92, 0.98, 1.06), c.rgb * vec3(1.05, 1.0, 0.92), smoothstep(0.2, 0.8, l));
+      c.rgb = (c.rgb - 0.5) * 1.06 + 0.5;
+      c.rgb *= 1.0 - dot(d, d) * 0.85;
+      c.rgb += (h(vUv * 917.0 + fract(uTime * 7.3)) - 0.5) * 0.035;
+      c.rgb = mix(c.rgb, vec3(1.0, 0.95, 0.85), uFlash);
+      gl_FragColor = c; }`,
 };
 
 export class Renderer {
@@ -431,6 +509,8 @@ export class Renderer {
   bg: THREE.Mesh;
   bgMat: THREE.ShaderMaterial;
   world = new THREE.Group();
+  lights = new LightPool();
+  split = 0;
   smoke = new ParticlePool(1800, false, 8);
   fire = new ParticlePool(1500, true, 9);
   debris: DebrisPool;
@@ -506,6 +586,10 @@ export class Renderer {
     this.fire.update(dt);
     this.debris.update(dt);
     this.vignette.uniforms.uFlash.value = this.flash * 0.35;
+    this.split = Math.max(0, this.split - dt * 3);
+    this.vignette.uniforms.uSplit.value = this.split;
+    this.vignette.uniforms.uTime.value = time;
+    this.lights.update(dt, time);
     this.composer.render(dt);
   }
 }

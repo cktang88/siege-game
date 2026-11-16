@@ -396,6 +396,7 @@ export class Game {
   }
 
   muzzleBlast(x: number, y: number, ang: number, scale: number) {
+    this.r.lights.add(x, y, 6 * scale, [1, 0.75, 0.4], 1.4, 0.14);
     const dx = Math.cos(ang), dy = Math.sin(ang);
     for (let i = 0; i < 14 * scale; i++) {
       const s = 2 + Math.random() * 6;
@@ -636,7 +637,8 @@ export class Game {
     // visuals
     this.burst(x, y, vis, opts.smoke);
     this.r.shake = Math.min(2.2, this.r.shake + vis * 0.7);
-    if (vis > 1.2) this.r.flash = Math.min(1, this.r.flash + 0.5);
+    if (vis > 1.2) { this.r.flash = Math.min(1, this.r.flash + 0.5); this.r.split = Math.min(1, this.r.split + vis * 0.45); }
+    if (!opts.smoke) this.r.lights.add(x, y + 0.5, Math.max(4, radius * 2.6), [1.0, 0.62, 0.28], 1.6 + vis * 0.4, 0.35 + vis * 0.2, 0.3);
     if (radius <= 0) return;
     const ball = new RAPIER.Ball(radius);
     const hitBlocks: Block[] = [];
@@ -1023,6 +1025,7 @@ export class Game {
       // fire
       if (b.burning > 0) {
         b.burning -= dt;
+        this.r.lights.set(`fire${b.id}`, t.x, t.y + b.h * 0.3, 3.5 + b.w, [1, 0.5, 0.15], 0.9, 0.45);
         if (Math.random() < dt * 3) audio.play('fire', t.x, 0.5);
         b.burnAmt = Math.min(1, b.burnAmt + dt * 0.25);
         this.damageBlock(b, b.mat.fire * 9 * dt, 'fire');
@@ -1197,6 +1200,7 @@ export class Game {
 
   tracer(x0: number, y0: number, x1: number, y1: number, sound: 'rifle' | 'flak' | null = 'rifle') {
     if (sound) audio.play(sound, x0, sound === 'flak' ? 0.6 : 0.5);
+    this.r.lights.add(x0, y0, 2.2, [1, 0.8, 0.45], 1, 0.06);
     const dx = x1 - x0, dy = y1 - y0, d = Math.hypot(dx, dy);
     const sp = 60;
     this.r.fire.spawn({ x: x0, y: y0, vx: (dx / d) * sp, vy: (dy / d) * sp, max: Math.min(0.5, d / sp), size0: 0.18, size1: 0.18, c0: [3, 2.4, 1], c1: [3, 1.6, 0.6], a0: 1, a1: 0.6 });
