@@ -448,12 +448,23 @@ export class Game {
     }
   }
 
+  private shellLooks = new Map<string, [THREE.BufferGeometry, THREE.Material][]>();
   spawnProjectile(a: AmmoDef, x: number, y: number, vx: number, vy: number, enemy: boolean, extra: Partial<Projectile> = {}): Projectile {
     const r = extra.pellet ? 0.09 : extra.bomblet ? 0.16 : a.radius;
     const g = new THREE.Group();
-    const outline = new THREE.Mesh(new THREE.CircleGeometry(r * 1.25, 18), new THREE.MeshBasicMaterial({ color: 0x111111 }));
-    const core = new THREE.Mesh(new THREE.CircleGeometry(r, 18), new THREE.MeshBasicMaterial({ color: new THREE.Color(...a.color) }));
-    const hl = new THREE.Mesh(new THREE.CircleGeometry(r * 0.4, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color(...a.color).multiplyScalar(1.8) }));
+    // shell look (ink rim, body, highlight) is shared per calibre and colour: a canister volley used to
+    // allocate (and never free) three geometries and three materials per pellet
+    const key = `${r}|${a.color.join(',')}`;
+    let look = this.shellLooks.get(key);
+    if (!look) {
+      look = [
+        [new THREE.CircleGeometry(r * 1.25, 18), new THREE.MeshBasicMaterial({ color: 0x111111 })],
+        [new THREE.CircleGeometry(r, 18), new THREE.MeshBasicMaterial({ color: new THREE.Color(...a.color) })],
+        [new THREE.CircleGeometry(r * 0.4, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color(...a.color).multiplyScalar(1.8) })],
+      ];
+      this.shellLooks.set(key, look);
+    }
+    const [outline, core, hl] = look.map(([geo, mat]) => new THREE.Mesh(geo, mat));
     hl.position.set(-r * 0.35, r * 0.35, 0.02);
     core.position.z = 0.01;
     g.add(outline, core, hl);
@@ -1644,6 +1655,8 @@ export class Game {
   }
 
   // ───────────────────────── Camera & view ─────────────────────────
+  private frameTop = 0;
+  private frameKey: LevelDef | null = null;
   private groundFrac = 0.2;
   private hudPoll = 0;
   private hudShown = false;
@@ -1672,12 +1685,21 @@ export class Game {
     // big castles: the overview covers the gun and the near works; pan, zoom or use the minimap for the rest
     const x1 = Math.min(x0 + 115, Math.max(fb.x1 + 4, ...this.level.houses.filter((h) => h.x < fb.x1 + 10).map((h) => h.x + h.w + 1)));
     const aspect = r.width / r.height;
-    let viewH = Math.max(16, (x1 - x0) / aspect, Math.min(40, (fb.y1 - this.groundY(fb.x0)) * 1.7)) / this.zoom;
+    const ground = Math.min(this.groundY(this.level.cannonX), this.groundY(fb.x0));
+    let viewH = Math.max(16, (x1 - x0) / aspect, Math.min(40, (fb.y1 - this.groundY(fb.x0)) * 1.7));
+    // lifting the ground line must not crop what is in frame: the tallest work in the overview keeps a
+    // top-HUD-sized margin, up to the headroom the unlifted framing gave (0.8 of the view)
+    if (snap || this.frameKey !== this.level) {
+      this.frameKey = this.level;
+      this.frameTop = -Infinity;
+      for (const b of this.level.blocks) if (b.x + b.w / 2 < x1) this.frameTop = Math.max(this.frameTop, b.y + b.h);
+    }
+    const head = Math.min(this.frameTop - ground + viewH * 0.18, viewH * 0.8);
+    viewH = Math.max(viewH, head / (1 - gl)) / this.zoom;
     this.baseCx = (x0 + x1) / 2;
     // panning (drag or minimap) stops with the view centre between the gun and the far end of the works
     this.pan = Math.max(x0 - this.baseCx, Math.min(Math.max(x1, fb.x1 + 8) - this.baseCx, this.pan));
     let cx = this.baseCx + this.pan;
-    const ground = Math.min(this.groundY(this.level.cannonX), this.groundY(fb.x0));
     // keep the whole battlefield in view, expanding to include whatever is in flight
     if (this.focus) {
       const fx = this.focus.x, fy = this.focus.y;
@@ -1756,13 +1778,29 @@ export class Game {
     if (!show) return;
     const sol = this.planStrike();
     const last = Math.max(...sol.releases);
-    const pts: THREE.Vector3[] = [];
-    for (let sp = 0; sp <= last + 6; sp += 1) pts.push(new THREE.Vector3(sol.sx + sol.ux * sp, sol.sy + sol.uy * sp, 0));
-    this.strikeLine.geometry.dispose();
-    this.strikeLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
-    this.strikeLine.computeLineDistances();
+    // the run is a straight line: two vertices with their dash distances, updated in place every frame
+    // (it used to rebuild a fresh geometry of one vertex per metre each frame)
+    // level runs: carry the line on over the impacts, so the run still reads when its release end sits under the HUD
+    let L = Math.floor(last + 6);
+    if (Math.abs(sol.uy) < 0.05 && sol.impacts.length) {
+      const far = Math.max(...sol.impacts.map((q) => (q.x - sol.sx) * Math.sign(sol.ux || 1)));
+      L = Math.max(L, Math.floor(far / Math.max(0.1, Math.abs(sol.ux)) + 8));
+    }
+    const geo = this.strikeLine.geometry;
+    let pos = geo.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (!pos || pos.count !== 2) {
+      pos = new THREE.BufferAttribute(new Float32Array(6), 3);
+      geo.setAttribute('position', pos);
+      geo.setAttribute('lineDistance', new THREE.BufferAttribute(new Float32Array(2), 1));
+    }
+    const ul = Math.hypot(sol.ux, sol.uy);
+    pos.setXYZ(0, sol.sx, sol.sy, 0);
+    pos.setXYZ(1, sol.sx + sol.ux * L, sol.sy + sol.uy * L, 0);
+    pos.needsUpdate = true;
+    const ld = geo.getAttribute('lineDistance') as THREE.BufferAttribute;
+    ld.setX(1, L * ul); ld.needsUpdate = true;
     (this.strikeLine.material as THREE.LineDashedMaterial).color.set(sol.ok ? 0xffb347 : 0xff3030);
-    const m = new THREE.Matrix4();
+    const m = this.tmpM;
     for (let i = 0; i < 24; i++) {
       const k = i >> 1;
       if (k < sol.impacts.length) {
