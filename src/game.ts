@@ -135,11 +135,15 @@ export class Game {
   targetsTotal: Partial<Record<TargetKind, number>> = {};
   events: GameEvent[] = [];
   artilleryShots = 0;
+  /** how far the enemy gunners have walked their fall of shot onto your gun */
+  bracket = 0;
   artT = 9; barT = 12; repT = 5; rebT = 14;
   destroyedSlots: { def: BlockDef; t: number }[] = [];
   carriage!: THREE.Mesh;
   barrel!: THREE.Group;
   enemyGuns = new Map<Block, THREE.Mesh>();
+  /** last elevation each enemy gun fired at (drives the barrel sprite) */
+  gunElev = new Map<Block, number>();
   previewDots!: THREE.InstancedMesh;
   ghost!: THREE.Line;
   lastPath: V2[] = [];
@@ -181,7 +185,7 @@ export class Game {
     this.cannonHp = 100;
     this.time = 0; this.battleTime = 0;
     this.ended = false; this.running = false; this.revealed = false;
-    this.artilleryShots = 0; this.artT = 10; this.barT = 12; this.repT = 5; this.rebT = 14;
+    this.artilleryShots = 0; this.bracket = 0; this.artT = 10; this.barT = 12; this.repT = 5; this.rebT = 14;
     this.collateral = 0; this.enemyBlind = 0; this.winT = -1; this.idleT = 0;
     this.targetsDestroyed = {}; this.targetsTotal = {};
     this.lastPath = [];
@@ -266,7 +270,7 @@ export class Game {
     this.air.clear();
     this.mastSprites.clear();
     this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
-    this.pending = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.events = [];
+    this.pending = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.gunElev.clear(); this.events = [];
     if (this.world) { this.world.free(); this.eq.free(); }
     this.r.smoke.parts.length = 0; this.r.fire.parts.length = 0; this.r.debris.chunks.length = 0;
   }
@@ -542,7 +546,20 @@ export class Game {
     const back = 45;
     const sx = rx + ux * (first - back), sy = ry + uy * (first - back);
     const lowest = Math.min(...releasePts.map((q) => q.y - this.groundY(q.x)));
-    return { sx, sy, ux, uy, speed, releases: releases.map((r) => r - (first - back)), impacts, releasePts, ok: lowest > 4 };
+    // fly the pull-out after the last release exactly as updateAir will, to see if it clears the ground
+    const last = Math.max(...releases);
+    let px = rx + ux * last, py = ry + uy * last, ang = Math.atan2(uy, ux), floor = Infinity;
+    const climb = ux >= 0 ? 0.35 : Math.PI - 0.35;
+    for (let i = 0; i < 300; i++) {
+      let d = climb - ang;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      ang += Math.sign(d) * Math.min(Math.abs(d), DT * 1.6);
+      px += Math.cos(ang) * speed * DT; py += Math.sin(ang) * speed * DT;
+      floor = Math.min(floor, py - this.groundY(px));
+      if (Math.abs(d) < 1e-3 && py - this.groundY(px) > 8) break;
+    }
+    return { sx, sy, ux, uy, speed, releases: releases.map((r) => r - (first - back)), impacts, releasePts, ok: lowest > 4 && floor > 1.5 };
   }
 
   launchAirstrike(): boolean {
@@ -783,7 +800,7 @@ export class Game {
   }
 
   damageCannon(d: number) {
-    if (d <= 0 || this.ended) return;
+    if (d <= 0 || this.ended || this.winT >= 0) return;
     this.cannonHp = Math.max(0, this.cannonHp - d);
     if (this.cannonHp <= 0) this.end(false, 'Your cannon was destroyed.');
   }
@@ -1330,6 +1347,16 @@ export class Game {
   // ───────────────────────── Air units ─────────────────────────
   liveTargets(kind: TargetKind) { return this.blocks.filter((b) => !b.dead && b.target === kind); }
 
+  nearestFlak(flak: Block[], x: number, y: number) {
+    let best: { t: V2; d: number } | null = null;
+    for (const b of flak) {
+      const t = b.body.translation();
+      const d = Math.hypot(x - t.x, y - t.y);
+      if (!best || d < best.d) best = { t: { x: t.x, y: t.y }, d };
+    }
+    return best;
+  }
+
   updateAir(dt: number) {
     const flak = this.liveTargets('flak');
     for (const pl of this.planes) {
@@ -1340,8 +1367,9 @@ export class Game {
         pl.s += pl.speed * dt;
         pl.x += vx * dt; pl.y += vy * dt;
         while (pl.releases.length && pl.s >= pl.releases[0]) {
-          pl.releases.shift();
-          const b = this.spawnProjectile(pl.ammo, pl.x, pl.y - 0.5, vx, vy, false);
+          // release where the bombsight solution put it, not up to a frame's flight later
+          const back = pl.s - pl.releases.shift()!;
+          const b = this.spawnProjectile(pl.ammo, pl.x - pl.ux * back, pl.y - pl.uy * back, vx, vy, false);
           b.path = undefined;
         }
         // pull out of the dive once the stick is gone
@@ -1360,9 +1388,9 @@ export class Game {
           this.toast('The bomber flew into the ground. Pull out sooner.', 'bad');
           this.explode(pl.x, this.groundY(pl.x) + 0.5, 3.5, 80);
         }
-        if (flak.length) {
-          const f = flak[0].body.translation();
-          const d = Math.hypot(pl.x - f.x, pl.y - f.y);
+        const fl = this.nearestFlak(flak, pl.x, pl.y);
+        if (fl) {
+          const f = fl.t, d = fl.d;
           if (d < 48) {
             pl.flakT -= dt;
             if (pl.flakT <= 0) {
@@ -1406,17 +1434,20 @@ export class Game {
         else { d.x += (dx / dist) * sp; d.y += (dy / dist) * sp; }
       } else if (d.state === 'hover') {
         d.x += Math.sin(d.t * 2) * dt * 2;
-        if (flak.length && d.t > (this.stats.droneStealth ? 4 : 1.5)) {
+        const fl = this.nearestFlak(flak, d.x, d.y);
+        if (fl && fl.d < 48 && d.t > (this.stats.droneStealth ? 4 : 1.5)) {
           d.state = 'down'; this.toast('Drone shot down by flak (intel already sent).', 'info');
-          const f = flak[0].body.translation();
-          this.tracer(f.x, f.y, d.x, d.y);
+          const f = fl.t;
+          this.tracer(f.x, f.y, d.x, d.y, 'flak');
         } else if (d.t > this.stats.droneTime) d.state = 'back';
       } else if (d.state === 'back') {
         d.x -= 20 * dt; d.y += 4 * dt;
         if (d.x < this.level.cannonX - 40) d.dead = true;
       } else {
         d.vy -= 9.81 * dt; d.y += d.vy * dt; d.mesh.rotation.z += dt * 5;
-        if (d.y < this.groundY(d.x)) { d.dead = true; this.burst(d.x, d.y, 0.4); }
+        let hit = d.y < this.groundY(d.x);
+        if (!hit) this.world.intersectionsWithPoint({ x: d.x, y: d.y }, (c) => { if (this.owners.get(c.handle)?.t === 'block') hit = true; return !hit; });
+        if (hit) { d.dead = true; this.burst(d.x, d.y, 0.4); }
       }
       d.mesh.position.set(d.x, d.y + Math.sin(this.time * 9) * 0.05, 14);
       if (d.dead) this.root.remove(d.mesh);
@@ -1463,7 +1494,7 @@ export class Game {
         s.y = this.groundY(s.x);
         if (s.exposed > 1.0) { this.killSaboteur(s, 'Saboteur was gunned down.'); continue; }
         const hit = this.world.castRay(new RAPIER.Ray({ x: s.x, y: s.y + 0.4 }, { x: 1, y: 0 }), 0.7, true, undefined, undefined, undefined, undefined,
-          (c) => { const o = this.owners.get(c.handle); return o?.t === 'block' || o?.t === 'house'; });
+          (c) => this.owners.get(c.handle)?.t === 'block'); // civilian houses stand behind the line: run past them
         let atTarget: { t: 'block'; b: Block } | null = null;
         if (!hit && s.target !== null && s.x >= s.target) {
           this.world.intersectionsWithPoint({ x: s.x + 0.3, y: s.y + 0.4 }, (c) => {
@@ -1485,7 +1516,7 @@ export class Game {
           s.state = 'back'; s.dir = -1;
           this.toast('Charge planted!', 'good');
         }
-        if (s.x > this.level.cannonX + 200) s.dead = true;
+        if (s.state === 'run' && s.x > this.level.cannonX + 200) { s.dead = true; this.root.remove(s.mesh); }
       } else {
         s.x -= 5.5 * dt;
         s.y = this.groundY(s.x);
@@ -1498,6 +1529,77 @@ export class Game {
   }
 
   // ───────────────────────── Enemy AI ─────────────────────────
+  /**
+   * Counter-battery firing solution from gun block `g` onto ground point `tx`. Simulates the shell
+   * exactly as the physics will fly it (gravity and wind, 60 Hz), tries elevations from flat to
+   * steep and returns the flattest one whose path clears the fortress's own walls, or null if masked.
+   */
+  solveCounterBattery(g: Block, tx: number) {
+    const t = g.body.translation();
+    const dir = tx < t.x ? -1 : 1;
+    const sx = t.x + dir * 1.2, sy = t.y + g.h / 2 + 0.7;
+    const wind = this.wind * AMMO_BY_ID.he.wind * 0.35;
+    const fly = (vx: number, vy: number, path?: V2[]) => {
+      let x = sx, y = sy, n = 0;
+      path?.push({ x, y });
+      while (n++ < 1200) {
+        vx += wind * DT; vy += PHYS.gravity * DT;
+        x += vx * DT; y += vy * DT;
+        path?.push({ x, y });
+        if (vy < 0 && y <= this.groundY(x)) break;
+      }
+      return { x, n };
+    };
+    for (const elev of [0.75, 0.95, 1.15, 1.32]) {
+      const cx = Math.cos(elev) * dir, cy = Math.sin(elev);
+      let lo = 4, hi = 90;
+      for (let i = 0; i < 22; i++) {
+        const v = (lo + hi) / 2;
+        const x = fly(cx * v, cy * v).x;
+        if ((x - tx) * dir < 0) lo = v; else hi = v;
+      }
+      const v = (lo + hi) / 2;
+      const path: V2[] = [];
+      const r = fly(cx * v, cy * v, path);
+      if (Math.abs(r.x - tx) > 1.5) continue;
+      // casemate guns fire through an embrasure: the shell is released where the path leaves the
+      // gun's own housing (the first point beyond EMB m that is not inside a block)
+      const EMB = 5;
+      const isBlock = (q: V2) => {
+        let inside = false;
+        this.world.intersectionsWithPoint(q, (c) => { const o = this.owners.get(c.handle); if (o?.t === 'block' && !o.b.dead) inside = true; return !inside; });
+        return inside;
+      };
+      let i0 = 0;
+      if (isBlock(path[0]) || this.pathBlocked(path, 0, Math.min(path.length - 1, 30), g, tx)) {
+        i0 = path.findIndex((q) => Math.hypot(q.x - t.x, q.y - t.y) > EMB && !isBlock(q));
+        if (i0 < 1) continue;
+      }
+      if (!this.pathBlocked(path, i0, path.length - 1, g, tx)) {
+        const st = path[i0];
+        // velocity after i0 integration steps, so the physics picks the path up exactly
+        return { sx: st.x, sy: st.y, vx: cx * v + wind * DT * i0, vy: cy * v + PHYS.gravity * DT * i0, elev, flight: (r.n - i0) * DT, mx: sx, my: sy, aim: Math.atan2(cy, cx) };
+      }
+    }
+    return null;
+  }
+
+  /** does the polyline path[i0..i1] run into a block (other than gun g) or a house, before nearing x = tx? */
+  pathBlocked(path: V2[], i0: number, i1: number, g: Block, tx: number) {
+    for (let i = i0 + 1; i <= i1; i++) {
+      const a = path[i - 1], b = path[i];
+      if (Math.abs(a.x - tx) < 4) break;
+      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+      if (len < 1e-6) continue;
+      const hit = this.world.castRay(new RAPIER.Ray(a, { x: dx / len, y: dy / len }), len, true, undefined, undefined, undefined, undefined, (c) => {
+        const o = this.owners.get(c.handle);
+        return (o?.t === 'block' && o.b !== g && !o.b.dead) || o?.t === 'house';
+      });
+      if (hit) return true;
+    }
+    return false;
+  }
+
   updateEnemy(dt: number) {
     // counter-battery fire with bracketing
     const guns = this.liveTargets('artillery');
@@ -1506,33 +1608,39 @@ export class Game {
         const gun = this.enemyGuns.get(g);
         if (gun) {
           const t = g.body.translation();
-          const ang = 0.75;
+          const ang = this.gunElev.get(g) ?? 0.75;
           gun.position.set(t.x - 0.2, t.y + g.h / 2 + 0.15, 3.9);
           gun.rotation.z = -ang + g.body.rotation();
         }
       }
       this.artT -= dt;
       if (this.artT <= 0) {
-        if (this.enemyBlind > 0) { this.artT = 1; } else {
-          this.artT = 8.5;
-          const g = guns[this.artilleryShots % guns.length];
-          const t = g.body.translation();
-          const errs = [11, 6.5, 3, 1.2, 0.5];
-          const err = errs[Math.min(this.artilleryShots, errs.length - 1)] * (Math.random() < 0.5 ? -1 : 1);
-          this.artilleryShots++;
-          const tx = this.level.cannonX + err, ty = this.groundY(tx);
-          const sx = t.x - 1.2, sy = t.y + g.h / 2 + 0.7;
-          const th = Math.PI - 0.75;
-          const dx = tx - sx, dy = ty - sy;
-          const c = Math.cos(th), s = Math.sin(th);
-          const denom = 2 * c * c * (dx * Math.tan(th) - dy);
-          const v = Math.sqrt(Math.max(1, (-PHYS.gravity * dx * dx) / Math.max(0.01, denom)));
-          this.spawnProjectile(AMMO_BY_ID.he, sx, sy, c * v, s * v, true);
-          this.muzzleBlast(sx, sy, th, 0.8);
-          audio.play('enemyGun', sx);
-          const flight = Math.abs(dx / (c * v)) * 1000;
-          audio.play('whistle', tx, 1, 1, Math.max(0, flight - 1300));
-          this.toast(this.artilleryShots === 1 ? 'Enemy gun is ranging on you!' : 'Incoming!', 'bad');
+        if (this.enemyBlind > 0) {
+          // smoke hides the fall of shot: once it clears the gunners have to re-bracket
+          this.artT = 1; this.bracket = Math.min(this.bracket, 2);
+        } else {
+          // bracketing: each shot lands closer (the layers correct for wind from the fall of shot);
+          // once bracketed, shots still scatter 1-3 m around the gun
+          const errs = [11, 6.5, 3.5];
+          const err = (this.bracket < errs.length ? errs[this.bracket] : 1 + Math.random() * 2) * (Math.random() < 0.5 ? -1 : 1);
+          const tx = this.level.cannonX + err;
+          // guns whose line of fire is masked by their own walls hold fire; try the others
+          let shot: ReturnType<Game['solveCounterBattery']> = null;
+          let g = guns[0];
+          for (let k = 0; k < guns.length && !shot; k++) {
+            g = guns[(this.artilleryShots + k) % guns.length];
+            shot = this.solveCounterBattery(g, tx);
+          }
+          if (!shot) { this.artT = 2; } else {
+            this.artT = 11;
+            this.artilleryShots++; this.bracket++;
+            this.gunElev.set(g, shot.elev);
+            this.spawnProjectile(AMMO_BY_ID.he, shot.sx, shot.sy, shot.vx, shot.vy, true);
+            this.muzzleBlast(shot.mx, shot.my, shot.aim, 0.8);
+            audio.play('enemyGun', shot.mx);
+            audio.play('whistle', tx, 1, 1, Math.max(0, shot.flight * 1000 - 1300));
+            this.toast(this.artilleryShots === 1 ? 'Enemy gun is ranging on you!' : 'Incoming!', 'bad');
+          }
         }
       }
     }
@@ -1542,11 +1650,13 @@ export class Game {
       this.barT -= dt;
       if (this.barT <= 0) {
         this.barT = 16;
-        const alive = this.soldiers.filter((s) => !s.dead).length;
-        if (alive < 9) {
+        // at most 9 infantry in the field, however many barracks there are
+        let room = 9 - this.soldiers.filter((s) => !s.dead).length;
+        if (room > 0) {
+          const x0 = this.fortressBounds.x0 - 1;
           for (const b of bar) {
             const t = b.body.translation();
-            for (let i = 0; i < 2; i++) this.spawnSoldier(Math.min(t.x, this.fortressBounds.x0 - 1) - i * 1.2);
+            for (let i = 0; i < 2 && room > 0; i++, room--) this.spawnSoldier(Math.min(t.x, x0) - i * 1.2);
           }
           this.toast('Enemy infantry advancing!', 'bad');
         }
@@ -1575,6 +1685,9 @@ export class Game {
           const d = s.def;
           let blocked = false;
           this.world.intersectionsWithShape({ x: d.x + d.w / 2, y: d.y + d.h / 2 }, 0, new RAPIER.Cuboid(d.w / 2 - 0.02, d.h / 2 - 0.02), () => { blocked = true; return false; });
+          // nor onto the garrison or a saboteur standing in the gap
+          if (!blocked) blocked = this.garrison.list.some((p) => p.state !== 'dead' && p.x > d.x - 0.2 && p.x < d.x + d.w + 0.2 && p.y + p.h > d.y && p.y < d.y + d.h)
+            || this.saboteurs.some((p) => !p.dead && p.x > d.x - 0.3 && p.x < d.x + d.w + 0.3 && p.y + 1.3 > d.y && p.y < d.y + d.h);
           if (blocked) continue;
           // needs support directly below
           let supported = d.y - this.groundY(d.x + d.w / 2) < 0.1;
@@ -1595,14 +1708,17 @@ export class Game {
     const obj = this.level.objectives;
     const done = obj.every((k) => (this.targetsDestroyed[k] ?? 0) >= (this.targetsTotal[k] ?? 0));
     if (done) {
+      // objectives are down: shells already in the air can no longer turn this into a defeat
       if (this.winT < 0) this.winT = 1.8;
       this.winT -= dt;
       if (this.winT <= 0) this.end(true, 'All objectives destroyed.');
       return;
     }
     const ammoLeft = Object.values(this.inventory).reduce((s, n) => s + (n ?? 0), 0);
-    const active = this.projectiles.some((p) => !p.enemy) || this.planes.length || this.saboteurs.length || this.drones.length || this.pending.length ||
-      this.blocks.some((b) => !b.dead && (b.burning > 0 || (!b.body.isSleeping() && Math.hypot(b.body.linvel().x, b.body.linvel().y) > 0.3)));
+    // anything still in motion that can yet bring an objective down: your ordnance and teams, chain
+    // explosions, fires and cook-offs, collapsing masonry, and shot-down aircraft about to crash
+    const active = this.projectiles.some((p) => !p.enemy) || this.planes.length || this.saboteurs.length || this.drones.length || this.pending.length || this.air.falling ||
+      this.blocks.some((b) => !b.dead && (b.burning > 0 || b.cookoff > 0 || (!b.body.isSleeping() && Math.hypot(b.body.linvel().x, b.body.linvel().y) > 0.3)));
     if (ammoLeft === 0 && !active) {
       this.idleT += dt;
       if (this.idleT > 3) this.end(false, 'Out of ammunition.');
@@ -1624,7 +1740,8 @@ export class Game {
       budget: Math.round((this.moneyLeft + unused * 0.5) * 3),
       optional: opt * 400,
       garrison: this.garrison.casualties * 25,
-      cannon: Math.round(this.cannonHp * 10),
+      // gun condition: 1000 for an undamaged gun whatever its armour research
+      cannon: Math.round((this.cannonHp / Math.max(1, this.stats.cannonHp)) * 1000),
       collateral: -Math.round(this.collateral) || 0,
     };
     const total = Math.max(0, Object.values(parts).reduce((a, b) => a + b, 0));
