@@ -87,11 +87,18 @@ export class Garrison {
   }
 
   private add(root: THREE.Group, o: { person: boolean; rig?: SoldierRig; mesh: THREE.Object3D; h: number; floor: Block | null; deps: Block[]; x: number; y: number; room: RoomInfo }) {
+    // rooms are laid out on the design grid, but tall frames settle (up to ~0.6 m at the top of a
+    // keep) before the garrison moves in: stand on the floor where it actually came to rest
+    let sx = 0, sy = 0;
+    if (o.floor && !o.floor.dead) {
+      const t = o.floor.body.translation(), fd = o.floor.def;
+      sx = t.x - (fd.x + fd.w / 2); sy = t.y - (fd.y + fd.h / 2);
+    }
     const d: Dweller = {
       person: o.person, rig: o.rig, mesh: o.mesh, floor: o.floor, deps: o.deps, lx: 0, ly: 0, h: o.h,
       home: o.deps.map((b) => { const t = b.body.translation(); return { x: t.x, y: t.y }; }),
-      x: o.x, y: o.y, vx: 0, vy: 0, state: 'home', fallFrom: 0, deadT: 0,
-      pace: { x0: o.room.x0 + 0.4, x1: o.room.x1 - 0.4, dir: Math.random() < 0.5 ? -1 : 1, speed: 0.5 + Math.random() * 0.5, wait: Math.random() * 3 },
+      x: o.x + sx, y: o.y + sy, vx: 0, vy: 0, state: 'home', fallFrom: 0, deadT: 0,
+      pace: { x0: o.room.x0 + 0.4 + sx, x1: o.room.x1 - 0.4 + sx, dir: Math.random() < 0.5 ? -1 : 1, speed: 0.5 + Math.random() * 0.5, wait: Math.random() * 3 },
     };
     this.toLocal(d);
     o.mesh.position.z = o.person ? 3.5 : 3.1;
@@ -145,6 +152,20 @@ export class Garrison {
     }
   }
 
+  /** a person who landed alive rides the block (or ground) under them from now on */
+  private standUp(d: Dweller, on: Block | null) {
+    d.state = 'home';
+    d.vx = 0; d.vy = 0;
+    d.floor = on;
+    d.deps = on ? [on] : [];
+    d.home = d.deps.map((b) => { const t = b.body.translation(); return { x: t.x, y: t.y }; });
+    const half = on ? Math.max(0.3, on.w / 2 - 0.3) : 1.5;
+    const cx = on ? on.body.translation().x : d.x;
+    d.pace = { x0: Math.min(d.x, cx - half), x1: Math.max(d.x, cx + half), dir: Math.random() < 0.5 ? -1 : 1, speed: 0.4 + Math.random() * 0.3, wait: 1.5 + Math.random() * 2 };
+    this.toLocal(d);
+    if (d.rig) { d.rig.deadT = -1; d.rig.update(0, d.x, d.y, 'idle'); }
+  }
+
   update(dt: number) {
     const g = this.g;
     for (const d of this.list) {
@@ -180,9 +201,10 @@ export class Garrison {
       d.vy -= 9.81 * dt;
       d.x += d.vx * dt; d.y += d.vy * dt;
       let ground = g.groundY(d.x);
+      let on: Block | null = null;
       g.world.intersectionsWithPoint({ x: d.x, y: d.y - 0.05 }, (c) => {
         const o = g.owners.get(c.handle);
-        if (o?.t === 'block' && !o.b.dead) { ground = Math.max(ground, d.y); return false; }
+        if (o?.t === 'block' && !o.b.dead) { ground = Math.max(ground, d.y); on = o.b; return false; }
         return true;
       });
       if (d.y <= ground) {
@@ -196,7 +218,9 @@ export class Garrison {
         if (d.deadT > 6) { d.rig?.fade(Math.max(0, 1 - (d.deadT - 6) / 2)); }
       } else if (d.rig) {
         d.rig.update(dt, d.x, d.y, 'dead');
-        if (d.vy === 0 && Math.abs(d.vx) < 0.2) this.kill(d);
+        // survived a short fall: get up and keep pacing on whatever they landed on
+        const flat = !on || Math.abs((on as Block).body.rotation()) < 0.5;
+        if (d.vy === 0 && Math.abs(d.vx) < 0.2 && flat) this.standUp(d, on);
       } else {
         this.place(d, d.mesh.rotation.z + d.vx * dt * 0.5);
       }
