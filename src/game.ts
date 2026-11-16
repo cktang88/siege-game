@@ -28,8 +28,14 @@ export interface Block {
   h: number;
   target?: TargetKind;
   dead: boolean;
+  /** seconds of fire left while alight (0 = not burning) */
   burning: number;
   burnAmt: number;
+  /** unburnt fuel, seconds (-1 until first lit); a block that has burnt out cannot catch again */
+  fuel: number;
+  fuelMax: number;
+  /** seconds since this fire took hold (it grows from a lick of flame to full heat) */
+  fireT: number;
   flash: number;
   lastVel: V2;
   cookoff: number;
@@ -90,7 +96,26 @@ interface Drone { mesh: THREE.Mesh; x: number; y: number; tx: number; ty: number
 interface Saboteur { mesh: THREE.Mesh; x: number; y: number; state: 'run' | 'back'; exposed: number; dead: boolean; dir: number; phase: number; target: number | null }
 
 interface PendingBlast { x: number; y: number; r: number; dmg: number; delay: number; opts: BlastOpts }
-export interface BlastOpts { flak?: boolean; bonus?: Partial<Record<MatId, number>>; ignite?: number; enemy?: boolean; under?: boolean; push?: number; visual?: number; smoke?: boolean; source?: string }
+/** a glowing brand thrown off a burning block as it breaks up; sets alight what it lands on */
+interface Ember { x: number; y: number; vx: number; vy: number; life: number }
+
+/*
+  Fire. A lit block burns through its fuel (material burn time x size), charring and losing HP as it
+  goes, so a timber member usually gives way near the end of its burn. Every FIRE_TICK each fire heats
+  the flammable blocks within FIRE_REACH of its surface; each catches with a hazard rate set by the
+  gap (contact = full heat), the length of the shared face, the direction (flames climb: a block above
+  catches ~3.5x as readily as one beside it, one below ~5x less readily), wind (downwind faces catch
+  more), the neighbour's material (`catches`) and how far the fire has grown. Stone, concrete, steel,
+  earth, tile and firebrick never catch and also shadow the heat (a ray from the fire to the neighbour
+  that meets a non-flammable block is blocked), so masonry walls and firebrick vaults stop a fire.
+  Burning blocks that break up throw embers that can light whatever they fall on. Fuel tanks that
+  catch fire (or are breached below ~45% HP) cook off a couple of seconds later.
+*/
+const FIRE_REACH = 0.4;
+const FIRE_TICK = 0.5;
+/** ignition hazard (per second) for full contact, full face, side-on, still air, timber neighbour */
+const FIRE_RATE = 0.11;
+export interface BlastOpts { fuelChain?: boolean; flak?: boolean; bonus?: Partial<Record<MatId, number>>; ignite?: number; enemy?: boolean; under?: boolean; push?: number; visual?: number; smoke?: boolean; source?: string }
 
 export type GameEvent =
   | { type: 'toast'; text: string; tone?: 'good' | 'bad' | 'info' }
@@ -118,6 +143,7 @@ export class Game {
   drones: Drone[] = [];
   saboteurs: Saboteur[] = [];
   pending: PendingBlast[] = [];
+  embers: Ember[] = [];
   owners = new Map<number, { t: 'block'; b: Block } | { t: 'ground' } | { t: 'house'; h: House } | { t: 'proj'; p: Projectile }>();
   groundPts: [number, number][] = [];
   root = new THREE.Group();
@@ -322,7 +348,7 @@ export class Game {
     this.motor.clear();
     this.mastSprites.clear();
     this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
-    this.pending = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.gunElev.clear(); this.events = [];
+    this.pending = []; this.embers = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.gunElev.clear(); this.events = [];
     if (this.world) { this.world.free(); this.eq.free(); }
     this.r.smoke.parts.length = 0; this.r.fire.parts.length = 0; this.r.flame.parts.length = 0; this.r.debris.chunks.length = 0;
   }
@@ -381,7 +407,7 @@ export class Game {
     const hp = mat.hp * (d.target ? 1.2 : 1) * Math.min(2, Math.sqrt(Math.max(0.3, d.w * d.h)));
     const b: Block = {
       id: this.nextId++, def: d, body, collider: col, mesh, uni: sm.uniforms, matId: d.mat, mat, hp, maxHp: hp, w: d.w, h: d.h,
-      target: d.target, dead: false, burning: 0, burnAmt: 0, flash: 0, lastVel: { x: 0, y: 0 }, cookoff: -1, highlight: 0, spreadT: 0,
+      target: d.target, dead: false, burning: 0, burnAmt: 0, flash: 0, lastVel: { x: 0, y: 0 }, cookoff: -1, highlight: 0, spreadT: 0, fuel: -1, fuelMax: 0, fireT: 0,
       rebuilt: fadeIn ? 0 : 1,
     };
     if (d.target === 'mast') {
@@ -701,6 +727,8 @@ export class Game {
     b.hp -= dmg;
     b.flash = Math.min(1, b.flash + Math.min(0.8, dmg / 60));
     if (b.hp <= 0) this.destroyBlock(b, cause);
+    // a breached fuel tank leaks and catches: it cooks off shortly after
+    else if (b.mat.volatile && b.burning <= 0 && b.hp < b.maxHp * 0.45) this.ignite(b);
   }
 
   destroyBlock(b: Block, _cause = '') {
@@ -730,7 +758,12 @@ export class Game {
       this.r.smoke.spawn({ x: t.x + (Math.random() - 0.5) * b.w, y: t.y + (Math.random() - 0.5) * b.h, vx: (Math.random() - 0.5) * 2, vy: Math.random() * 1.5,
         max: 1.5 + Math.random(), size0: 0.8, size1: 2.5, c0: [0.72, 0.68, 0.6], c1: [0.6, 0.58, 0.55], a0: 0.7, a1: 0, drag: 1.5 });
     }
-    if (b.mat.volatile) this.pending.push({ x: t.x, y: t.y, r: 4, dmg: 140, delay: 0.08 + Math.random() * 0.15, opts: { ignite: 5, visual: 1.4, source: 'fuel' } });
+    if (b.mat.volatile) {
+      // bigger tanks throw a bigger fireball; the blast ignites (rather than outright flattens) the next
+      // tank along, which then cooks off a couple of seconds later: a reliable chain, not an instant one
+      const s = Math.min(2.2, Math.max(0.7, Math.sqrt(b.w * b.h)));
+      this.pending.push({ x: t.x, y: t.y, r: 2.5 + 1.6 * s, dmg: 140, delay: 0.08 + Math.random() * 0.15, opts: { ignite: 5, visual: 0.8 + 0.4 * s, source: 'fuel', fuelChain: true } });
+    } else if (b.burning > 0 && b.mat.flammable) this.shedEmbers(b, t, v);
     if (b.target) {
       this.targetsDestroyed[b.target] = (this.targetsDestroyed[b.target] ?? 0) + 1;
       this.events.push({ type: 'target', kind: b.target });
@@ -817,11 +850,14 @@ export class Game {
           shielded = !(o?.t === 'block' && o.b.mat.flammable);
         }
       }
-      const bonus = opts.bonus?.[b.matId] ?? 1;
+      // a tank blast spends itself mostly on air: the next tank along is holed and set alight, and cooks off on its own
+      const bonus = opts.bonus?.[b.matId] ?? (opts.fuelChain && b.mat.volatile ? 0.5 : 1);
       // flak shells are thin-walled fragmentation rounds: little effect on masonry
       this.damageBlock(b, dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1), opts.source);
       // the fireball does not lick round a wall: a firebrick (or other non-flammable) wall in the way keeps the flames off
       if (opts.ignite && b.mat.flammable && f > 0.25 && !shielded) this.ignite(b, opts.ignite * 2.5);
+      // burning fuel sprays over neighbouring tanks: they catch even behind pipework, and cook off
+      else if (opts.fuelChain && b.mat.volatile) this.ignite(b, 5);
       if (!b.dead) {
         const push = (opts.push ?? 1) * dmg * f * 0.075;
         const nx = dist > 0.01 ? dx / dist : 0, ny = dist > 0.01 ? dy / dist : 1;
@@ -903,13 +939,114 @@ export class Game {
     }
   }
 
-  ignite(b: Block, secs: number) {
+  /** seconds of fire a block holds: material burn time scaled by its size */
+  burnTime(b: Block) { return (b.mat.burn ?? 12) * Math.min(2, Math.max(0.6, Math.sqrt(b.w * b.h))); }
+
+  /**
+   * Set a block alight. Once it catches it burns through all its remaining fuel; `_heat` (the old
+   * burn-seconds argument) is kept for callers but no longer sets the duration.
+   */
+  ignite(b: Block, _heat = 8) {
     if (b.dead || !b.mat.flammable) return;
-    if (b.burning <= 0 && b.target === 'ammo') {
+    if (b.fuel < 0) { b.fuelMax = this.burnTime(b); b.fuel = b.fuelMax; }
+    if (b.fuel <= 0.5 || b.burning > 0) return; // burnt out, or already alight
+    if (b.target === 'ammo') {
       b.cookoff = 2.5;
       this.toast('Munitions store is burning…', 'good');
+    } else if (b.mat.volatile && b.cookoff <= 0) b.cookoff = 1.2 + Math.random() * 1.6;
+    b.fireT = 0;
+    b.burning = b.fuel;
+    b.spreadT = Math.random() * FIRE_TICK;
+  }
+
+  /** a burning block breaking up throws brands that can light what they land on */
+  shedEmbers(b: Block, t: V2, v: V2) {
+    const n = 2 + Math.min(4, Math.round(b.w * b.h * 3));
+    for (let i = 0; i < n && this.embers.length < 60; i++) {
+      this.embers.push({ x: t.x + (Math.random() - 0.5) * b.w, y: t.y + (Math.random() - 0.5) * b.h,
+        vx: v.x * 0.6 + (Math.random() - 0.5) * 3 + this.wind * 0.3, vy: v.y * 0.6 + 0.5 + Math.random() * 2.5, life: 2.5 + Math.random() * 1.5 });
     }
-    b.burning = Math.max(b.burning, secs);
+  }
+
+  updateEmbers(dt: number) {
+    if (!this.embers.length) return;
+    for (const e of this.embers) {
+      e.life -= dt;
+      e.vy -= 7 * dt;
+      e.vx += (this.wind * 0.4 - e.vx) * Math.min(1, dt * 0.8);
+      e.x += e.vx * dt; e.y += e.vy * dt;
+      if (Math.random() < 0.5) this.r.fire.spawn({ x: e.x, y: e.y, max: 0.18, size0: 0.16, size1: 0.04, c0: [3, 1.4, 0.35], c1: [1.4, 0.25, 0.04], a0: 1, a1: 0 });
+      if (e.y <= this.groundY(e.x)) { e.life = 0; continue; }
+      if (e.vy > 0) continue;
+      let hit: Block | null = null;
+      this.world.intersectionsWithPoint({ x: e.x, y: e.y }, (c) => {
+        const o = this.owners.get(c.handle);
+        if (o?.t === 'block' && !o.b.dead) { hit = o.b; return false; }
+        return true;
+      });
+      if (hit) {
+        const h = hit as Block;
+        e.life = 0;
+        if (h.mat.flammable && Math.random() < 0.3 * (h.mat.catches ?? 1)) this.ignite(h);
+      }
+    }
+    this.embers = this.embers.filter((e) => e.life > 0);
+  }
+
+  /**
+   * Radiant heat from burning block `b` (centre `t`): roll ignition for each flammable neighbour
+   * within FIRE_REACH of its surface. Runs once per FIRE_TICK per fire, so ~400 blocks stay cheap.
+   */
+  spreadFire(b: Block, t: V2) {
+    const shape = new RAPIER.Cuboid(b.w / 2 + FIRE_REACH, b.h / 2 + FIRE_REACH);
+    const near: Block[] = [];
+    this.world.intersectionsWithShape(t, b.body.rotation(), shape, (c) => {
+      const o = this.owners.get(c.handle);
+      if (o?.t === 'block' && o.b !== b && !o.b.dead && o.b.mat.flammable && o.b.burning <= 0 && o.b.fuel !== 0) near.push(o.b);
+      return true;
+    });
+    if (!near.length) return;
+    // the fire grows over its first ~2 s and dies down over its last 2
+    const grow = Math.min(1, 0.3 + b.fireT / 3) * Math.min(1, 0.4 + b.burning / 3);
+    const sv = b.body.linvel();
+    const tumbling = sv.x * sv.x + sv.y * sv.y > 2.5;
+    for (const n of near) {
+      const c = b.collider.contactCollider(n.collider, FIRE_REACH);
+      if (!c) continue;
+      const gap = Math.max(0, c.distance);
+      if (gap >= FIRE_REACH) continue;
+      const heat = gap < 0.03 ? 1 : (1 - gap / FIRE_REACH) ** 1.5;
+      const nx = c.normal1.x, ny = c.normal1.y;
+      // masonry, firebrick and the like in the gap shadow the heat
+      if (gap > 0.06) {
+        const blocked = this.world.castRay(new RAPIER.Ray(c.point1, { x: nx, y: ny }), gap, true, undefined, undefined, undefined, undefined, (cc) => {
+          const o = this.owners.get(cc.handle);
+          return o?.t === 'block' && o.b !== b && o.b !== n && !o.b.dead && !o.b.mat.flammable;
+        });
+        if (blocked) continue;
+      }
+      // length of the shared face, along the contact tangent
+      const ov = this.faceOverlap(b, n, -ny, nx);
+      const area = Math.min(1.3, 0.3 + 0.7 * ov / 0.8);
+      // flames climb: above x3.5, beside x1, below x0.2 (unless this block is itself falling onto it)
+      const orient = ny >= 0 ? 1 + 2.5 * ny : tumbling ? 1 : 1 + 0.8 * ny;
+      const wind = Math.min(1.8, Math.max(0.4, 1 + nx * this.wind * 0.18));
+      const rate = FIRE_RATE * heat * area * orient * wind * (n.mat.catches ?? 1) * grow;
+      if (Math.random() < 1 - Math.exp(-rate * FIRE_TICK)) this.ignite(n);
+    }
+  }
+
+  /** overlap of two blocks' outlines projected on direction (tx, ty), metres */
+  faceOverlap(a: Block, b: Block, tx: number, ty: number) {
+    const span = (k: Block) => {
+      const p = k.body.translation(), r = k.body.rotation();
+      const c = Math.cos(r), s = Math.sin(r);
+      const mid = p.x * tx + p.y * ty;
+      const half = Math.abs((c * tx + s * ty) * k.w / 2) + Math.abs((-s * tx + c * ty) * k.h / 2);
+      return [mid - half, mid + half];
+    };
+    const [a0, a1] = span(a), [b0, b1] = span(b);
+    return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
   }
 
   damageCannon(d: number) {
@@ -1270,6 +1407,7 @@ export class Game {
     });
 
     this.updateBlocks(dt);
+    this.updateEmbers(dt);
     this.updateBackdrops(dt);
     this.garrison.update(dt);
     this.updateGunFx(dt);
@@ -1369,13 +1507,19 @@ export class Game {
       if (t.y < -20) { this.destroyBlock(b); continue; }
       // fire
       if (b.burning > 0) {
+        if (b.fuelMax <= 0) b.fuelMax = Math.max(b.burning, this.burnTime(b)); // set alight without ignite()
         b.burning -= dt;
-        this.r.lights.set(`fire${b.id}`, t.x, t.y + b.h * 0.3, 3.5 + b.w, [1, 0.5, 0.15], 0.9, 0.45);
+        b.fireT += dt;
+        b.fuel = Math.max(0, b.burning);
+        const grow = Math.min(1, 0.3 + b.fireT / 3) * Math.min(1, 0.4 + b.burning / 3);
+        this.r.lights.set(`fire${b.id}`, t.x, t.y + b.h * 0.3, (3.5 + b.w) * (0.6 + 0.4 * grow), [1, 0.5, 0.15], 0.9 * grow, 0.45);
         if (Math.random() < dt * 3) audio.play('fire', t.x, 0.5);
-        b.burnAmt = Math.min(1, b.burnAmt + dt * 0.25);
-        this.damageBlock(b, b.mat.fire * 9 * dt, 'fire');
+        // chars as it burns through its fuel
+        b.burnAmt = Math.min(1, Math.max(b.burnAmt, 0.1 + 1.1 * (1 - b.fuel / b.fuelMax)));
+        // HP goes over ~80% of the burn: timber usually gives way before it burns out
+        this.damageBlock(b, b.mat.fire * grow * b.maxHp / (b.fuelMax * 0.8) * dt, 'fire');
         if (b.dead) continue;
-        if (Math.random() < dt * 30 * Math.min(1.5, b.w * b.h)) {
+        if (Math.random() < dt * 30 * grow * Math.min(1.5, b.w * b.h)) {
           const lx = (Math.random() - 0.5) * b.w, ly = (Math.random() - 0.3) * b.h;
           // opaque cel tongues (additive ones stacked into a white, bloom-smeared sheet) plus the odd hot ember
           this.r.flame.spawn({ x: t.x + lx, y: t.y + ly, vx: this.wind * 0.3, vy: 1.5 + Math.random() * 2, max: 0.6 + Math.random() * 0.5, size0: 0.7 + Math.random() * 0.5, size1: 0.1,
@@ -1386,13 +1530,8 @@ export class Game {
         }
         b.spreadT -= dt;
         if (b.spreadT <= 0) {
-          b.spreadT = 0.5;
-          const shape = new RAPIER.Cuboid(b.w / 2 + 0.3, b.h / 2 + 0.3);
-          this.world.intersectionsWithShape(t, b.body.rotation(), shape, (c) => {
-            const o = this.owners.get(c.handle);
-            if (o?.t === 'block' && o.b !== b && o.b.mat.flammable && o.b.burning <= 0 && Math.random() < 0.3) this.ignite(o.b, 7 + Math.random() * 3);
-            return true;
-          });
+          b.spreadT = FIRE_TICK;
+          this.spreadFire(b, t);
         }
       }
       if (b.cookoff > 0) {
@@ -1947,7 +2086,8 @@ export class Game {
         const dmg = this.blocks.filter((b) => !b.dead && b.hp < b.maxHp * 0.98 && !b.mat.indestructible).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp).slice(0, 3);
         for (const b of dmg) {
           b.hp = Math.min(b.maxHp, b.hp + 40);
-          if (b.burning > 0) b.burning = Math.max(0, b.burning - 3);
+          // engineers douse what they patch: it smoulders on with ~5 s less fire (the unburnt fuel can catch again)
+          if (b.burning > 0) b.burning = Math.max(0, b.burning - 5);
           const t = b.body.translation();
           for (let i = 0; i < 8; i++) this.r.fire.spawn({ x: t.x + (Math.random() - 0.5) * b.w, y: t.y + (Math.random() - 0.5) * b.h, vy: 1.5, max: 0.8, size0: 0.25, size1: 0.05, c0: [0.4, 1.6, 2.4], c1: [0.2, 0.6, 1.2], a0: 1, a1: 0 });
         }
@@ -1998,7 +2138,7 @@ export class Game {
     const ammoLeft = Object.values(this.inventory).reduce((s, n) => s + (n ?? 0), 0);
     // anything still in motion that can yet bring an objective down: your ordnance and teams, chain
     // explosions, fires and cook-offs, collapsing masonry, and shot-down aircraft about to crash
-    const active = this.projectiles.some((p) => !p.enemy) || this.planes.length || this.saboteurs.length || this.drones.length || this.pending.length || this.air.falling ||
+    const active = this.projectiles.some((p) => !p.enemy) || this.planes.length || this.saboteurs.length || this.drones.length || this.pending.length || this.embers.length || this.air.falling ||
       this.blocks.some((b) => !b.dead && (b.burning > 0 || b.cookoff > 0 || (!b.body.isSleeping() && Math.hypot(b.body.linvel().x, b.body.linvel().y) > 0.3)));
     if (ammoLeft === 0 && !active) {
       this.idleT += dt;

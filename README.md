@@ -69,6 +69,8 @@ Castles stand on hills, 3.5–11 m above the plain depending on the operation (s
 
 Every block is a Rapier rigid body with a material (timber, masonry, reinforced concrete, armor plate, reactive armor, firebrick, munitions). Each material has its own HP, density and modifiers against kinetic, blast, fire and penetration damage. Fortresses stand on real support, so taking out a load-bearing column drops whatever it holds up. Falling debris deals impact damage, explosions are occluded by intervening walls, and some armor is disguised until you scout it.
 
+Fire works by heat. A burning block burns through its fuel over about 6 to 28 s, depending on material and size, and chars as it goes. A timber member usually gives way near the end of its burn. Flammable blocks within 0.4 m of a fire can catch. The chance depends on the gap, the length of the shared face, the material and the wind. Flames climb, so a block above a fire catches about 3.5 times as readily as one beside it, and one below catches rarely, unless burning wreckage drops onto it. Masonry, concrete, steel, tile and firebrick never burn, and they also block the heat, so a stone wall stops a fire and a firebrick vault keeps its contents safe. Burning blocks that break up throw embers. Furniture in a burning room catches and carries the fire to the rest of the room. People on upper floors are trapped and may die; people on a ground floor run out. A fuel tank that catches fire, or is holed below about 45% HP, cooks off a couple of seconds later and sets the next tank alight.
+
 ## Castles and structures
 
 Blocks can be any convex polygon: wedges, trapezoids, roofs, rotated beams and arch voussoirs. Slope matters:
