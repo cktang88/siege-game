@@ -135,7 +135,7 @@ function buildFcp() {
       <div class="opt"><span class="label">Approach</span><div class="seg" style="grid-column: span 2"><button data-dir="1" class="${g.strike.dir === 1 ? 'on' : ''}">From west →</button><button data-dir="-1" class="${g.strike.dir === -1 ? 'on' : ''}">← From east</button></div></div>
       ${range('s-alt', 'Release alt.', 8, 45, 0.5, g.strike.alt)}
       ${range('s-dive', 'Dive angle', 0, 70, 1, g.strike.dive, st.dive, st.dive ? '' : 'Research Dive Bombing (Air Wing)')}
-      ${range('s-spc', 'Stick spacing', 0, 6, 0.1, g.strike.spacing)}
+      ${range('s-spc', 'Drop interval', 0.2, 8, 0.1, g.strike.spacing, true, 'metres flown between bomb releases')}
       <div class="opt"><span class="label">Ordnance</span><div class="seg" style="grid-column: span 2">
         <button data-ord="he" class="${g.strike.ordnance === 'he' ? 'on' : ''}">GP</button>
         <button data-ord="incendiary" class="${g.strike.ordnance === 'incendiary' ? 'on' : ''}" ${types.includes('incendiary') ? '' : 'disabled title="Research Firebombs"'}>Fire</button>

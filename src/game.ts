@@ -485,18 +485,13 @@ export class Game {
       const imp = this.predictImpact(rx, ry, ux * speed, uy * speed, a.wind);
       rx += st.x - imp.x;
     }
+    // the stick: bombs released every `spacing` metres of flight, centred on the solved release point
     const impactAt = (sp: number) => this.predictImpact(rx + ux * sp, ry + uy * sp, ux * speed, uy * speed, a.wind);
     const releases: number[] = [];
     const impacts: V2[] = [];
     const releasePts: V2[] = [];
     for (let i = 0; i < n; i++) {
-      const want = st.x + (i - (n - 1) / 2) * st.spacing * st.dir;
-      let lo = -80, hi = 80;
-      for (let k = 0; k < 30; k++) {
-        const mid = (lo + hi) / 2;
-        if ((impactAt(mid).x - want) * st.dir < 0) lo = mid; else hi = mid;
-      }
-      const sp = (lo + hi) / 2;
+      const sp = (i - (n - 1) / 2) * Math.max(0.15, st.spacing);
       releases.push(sp);
       impacts.push(impactAt(sp));
       releasePts.push({ x: rx + ux * sp, y: ry + uy * sp });
@@ -1010,7 +1005,7 @@ export class Game {
         const dv = Math.hypot(v.x - b.lastVel.x, v.y - b.lastVel.y);
         if (dv > 4.5) this.damageBlock(b, Math.pow(dv - 4.5, 1.5) * 3 * b.mat.kinetic, 'impact');
         // crush soldiers
-        if (Math.hypot(v.x, v.y) > 2.5) {
+        if (!b.dead && Math.hypot(v.x, v.y) > 2.5) {
           const t = b.body.translation();
           for (const s of this.soldiers) if (!s.dead && Math.abs(s.x - t.x) < b.w / 2 + 0.3 && s.y + 1.2 > t.y - b.h / 2 && s.y < t.y + b.h / 2) this.killSoldier(s);
         }
