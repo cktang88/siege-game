@@ -19,6 +19,10 @@ export const S = {
   cart: {} as Partial<Record<AmmoId, number>>,
   /** dev mode: unlimited budget in the armory */
   devBudget: false,
+  /** armory survey: hover blocks on the field to read them */
+  survey: false,
+  /** battle: the barrel follows the mouse over the battlefield (T toggles) */
+  mouseAim: true,
 };
 
 export const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySelector(s) as T;

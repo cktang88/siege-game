@@ -128,17 +128,25 @@ export interface Save {
   tech: string[];
   stars: Record<string, number>;
   best: Record<string, number>;
+  /** best share of objectives destroyed in a failed attempt, per operation (salvage already paid) */
+  salvage: Record<string, number>;
+  /** dev mode is a session flag: never written to the save, and dev battles never pay out or record stars */
   dev: boolean;
 }
 
 const KEY = 'siege-save-v2';
+const DEV_KEY = 'siege-dev';
 export function loadSave(): Save {
   let s: Partial<Save> = {};
   try { s = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { /* storage unavailable */ }
-  return { funds: s.funds ?? 300, tech: s.tech ?? ['ord_he'], stars: s.stars ?? {}, best: s.best ?? {}, dev: s.dev ?? false };
+  let dev = false;
+  try { dev = sessionStorage.getItem(DEV_KEY) === '1'; } catch { /* storage unavailable */ }
+  return { funds: s.funds ?? 300, tech: s.tech ?? ['ord_he'], stars: s.stars ?? {}, best: s.best ?? {}, salvage: s.salvage ?? {}, dev };
 }
 export function writeSave(s: Save) {
-  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage unavailable */ }
+  const { dev, ...persist } = s;
+  try { localStorage.setItem(KEY, JSON.stringify(persist)); } catch { /* storage unavailable */ }
+  try { if (dev) sessionStorage.setItem(DEV_KEY, '1'); else sessionStorage.removeItem(DEV_KEY); } catch { /* storage unavailable */ }
 }
 
 export function hasTech(s: Save, id: string) { return s.dev || s.tech.includes(id); }
@@ -152,6 +160,23 @@ export function research(s: Save, id: string): boolean {
   if (!n || !canResearch(s, n)) return false;
   s.funds -= n.cost;
   s.tech.push(id);
+  writeSave(s);
+  return true;
+}
+
+/** researched nodes that depend on this one (a node can only be refunded once nothing above it is owned) */
+export function dependents(s: Save, id: string) {
+  return TECH.filter((t) => s.tech.includes(t.id) && t.requires.includes(id));
+}
+
+/** refund one node for its full cost; the starting HE research stays */
+export function canRefund(s: Save, id: string) {
+  return !s.dev && id !== 'ord_he' && s.tech.includes(id) && dependents(s, id).length === 0;
+}
+export function refund(s: Save, id: string): boolean {
+  if (!canRefund(s, id)) return false;
+  s.funds += TECH_BY_ID[id]?.cost ?? 0;
+  s.tech = s.tech.filter((t) => t !== id);
   writeSave(s);
   return true;
 }
@@ -172,9 +197,32 @@ export function availableAmmo(s: Save): AmmoId[] {
   return [...set];
 }
 
-/** funds awarded for a mission result */
-export function missionReward(score: number, stars: number, prevStars: number) {
-  const firstClear = prevStars === 0 && stars > 0 ? 250 : 0;
-  const newStars = Math.max(0, stars - prevStars) * 120;
-  return Math.round(score / 25) + firstClear + newStars;
+export interface Reward { total: number; lines: [string, number][] }
+
+/**
+ * War funds for a won mission. Only new achievements pay: the first clear, each new star, and a
+ * record bonus on the part of the score that beats your previous best. Replaying a cleared
+ * operation for the same result pays nothing, so funds cannot be farmed.
+ */
+export function missionReward(score: number, stars: number, prevStars: number, prevBest: number): Reward {
+  const lines: [string, number][] = [];
+  if (prevStars === 0 && stars > 0) lines.push(['First clear', 250]);
+  if (stars > prevStars) lines.push([`New stars ×${stars - prevStars}`, (stars - prevStars) * 120]);
+  const record = Math.round(Math.max(0, score - prevBest) / 25);
+  if (record > 0) lines.push([prevBest > 0 ? 'New record' : 'Score', record]);
+  return { total: lines.reduce((a, [, v]) => a + v, 0), lines };
+}
+
+/**
+ * A failed attempt on an operation not yet taken pays salvage for the share of the objectives it
+ * knocked out, but only beyond the best share already paid for on that operation. A stuck player can
+ * still afford research; repeating the same partial result pays nothing.
+ */
+export function salvageReward(s: Save, id: string, share: number): Reward {
+  if ((s.stars[id] ?? 0) > 0) return { total: 0, lines: [] };
+  const prev = s.salvage[id] ?? 0;
+  const v = Math.round(150 * Math.max(0, Math.min(1, share) - prev));
+  if (v <= 0) return { total: 0, lines: [] };
+  s.salvage[id] = Math.min(1, share);
+  return { total: v, lines: [['Salvage', v]] };
 }

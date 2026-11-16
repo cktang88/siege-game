@@ -14,17 +14,17 @@ npm run build    # type-check and production build into dist/
 ## How to play
 
 1. **Operations map.** Each cleared operation opens one or two neighbouring ones, so a few are always available. Some deep operations also need a total star count. Select a node to read its dossier.
-2. **Research.** War funds come from missions (more for new stars and first clears). Spend them across five branches: Ordnance, Gunnery, Air Wing, Special Ops and Logistics. Research unlocks munitions and upgrades muzzle velocity, reload, elevation, trajectory preview, wind readout, gun armour, bomb loads, dive bombing, bomb types, drone endurance, saboteur teams and budgets. Refunds are free.
+2. **Research.** War funds come from missions: a first clear, each new star, and any score above your previous best pay out. Replaying for the same result pays nothing; a failed attempt pays a little salvage for objectives knocked out beyond your best previous attempt. Spend them across five branches: Ordnance, Gunnery, Air Wing, Special Ops and Logistics. Research unlocks munitions and upgrades muzzle velocity, reload, elevation, trajectory preview, wind readout, gun armour, bomb loads, dive bombing, bomb types, drone endurance, saboteur teams and budgets. Click an owned card to refund it (the top of a branch first), or refund everything at once. Refunds are free.
 3. **Armory.** Buy rounds within the mission budget. Unspent money and unfired rounds count toward your score. **Survey** lets you hover blocks to read their material and HP.
 4. **Battle.** Every shot is fully controllable:
-   - **Gun:** set elevation (degrees) and muzzle velocity (m/s). Drag on the field like a sling, drag the needles on the quadrant and gauge, type exact values, or step by ±0.1 / ±1. Arrow keys also adjust (hold Shift for fine steps). The delayed fuse and the cluster airburst have their own timers.
+   - **Gun:** set elevation (degrees) and muzzle velocity (m/s). The barrel follows the mouse over the battlefield and a click fires; the mouse wheel sets muzzle velocity (Shift for coarse steps). You can also drag the needles on the quadrant and gauge, type exact values, or step by ±0.1 / ±1. Arrow keys adjust too (hold Shift for fine steps). `T` (or the *Mouse aim* switch) turns mouse aiming off when you want typed values to stay put. The delayed fuse and the cluster airburst have their own timers.
    - **Air strike:** set the approach (from west or east), release altitude, dive angle (needs Dive Bombing research), drop interval and ordnance (GP, firebombs or AP bombs). Click the field to set the aim point. The bomb run is solved against gravity and wind, and the preview draws the flight path, release points and predicted impacts. Fly too low or too steep and the bomber hits the ground.
    - **Drone and saboteur:** click the field to choose where the drone loiters or where the team plants its charge.
 5. **Win** by destroying every ◆ objective. Stars come from time against par, budget left over, secondary targets, gun condition and collateral damage.
 
-**Dev mode:** the `Dev` button on the map, or `?dev` in the URL, opens every castle and every technology. It also adds 12 procedurally generated proving grounds and an unlimited-budget toggle in the armory.
+**Dev mode:** the `Dev` button on the map, or `?dev` in the URL, opens every castle and every technology for the current browser session. Dev mode is never written to the save, and dev battles pay no funds and record no stars. It also adds 12 procedurally generated proving grounds and an unlimited-budget toggle in the armory.
 
-Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a munition, the mouse wheel zooms, right-drag pans, `R` resets the view and `M` mutes.
+Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a munition, the mouse wheel sets velocity (zooms outside battle), `Ctrl`+wheel or `Q`/`E` zoom, any drag pans, `R` resets the view, `T` toggles mouse aim and `M` mutes. Shortcuts are ignored while you type in a number field.
 
 ## Munitions (15)
 
@@ -101,7 +101,7 @@ The late campaign (Kestrel Bastille, Castle Ironcrown, Wardenhold, The Black Cit
 
 Every building is a post-and-lintel grid. Each room's floor slab spans from the centre of one column to the centre of the next, so knocking out a column lets the floors above fold down storey by storey. Rooms have cutaway back walls that crumble once their frame fails.
 
-On castles this size the overview covers the gun and the near works. To see the rest, use the minimap (click or drag it), the mouse wheel, or right-drag.
+On castles this size the overview covers the gun and the near works. To see the rest, use the minimap (click or drag it), Ctrl+wheel or Q/E to zoom, or drag the field.
 
 ## Look and sound
 
