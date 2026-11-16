@@ -61,6 +61,8 @@ interface Projectile {
   blastScale: number;
   dmgMul: number;
   radMul: number;
+  /** where a penetrator first entered a structure */
+  entry?: V2;
   fuseSetting?: number;
   airburst?: number;
   /** flak proximity fuze: closest distance to an aircraft seen so far */
@@ -334,7 +336,7 @@ export class Game {
     );
     // a degenerate outline (collinear points) has no hull: fall back to the bounding box rather than crash
     const shape = (d.poly && RAPIER.ColliderDesc.convexHull(new Float32Array(d.poly.flatMap(([x, y]) => [x - d.w / 2, y - d.h / 2]))))
-      || RAPIER.ColliderDesc.cuboid(Math.max(0.01, d.w / 2 - 0.005), Math.max(0.01, d.h / 2 - 0.005));
+      || RAPIER.ColliderDesc.cuboid(Math.max(0.01, d.w / 2 - 0.005), Math.max(0.01, d.h / 2)); // shrink sideways only: stacks must not sink a centimetre per joint
     const col = this.world.createCollider(shape.setDensity(mat.density).setFriction(mat.friction).setRestitution(0.05), body);
     const shown = MATERIALS[!this.revealed && d.disguise ? d.disguise : d.mat];
     const geo = blockGeometry(d.w, d.h, d.poly);
@@ -934,6 +936,7 @@ export class Game {
         return;
       }
     }
+    if (speed > 6 && !p.impacted) this.garrison.blast(t.x, t.y, 0.7);
     const kin = a.kinetic * (speed / 30) ** 2 * cosI;
     if (block && !p.impacted) this.damageBlock(block, kin * block.mat.kinetic);
     if (house && !p.impacted) this.damageHouse(house, kin * 0.6);
@@ -1051,6 +1054,7 @@ export class Game {
       remaining -= toi;
       const o = this.owners.get(hit.collider.handle);
       if (p.pellet) {
+        this.garrison.blast(p.x, p.y, 0.55);
         if (o?.t === 'block') this.damageBlock(o.b, a.kinetic * o.b.mat.kinetic);
         if (o?.t === 'house') this.damageHouse(o.h, 3);
         this.sparks(p.x, p.y, 4);
@@ -1086,7 +1090,11 @@ export class Game {
         const eff = b.hp / b.mat.pierce / cosI;
         b.body.applyImpulse({ x: dir.x * 4, y: dir.y * 4 }, true);
         this.sparks(p.x, p.y, 8);
-        if (p.pen >= eff && !b.mat.indestructible) {
+        if (!p.entry) p.entry = { x: p.x, y: p.y };
+        this.garrison.blast(p.x, p.y, 0.8);
+        // a bunker buster arms on entry and goes off inside, not after boring out the far side
+        const deep = a.fuse && Math.hypot(p.x - p.entry.x, p.y - p.entry.y) > 2.6;
+        if (p.pen >= eff && !b.mat.indestructible && !deep) {
           p.pen -= eff;
           this.destroyBlock(b, 'ap');
           exclude.add(hit.collider.handle);

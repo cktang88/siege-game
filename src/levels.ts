@@ -225,7 +225,7 @@ function cleanCut(): LevelDef {
     id: 'cleancut', name: 'Clean Cut',
     brief: 'A command bunker hidden in an occupied village. Take out the HQ and nothing else. Collateral damage counts triple.',
     intel: ['Steel roof: air strikes will bounce off.', 'Houses on both sides. One bad shot costs more than it gains.', 'A small guard post sends troops.'],
-    budget: 700, wind: [-2.5, 2.5], parTime: 50,
+    budget: 1000, wind: [-2.5, 2.5], parTime: 50,
     ground: [[-80, 0], [220, 0]],
     cannonX: 26, blocks: b.blocks,
     houses: [{ x: 52, w: 4.4, h: 4 }, { x: 57.5, w: 4, h: 3.6 }, { x: 72, w: 4.4, h: 4 }, { x: 77.5, w: 4, h: 3.6 }],

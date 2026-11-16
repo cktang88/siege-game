@@ -114,7 +114,7 @@ export const AMMO: AmmoDef[] = [
   { id: 'incendiary', name: 'Incendiary', short: 'IN', price: 100, mode: 'physics', color: [0.85, 0.42, 0.12], radius: 0.26, density: 6, speed: 1, wind: 0.6,
     kinetic: 25, blastRadius: 2.2, blastDamage: 20, ignite: 3.2, desc: 'Sets timber and munitions ablaze. Fire spreads.', good: 'Wooden forts, ammo stores', bad: 'Firebrick rooms, stone' },
   { id: 'bunker', name: 'Bunker Buster', short: 'BB', price: 260, mode: 'penetrator', color: [0.3, 0.34, 0.24], radius: 0.24, density: 12, speed: 1.05, wind: 0.2,
-    kinetic: 0, blastRadius: 3.4, blastDamage: 200, pen: 900, fuse: 0.35, bonus: { concrete: 3.2, stone: 1.3 },
+    kinetic: 0, blastRadius: 3.4, blastDamage: 200, pen: 700, fuse: 0.35, bonus: { concrete: 3.2, stone: 1.3 },
     desc: 'Burrows into the structure, then detonates inside.', good: 'Concrete bunkers', bad: 'Reactive armor (premature det.)' },
   { id: 'cluster', name: 'Cluster Shell', short: 'CL', price: 170, mode: 'physics', color: [0.5, 0.5, 0.2], radius: 0.3, density: 6, speed: 1, wind: 0.5,
     kinetic: 30, blastRadius: 1.6, blastDamage: 30, ability: 'Tap to scatter 8 bomblets',
