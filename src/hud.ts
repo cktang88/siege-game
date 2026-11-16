@@ -27,6 +27,7 @@ export function buildHud() {
     </div>
     <div id="rack" class="plate"></div>
     <div id="fcp" class="plate"></div>
+    <canvas id="minimap" class="plate" width="520" height="84" title="Click to look there"></canvas>
     <div id="toasts"></div>
     <div id="tooltip" class="hidden"></div>
     <div id="help">drag to aim · ↑↓ elevation · ←→ velocity (shift fine) · space fire · 1-9 munitions · wheel zoom · right-drag pan · R reset view · M mute</div>`;
@@ -34,6 +35,14 @@ export function buildHud() {
   $('#hp').innerHTML = '<i></i>'.repeat(12);
   buildRack();
   updateObjectives();
+  const mm = $<HTMLCanvasElement>('#minimap');
+  const look = (e: PointerEvent) => {
+    const r = mm.getBoundingClientRect();
+    const b = mapBounds();
+    S.game.pan = b.x0 + ((e.clientX - r.left) / r.width) * (b.x1 - b.x0) - S.game.baseCx;
+  };
+  mm.addEventListener('pointerdown', (e) => { e.stopPropagation(); mm.setPointerCapture(e.pointerId); look(e); });
+  mm.addEventListener('pointermove', (e) => { if (e.buttons) look(e); });
   buildLabels();
   fcpFor = null;
 }
@@ -273,6 +282,49 @@ export function updateHud() {
     (el.querySelector('.reload') as HTMLElement).style.width = g.selected === id ? `${(g.reload / g.stats.reload) * 100}%` : '0';
   });
   updateFcp();
+  drawMinimap();
+}
+
+// ───────────────────────── minimap ─────────────────────────
+function mapBounds() {
+  const g = S.game;
+  const fb = g.fortressBounds;
+  return { x0: g.level.cannonX - 8, x1: Math.max(fb.x1, ...g.level.houses.map((h) => h.x + h.w)) + 6, y1: fb.y1 + 8 };
+}
+const MAT_COL: Record<string, string> = { wood: '#9a6b3c', stone: '#9b978c', concrete: '#8f969d', steel: '#6b7684', reactive: '#717d58', fireproof: '#a7613f', crate: '#7a7240', rock: '#555' };
+let mmTick = 0;
+export function drawMinimap() {
+  if (mmTick++ % 3) return;
+  const c = document.querySelector<HTMLCanvasElement>('#minimap');
+  if (!c) return;
+  const g = S.game, r = S.renderer;
+  const ctx = c.getContext('2d')!;
+  const W = c.width, H = c.height;
+  const b = mapBounds();
+  const sx = W / (b.x1 - b.x0);
+  const sy = Math.min(sx * 1.6, (H - 8) / b.y1);
+  const X = (x: number) => (x - b.x0) * sx, Y = (y: number) => H - 4 - y * sy;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(10,12,15,0.55)'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#3d3a2c';
+  ctx.beginPath(); ctx.moveTo(0, H);
+  for (let x = b.x0; x <= b.x1; x += 2) ctx.lineTo(X(x), Y(g.groundY(x)));
+  ctx.lineTo(W, H); ctx.fill();
+  for (const bl of g.blocks) {
+    if (bl.dead) continue;
+    const t = bl.body.translation();
+    ctx.fillStyle = bl.target ? TARGETS[bl.target].color : MAT_COL[g.shownMat(bl)] ?? '#888';
+    ctx.fillRect(X(t.x - bl.w / 2), Y(t.y + bl.h / 2), Math.max(1, bl.w * sx), Math.max(1, bl.h * sy));
+  }
+  ctx.fillStyle = '#d8c9a8';
+  for (const h of g.houses) if (!h.dead) ctx.fillRect(X(h.def.x), Y(g.groundY(h.def.x) + h.def.h), h.def.w * sx, h.def.h * sy);
+  ctx.fillStyle = '#ff5a1f';
+  ctx.fillRect(X(g.level.cannonX) - 2, Y(g.groundY(g.level.cannonX) + 1.5), 5, 5);
+  for (const p of g.projectiles) if (!p.dead) { ctx.fillStyle = p.enemy ? '#e2503a' : '#ffd34d'; ctx.fillRect(X(p.x) - 1, Y(p.y) - 1, 3, 3); }
+  for (const p of g.planes) { ctx.fillStyle = '#ffb347'; ctx.fillRect(X(p.x) - 3, Y(p.y) - 1, 7, 3); }
+  for (const s of g.soldiers) if (!s.dead) { ctx.fillStyle = '#c9d6a0'; ctx.fillRect(X(s.x), Y(s.y + 1.3), 1.5, 3); }
+  ctx.strokeStyle = 'rgba(255,179,71,0.9)'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(X(r.cx - r.viewW / 2), Y(r.cy + r.viewH / 2), r.viewW * sx, r.viewH * sy);
 }
 
 export function buildLabels() {

@@ -1,4 +1,5 @@
 import { generateLevel, type GenSpec } from './fortgen';
+import { generateGrand, type GrandSpec } from './grandgen';
 import { LEVELS, type LevelDef } from './levels';
 
 export interface CampaignNode {
@@ -15,6 +16,10 @@ export interface CampaignNode {
 }
 
 const hand = (i: number) => () => LEVELS[i];
+const grand = (spec: GrandSpec) => {
+  let cache: LevelDef | null = null;
+  return () => (cache ??= generateGrand(spec));
+};
 const gen = (spec: GenSpec) => {
   let cache: LevelDef | null = null;
   return () => (cache ??= generateLevel(spec));
@@ -26,17 +31,28 @@ const gen = (spec: GenSpec) => {
  */
 export const CAMPAIGN: CampaignNode[] = [
   { id: 'outpost', mx: 12, my: 70, from: [], level: hand(0), region: 'Border' },
-  { id: 'millford', mx: 20, my: 44, from: [], region: 'Border', level: gen({ id: 'millford', name: 'Millford Stockade', seed: 11, theme: 'timber', difficulty: 1, village: true }) },
-  { id: 'cleancut', mx: 28, my: 82, from: ['outpost'], level: hand(3), region: 'Border' },
-  { id: 'redhill', mx: 33, my: 58, from: ['outpost', 'millford'], region: 'Lowlands', level: gen({ id: 'redhill', name: 'Redhill Keep', seed: 23, theme: 'stone', difficulty: 2 }) },
-  { id: 'saltworks', mx: 36, my: 26, from: ['millford'], region: 'Lowlands', level: gen({ id: 'saltworks', name: 'Saltworks Depot', seed: 37, theme: 'mixed', difficulty: 2, objectives: ['command', 'ammo'] }) },
-  { id: 'bastion', mx: 49, my: 70, from: ['redhill', 'cleancut'], level: hand(1), region: 'Lowlands' },
-  { id: 'causeway', mx: 52, my: 42, from: ['redhill', 'saltworks'], region: 'River Line', level: gen({ id: 'causeway', name: 'Causeway Redoubt', seed: 51, theme: 'concrete', difficulty: 3 }) },
-  { id: 'ironmill', mx: 63, my: 22, from: ['saltworks', 'causeway'], starGate: 10, region: 'River Line', level: gen({ id: 'ironmill', name: 'Ironmill Works', seed: 67, theme: 'mixed', difficulty: 3, village: true }) },
-  { id: 'citadel', mx: 66, my: 62, from: ['bastion', 'causeway'], level: hand(2), region: 'River Line' },
-  { id: 'greywater', mx: 76, my: 40, from: ['citadel', 'ironmill'], starGate: 16, region: 'Highlands', level: gen({ id: 'greywater', name: 'Greywater Fortress', seed: 83, theme: 'concrete', difficulty: 4 }) },
-  { id: 'hollowcrown', mx: 80, my: 78, from: ['citadel'], starGate: 14, region: 'Highlands', level: gen({ id: 'hollowcrown', name: 'Hollow Crown', seed: 97, theme: 'stone', difficulty: 4, village: true }) },
-  { id: 'thronefall', mx: 90, my: 56, from: ['greywater', 'hollowcrown'], starGate: 22, region: 'Capital', level: gen({ id: 'thronefall', name: 'Thronefall Citadel', seed: 131, theme: 'mixed', difficulty: 5, objectives: ['command', 'ammo'] }) },
+  { id: 'millford', mx: 18, my: 44, from: [], region: 'Border', level: gen({ id: 'millford', name: 'Millford Stockade', seed: 11, theme: 'timber', difficulty: 1, village: true }) },
+  { id: 'cleancut', mx: 24, my: 82, from: ['outpost'], level: hand(3), region: 'Border' },
+  { id: 'redhill', mx: 28, my: 58, from: ['outpost', 'millford'], region: 'Lowlands', level: gen({ id: 'redhill', name: 'Redhill Keep', seed: 23, theme: 'stone', difficulty: 2 }) },
+  { id: 'saltworks', mx: 31, my: 26, from: ['millford'], region: 'Lowlands', level: gen({ id: 'saltworks', name: 'Saltworks Depot', seed: 37, theme: 'mixed', difficulty: 2, objectives: ['command', 'ammo'] }) },
+  { id: 'bastion', mx: 41, my: 70, from: ['redhill', 'cleancut'], level: hand(1), region: 'Lowlands' },
+  { id: 'causeway', mx: 44, my: 42, from: ['redhill', 'saltworks'], region: 'River Line', level: gen({ id: 'causeway', name: 'Causeway Redoubt', seed: 51, theme: 'concrete', difficulty: 3 }) },
+  { id: 'ironmill', mx: 52, my: 22, from: ['saltworks', 'causeway'], starGate: 10, region: 'River Line', level: gen({ id: 'ironmill', name: 'Ironmill Works', seed: 67, theme: 'mixed', difficulty: 3, village: true }) },
+  { id: 'citadel', mx: 55, my: 62, from: ['bastion', 'causeway'], level: hand(2), region: 'River Line' },
+  { id: 'greywater', mx: 63, my: 40, from: ['citadel', 'ironmill'], starGate: 16, region: 'Highlands', level: gen({ id: 'greywater', name: 'Greywater Fortress', seed: 83, theme: 'concrete', difficulty: 4 }) },
+  { id: 'hollowcrown', mx: 66, my: 78, from: ['citadel'], starGate: 14, region: 'Highlands', level: gen({ id: 'hollowcrown', name: 'Hollow Crown', seed: 97, theme: 'stone', difficulty: 4, village: true }) },
+  { id: 'thronefall', mx: 74, my: 56, from: ['greywater', 'hollowcrown'], starGate: 22, region: 'Capital', level: gen({ id: 'thronefall', name: 'Thronefall Citadel', seed: 131, theme: 'mixed', difficulty: 5, objectives: ['command', 'ammo'] }) },
+
+  // ── the great fortresses: 20–40+ room castles, the end of the front ──
+  { id: 'kestrel', mx: 84, my: 18, from: ['greywater', 'ironmill'], starGate: 20, region: 'Marches',
+    level: grand({ id: 'kestrel', name: 'Kestrel Bastille', seed: 211, difficulty: 5, theme: 'stone' }) },
+  { id: 'ironcrown', mx: 88, my: 84, from: ['hollowcrown', 'thronefall'], starGate: 24, region: 'Marches',
+    level: grand({ id: 'ironcrown', name: 'Castle Ironcrown', seed: 307, difficulty: 6, theme: 'mixed' }) },
+  { id: 'warden', mx: 92, my: 38, from: ['kestrel', 'thronefall'], starGate: 28, region: 'Capital',
+    level: grand({ id: 'warden', name: 'Wardenhold', seed: 419, difficulty: 7, theme: 'concrete' }) },
+  { id: 'blackcitadel', mx: 93, my: 62, from: ['warden', 'ironcrown'], starGate: 32, region: 'Capital',
+    level: grand({ id: 'blackcitadel', name: 'The Black Citadel', seed: 523, difficulty: 8, theme: 'mixed', keeps: 2,
+      brief: 'The capital\'s citadel: two keeps, three gun towers, double curtain walls. End the war here.' }) },
 ];
 
 export const NODE_BY_ID = Object.fromEntries(CAMPAIGN.map((n) => [n.id, n])) as Record<string, CampaignNode>;
@@ -59,6 +75,9 @@ export function devCastles(): LevelDef[] {
   const themes = ['timber', 'stone', 'concrete', 'mixed'] as const;
   for (let i = 0; i < 12; i++) {
     extra.push(generateLevel({ id: `dev${i}`, name: `Proving Ground ${i + 1}`, seed: 1000 + i * 17, theme: themes[i % 4], difficulty: 1 + (i % 5) }));
+  }
+  for (let i = 0; i < 4; i++) {
+    extra.push(generateGrand({ id: `devgrand${i}`, name: `Grand Proving Ground ${i + 1}`, seed: 2000 + i * 31, difficulty: 5 + i, theme: (['stone', 'mixed', 'concrete', 'mixed'] as const)[i], keeps: i === 3 ? 2 : 1 }));
   }
   return [...CAMPAIGN.map((n) => n.level()), ...extra];
 }

@@ -240,7 +240,9 @@ button { font: inherit; color: inherit; }
 .firerow .btn { flex: 1; font-size: 21px; }
 .hint { font: 11.5px/1.4 var(--mono); color: var(--bone-dim); margin-top: 6px; }
 
-#toasts { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; }
+#minimap { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: min(520px, calc(100vw - 600px)); height: 84px; pointer-events: auto; cursor: crosshair; }
+@media (max-width: 1100px) { #minimap { display: none; } }
+#toasts { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; }
 .toast { font: 600 15px var(--ui); letter-spacing: 0.03em; padding: 7px 16px 6px; background: rgba(16, 18, 22, 0.92); border-left: 4px solid var(--gun-3); animation: tin 0.2s ease-out; transition: opacity 0.5s; }
 .toast.good { border-left-color: var(--ok); }
 .toast.bad { border-left-color: var(--bad); }

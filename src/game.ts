@@ -150,6 +150,9 @@ export class Game {
   strikeMarks!: THREE.InstancedMesh;
   airMarker: number | null = null;
   lastCollateralToast = -10;
+  baseCx = 0;
+  backdrops: { mesh: THREE.Mesh; deps: Block[]; home: V2[]; fade: number }[] = [];
+  backdropT = 0;
 
   constructor(r: Renderer) {
     this.r = r;
@@ -160,7 +163,8 @@ export class Game {
     this.dispose();
     this.level = level;
     this.world = new RAPIER.World({ x: 0, y: PHYS.gravity });
-    this.world.numSolverIterations = 10;
+    // tall multi-storey frames need more solver iterations to stand still
+    this.world.numSolverIterations = level.blocks.length > 150 ? 16 : 10;
     this.eq = new RAPIER.EventQueue(true);
     this.r.world.add(this.root);
     this.wind = +(level.wind[0] + Math.random() * (level.wind[1] - level.wind[0])).toFixed(1);
@@ -185,6 +189,16 @@ export class Game {
     this.root.add(makeGround(level.ground));
 
     for (const d of level.blocks) this.addBlock(d);
+    // cutaway interior walls behind each room: dark, non-colliding, gone once the room's frame fails
+    for (const bd of level.backdrops ?? []) {
+      const m = MATERIALS[bd.mat];
+      const mat = makeBlockMaterial(m.color.map((c) => c * 0.5) as [number, number, number], bd.w, bd.h, m.kind);
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(bd.w, bd.h), mat);
+      mesh.position.set(bd.x + bd.w / 2, bd.y + bd.h / 2, 2.6);
+      this.root.add(mesh);
+      const deps = bd.deps.map((i) => this.blocks[i]).filter(Boolean);
+      this.backdrops.push({ mesh, deps, home: deps.map((b) => { const t = b.body.translation(); return { x: t.x, y: t.y }; }), fade: 1 });
+    }
     for (const t of level.blocks) if (t.target) this.targetsTotal[t.target] = (this.targetsTotal[t.target] ?? 0) + 1;
     for (const h of level.houses) this.addHouse(h);
 
@@ -234,7 +248,7 @@ export class Game {
     this.root.clear();
     this.r.world.remove(this.root);
     this.root = new THREE.Group();
-    this.blocks = []; this.houses = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
+    this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
     this.pending = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.events = [];
     if (this.world) { this.world.free(); this.eq.free(); }
     this.r.smoke.parts.length = 0; this.r.fire.parts.length = 0; this.r.debris.chunks.length = 0;
@@ -994,6 +1008,7 @@ export class Game {
     });
 
     this.updateBlocks(dt);
+    this.updateBackdrops(dt);
     this.updateProjectiles(dt);
     this.updatePending(dt);
     this.updateSoldiers(dt);
@@ -1002,6 +1017,30 @@ export class Game {
     if (this.running && !this.ended) this.updateEnemy(dt);
     this.checkEnd(dt);
     this.syncMeshes();
+  }
+
+  updateBackdrops(dt: number) {
+    this.backdropT -= dt;
+    const check = this.backdropT <= 0;
+    if (check) this.backdropT = 0.2;
+    for (const bd of this.backdrops) {
+      if (bd.fade < 1 || check) {
+        if (bd.fade === 1) {
+          const failed = bd.deps.some((b, i) => {
+            if (b.dead) return true;
+            const t = b.body.translation();
+            return Math.hypot(t.x - bd.home[i].x, t.y - bd.home[i].y) > 0.6;
+          });
+          if (!failed) continue;
+          const p = bd.mesh.position;
+          for (let i = 0; i < 6; i++) this.r.smoke.spawn({ x: p.x + (Math.random() - 0.5) * 3, y: p.y + (Math.random() - 0.5) * 2, vy: 0.6, max: 2, size0: 1, size1: 3, c0: [0.5, 0.47, 0.42], c1: [0.6, 0.58, 0.55], a0: 0.5, a1: 0, drag: 1 });
+          bd.fade = 0.999;
+        }
+        bd.fade = Math.max(0, bd.fade - dt * 2.5);
+        (bd.mesh.material as THREE.ShaderMaterial).uniforms.uFade.value = bd.fade;
+        if (bd.fade <= 0) bd.mesh.visible = false;
+      }
+    }
   }
 
   updateBlocks(dt: number) {
@@ -1516,10 +1555,12 @@ export class Game {
     const r = this.r;
     const fb = this.fortressBounds;
     const x0 = this.level.cannonX - 5;
-    const x1 = Math.max(fb.x1 + 4, ...this.level.houses.filter((h) => h.x < fb.x1 + 10).map((h) => h.x + h.w + 1));
+    // big castles: the overview covers the gun and the near works; pan, zoom or use the minimap for the rest
+    const x1 = Math.min(x0 + 115, Math.max(fb.x1 + 4, ...this.level.houses.filter((h) => h.x < fb.x1 + 10).map((h) => h.x + h.w + 1)));
     const aspect = r.width / r.height;
-    let viewH = Math.max(16, (x1 - x0) / aspect, (fb.y1 - this.groundY(fb.x0)) * 2.2) / this.zoom;
-    let cx = (x0 + x1) / 2 + this.pan;
+    let viewH = Math.max(16, (x1 - x0) / aspect, Math.min(40, (fb.y1 - this.groundY(fb.x0)) * 1.7)) / this.zoom;
+    this.baseCx = (x0 + x1) / 2;
+    let cx = this.baseCx + this.pan;
     let cy = Math.min(this.groundY(this.level.cannonX), this.groundY(fb.x0)) + viewH * 0.3;
     // keep the whole battlefield in view, expanding to include whatever is in flight
     if (this.focus) {

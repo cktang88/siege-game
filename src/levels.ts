@@ -29,6 +29,8 @@ export interface LevelDef {
   /** score thresholds for 1, 2, 3 stars */
   stars: [number, number, number];
   collateralMult: number;
+  /** non-colliding interior back walls (cutaway view); each disappears when any block in deps fails */
+  backdrops?: { x: number; y: number; w: number; h: number; mat: MatId; deps: number[] }[];
 }
 
 class Builder {

@@ -62,6 +62,20 @@ Every block is a Rapier rigid body with a material (timber, masonry, reinforced 
 
 There are 4 hand-built fortresses and a seeded generator (`src/fortgen.ts`). The generator builds stable fortresses from modules: towers, halls, concrete bunkers, firebrick vaults, sheds, front walls with optional disguised reactive skirts, and double walls. It takes a theme (timber, stone, concrete or mixed) and a difficulty.
 
+### Great fortresses
+
+The late campaign (Kestrel Bastille, Castle Ironcrown, Wardenhold, The Black Citadel) uses `src/grandgen.ts`. These castles have 40 to 84 rooms each. Each one has:
+
+- a curtain wall (double at high difficulty, with a disguised reactive skirt)
+- a gatehouse and a bailey with barracks and workshops
+- an inner curtain
+- gun towers
+- one or two multi-storey keeps
+
+Every building is a post-and-lintel grid. Each room's floor slab spans from the centre of one column to the centre of the next, so knocking out a column lets the floors above fold down storey by storey. Rooms have cutaway back walls that crumble once their frame fails.
+
+On castles this size the overview covers the gun and the near works. To see the rest, use the minimap (click or drag it), the mouse wheel, or right-drag.
+
 ## Look and sound
 
 The rendering techniques are ported from [tinwar](https://github.com/cktang88/tinwar) onto three.js:
