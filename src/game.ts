@@ -268,7 +268,7 @@ export class Game {
     this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
     this.pending = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.events = [];
     if (this.world) { this.world.free(); this.eq.free(); }
-    this.r.smoke.parts.length = 0; this.r.fire.parts.length = 0; this.r.debris.chunks.length = 0;
+    this.r.smoke.parts.length = 0; this.r.fire.parts.length = 0; this.r.flame.parts.length = 0; this.r.debris.chunks.length = 0;
   }
 
   groundY(x: number) {
@@ -758,7 +758,6 @@ export class Game {
 
   burst(x: number, y: number, s: number, smokeOnly = false) {
     const nearGround = y - this.groundY(x) < 1.5;
-    // smoke first: the pool draws in spawn order, so the fireball below sits on top of its own smoke
     for (let i = 0; i < (smokeOnly ? 70 : 22 * s + 6); i++) {
       const a = Math.random() * Math.PI * 2, sp = Math.random() * (smokeOnly ? 5 : 3.5 * s + 1);
       const g = 0.25 + Math.random() * 0.15;
@@ -769,13 +768,13 @@ export class Game {
     if (!smokeOnly) {
       // the flash: brief and warm, so the fireball (not a white disc) is what reads
       this.r.fire.spawn({ x, y, max: 0.08, size0: 2.6 * s + 0.8, size1: 4.2 * s + 1, c0: [2.2, 1.7, 1.0], c1: [1.6, 0.8, 0.25], a0: 0.85, a1: 0 });
-      // fireball: opaque cel-shaded puffs (rim + lit top from the puff shader) cooling yellow → orange → ember;
+      // fireball: opaque cel flame puffs (drawn over the smoke) cooling yellow → orange → ember;
       // additive puffs stacked into a white HDR blob that the bloom smeared over the whole screen
       for (let i = 0; i < 20 * s + 5; i++) {
         const a = Math.random() * Math.PI * 2, sp = (2 + Math.random() * 7) * s + 1;
         const hot = Math.random();
-        this.r.smoke.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 1, max: 0.35 + Math.random() * 0.4, size0: (0.8 + Math.random()) * s + 0.3, size1: 0.25,
-          c0: [1.75, 1.2 + hot * 0.35, 0.4 + hot * 0.3], c1: [0.6, 0.2, 0.07], a0: 1, a1: 0, drag: 3.5, grav: 2 });
+        this.r.flame.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 1, max: 0.35 + Math.random() * 0.4, size0: (0.8 + Math.random()) * s + 0.3, size1: 0.25,
+          c0: [1.45, 0.95 + hot * 0.3, 0.3 + hot * 0.2], c1: [0.6, 0.2, 0.07], a0: 1, a1: 0, drag: 3.5, grav: 2 });
       }
       // a few additive hot cores keep the centre glowing (and feed the bloom a little)
       for (let i = 0; i < 4 + 3 * s; i++) {
@@ -1159,8 +1158,11 @@ export class Game {
         if (b.dead) continue;
         if (Math.random() < dt * 30 * Math.min(1.5, b.w * b.h)) {
           const lx = (Math.random() - 0.5) * b.w, ly = (Math.random() - 0.3) * b.h;
-          this.r.fire.spawn({ x: t.x + lx, y: t.y + ly, vx: this.wind * 0.3, vy: 1.5 + Math.random() * 2, max: 0.6 + Math.random() * 0.5, size0: 0.7 + Math.random() * 0.5, size1: 0.1,
-            c0: [2.6, 1.1, 0.25], c1: [1.4, 0.2, 0.02], a0: 0.95, a1: 0, drag: 1 });
+          // opaque cel tongues (additive ones stacked into a white, bloom-smeared sheet) plus the odd hot ember
+          this.r.flame.spawn({ x: t.x + lx, y: t.y + ly, vx: this.wind * 0.3, vy: 1.5 + Math.random() * 2, max: 0.6 + Math.random() * 0.5, size0: 0.7 + Math.random() * 0.5, size1: 0.1,
+            c0: [1.4, 0.68 + Math.random() * 0.25, 0.14], c1: [0.75, 0.16, 0.03], a0: 0.95, a1: 0, drag: 1 });
+          if (Math.random() < 0.2) this.r.fire.spawn({ x: t.x + lx, y: t.y + ly, vx: this.wind * 0.3 + (Math.random() - 0.5), vy: 2.5 + Math.random() * 2, max: 0.7, size0: 0.14, size1: 0.05,
+            c0: [3, 1.5, 0.4], c1: [1.5, 0.3, 0.05], a0: 1, a1: 0, drag: 0.6 });
           if (Math.random() < 0.3) this.r.smoke.spawn({ x: t.x + lx, y: t.y + b.h / 2, vx: this.wind * 0.6, vy: 1.6, max: 3, size0: 0.8, size1: 3, c0: [0.25, 0.23, 0.22], c1: [0.45, 0.44, 0.43], a0: 0.6, a1: 0, drag: 0.4 });
         }
         b.spreadT -= dt;

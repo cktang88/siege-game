@@ -402,8 +402,11 @@ void main(){
     float lit = step(0.0, -c.y + c.x * 0.3 - 0.05);
     col *= mix(0.82, 1.08, lit);
     col *= mix(1.0, 0.82, step(0.82, d));
-  } else {          // fire: hot core
+  } else if (vKind < 1.5) { // fire (additive): hot core
     col = mix(col * 1.8, col, step(0.45, d));
+  } else {          // flame (opaque): cel tongue, pale hot core, inked tip edge; saturates instead of stacking to white
+    col = mix(col * 1.3 + vec3(0.25, 0.18, 0.02), col, step(0.42, d));
+    col *= mix(1.0, 0.7, step(0.86, d));
   }
   gl_FragColor = vec4(col, vAlpha);
 }
@@ -425,13 +428,14 @@ export class ParticlePool {
   private attrs: THREE.BufferAttribute[];
   private pos: Float32Array; private size: Float32Array; private col: Float32Array; private alpha: Float32Array; private kindA: Float32Array;
   material: THREE.ShaderMaterial;
-  constructor(public max: number, public additive: boolean, z: number) {
+  /** kind: 0 smoke puff, 1 additive fire/sparks, 2 opaque cel flame (drawn between the two) */
+  constructor(public max: number, public additive: boolean, z: number, kind = additive ? 1 : 0) {
     this.geo = new THREE.BufferGeometry();
     this.pos = new Float32Array(max * 3);
     this.size = new Float32Array(max);
     this.col = new Float32Array(max * 3);
     this.alpha = new Float32Array(max);
-    this.kindA = new Float32Array(max).fill(additive ? 1 : 0);
+    this.kindA = new Float32Array(max).fill(kind);
     this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     this.geo.setAttribute('aSize', new THREE.BufferAttribute(this.size, 1));
     this.geo.setAttribute('aColor', new THREE.BufferAttribute(this.col, 3));
@@ -446,7 +450,7 @@ export class ParticlePool {
     this.points = new THREE.Points(this.geo, this.material);
     this.points.frustumCulled = false;
     this.points.position.z = z;
-    this.points.renderOrder = additive ? 20 : 15;
+    this.points.renderOrder = additive ? 20 : kind === 2 ? 17 : 15;
   }
   private evict = 0;
   spawn(p: Partial<Particle> & { x: number; y: number }) {
@@ -602,6 +606,8 @@ export class Renderer {
   split = 0;
   smoke = new ParticlePool(1800, false, 8);
   fire = new ParticlePool(1500, true, 9);
+  /** burning works and fireballs: opaque, so a dozen overlapping tongues read as flame, not an HDR white-out under bloom */
+  flame = new ParticlePool(1400, false, 8.5, 2);
   debris: DebrisPool;
   cx = 40; cy = 10; viewH = 40;
   shake = 0;
@@ -625,7 +631,7 @@ export class Renderer {
     this.bg.renderOrder = -10;
     this.scene.add(this.bg, this.world);
     this.debris = new DebrisPool(700, groundY);
-    this.scene.add(this.smoke.points, this.fire.points, this.debris.mesh);
+    this.scene.add(this.smoke.points, this.flame.points, this.fire.points, this.debris.mesh);
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -671,7 +677,9 @@ export class Renderer {
     this.bgMat.uniforms.uTime.value = time;
     this.smoke.material.uniforms.uPx.value = this.pxPerUnit;
     this.fire.material.uniforms.uPx.value = this.pxPerUnit;
+    this.flame.material.uniforms.uPx.value = this.pxPerUnit;
     this.smoke.update(dt);
+    this.flame.update(dt);
     this.fire.update(dt);
     this.debris.update(dt);
     this.vignette.uniforms.uFlash.value = this.flash * 0.35;
