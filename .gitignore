@@ -2,3 +2,4 @@ public/sprites/raw/
 node_modules
 dist
 public/ui/raw/
+.claude/
