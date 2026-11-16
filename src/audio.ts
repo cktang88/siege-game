@@ -177,7 +177,17 @@ class AudioEngine {
     let next = this.ctx.currentTime + 0.1;
     const tick = () => {
       const ctx = this.ctx!;
-      while (next < ctx.currentTime + 0.25) { this.musicStep(next, stepS); next += stepS; this.step++; }
+      if (ctx.state !== 'running') return;
+      // after a stall (background tab throttling the timer, a suspended context) rejoin on the beat:
+      // without this every missed eighth was scheduled at once, in the past, as one loud smear
+      if (next < ctx.currentTime) {
+        const missed = Math.ceil((ctx.currentTime - next) / stepS);
+        next += missed * stepS; this.step += missed;
+      }
+      while (next < ctx.currentTime + 0.25) {
+        if (!this.muted) this.musicStep(next, stepS); // muted: keep time, build no nodes
+        next += stepS; this.step++;
+      }
     };
     this.musicTimer = window.setInterval(tick, 60);
   }

@@ -69,7 +69,15 @@ function parts() {
   return cache;
 }
 
-const mat = (t: THREE.Texture, shade = 1) => new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, alphaTest: 0.05, color: new THREE.Color(shade, shade, shade) });
+/* every rig shares its part materials (a garrison is ~50 rigs x 7 parts); a rig clones its own only when it starts to fade out */
+const matCache = new Map<string, THREE.MeshBasicMaterial>();
+const mat = (t: THREE.Texture, shade = 1) => {
+  const key = `${t.uuid}|${shade}`;
+  let m = matCache.get(key);
+  if (!m) { m = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, alphaTest: 0.05, color: new THREE.Color(shade, shade, shade) }); matCache.set(key, m); }
+  return m;
+};
+let upperMat: THREE.MeshBasicMaterial | null = null;
 
 interface Leg { hip: THREE.Group; knee: THREE.Group; ankle: THREE.Group }
 
@@ -95,7 +103,8 @@ export class SoldierRig {
     const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
     for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - (1 - uv.getY(i)) * (UPPER_PX / SHEET_H));
     geo.translate(0, uh / 2, 0);
-    this.upper = new THREE.Mesh(geo, tex ? new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, alphaTest: 0.05 }) : new THREE.MeshBasicMaterial({ color: 0x556655 }));
+    upperMat ??= tex ? new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, alphaTest: 0.05 }) : new THREE.MeshBasicMaterial({ color: 0x556655 });
+    this.upper = new THREE.Mesh(geo, upperMat);
     this.upper.position.z = 0.02;
     // hips sit under the belt; the front (left-facing) leg is drawn in front, the back leg shaded behind
     const hipY = 0.02;
@@ -172,10 +181,15 @@ export class SoldierRig {
     return this.upper.localToWorld(v);
   }
 
+  private ownMats = false;
   fade(a: number) {
+    const own = !this.ownMats;
+    this.ownMats = true;
     this.group.traverse((o) => {
-      const m = (o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
-      if (m) m.opacity = a;
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      if (own) mesh.material = (mesh.material as THREE.MeshBasicMaterial).clone();
+      (mesh.material as THREE.MeshBasicMaterial).opacity = a;
     });
   }
 }

@@ -189,10 +189,7 @@ function frame(now: number) {
     g.focus = null;
     g.syncMeshes();
   }
-  // in battle, lift the ground line above the fire-control panel so it never hides the gun
-  const fcp = S.mode === 'battle' || S.mode === 'result' ? document.getElementById('fcp') : null;
-  const top = fcp?.getBoundingClientRect().top ?? 0;
-  g.groundFrac = top > 0 ? Math.max(0.2, Math.min(0.42, (window.innerHeight - top + 4) / window.innerHeight)) : 0.2;
+  // (the camera lifts the ground line above the fire-control panel itself: Game.viewGroundFrac)
   g.frameCamera(false, dt);
   const a = AMMO_BY_ID[g.selected];
   if (S.mode === 'battle') {
