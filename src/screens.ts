@@ -1,8 +1,8 @@
-import { AMMO_BY_ID, MATERIALS, SHOP_AMMO, TARGETS, type AmmoId } from './config';
+import { AMMO_BY_ID, MATERIALS, SHOP_AMMO, type AmmoId } from './config';
 import { CAMPAIGN, NODE_BY_ID, devCastles, nodeState } from './campaign';
-import { startBattle } from './hud';
+import { startBattle, targetName } from './hud';
 import type { LevelDef } from './levels';
-import { BRANCHES, TECH, TECH_BY_ID, availableAmmo, canResearch, computeStats, hasTech, missionReward, research, writeSave, type Branch } from './progress';
+import { BRANCHES, TECH, TECH_BY_ID, availableAmmo, canRefund, canResearch, computeStats, dependents, hasTech, missionReward, refund, research, salvageReward, writeSave, type Branch, type Reward } from './progress';
 import { $, S, icon } from './state';
 import { audio } from './audio';
 
@@ -82,7 +82,7 @@ function renderDossier() {
   const best = S.save.best[n.id];
   const reason = st === 'locked' ? `Clear ${n.from.map((f) => NODE_BY_ID[f].level().name).join(' or ')} first.`
     : st === 'gated' ? `High command wants ★${n.starGate} total before committing to ${n.region}. You have ★${totalStars()}.` : '';
-  const objs = lvl.objectives.map((o) => TARGETS[o].desc.split(' — ')[0]).join(', ');
+  const objs = lvl.objectives.map((o) => targetName(o)).join(', ');
   let html = `<div class="stamp classified ${st === 'cleared' ? 'ok' : ''}">${st === 'cleared' ? 'Taken' : st === 'open' ? 'Priority' : 'Classified'}</div>
     <div class="region">${esc(n.region)} sector</div>
     <h2>${esc(lvl.name)}</h2>
@@ -114,7 +114,19 @@ function renderDossier() {
 }
 
 // ───────────────────────── Research ─────────────────────────
+/** a picture for upgrades that unlock nothing: the munition they improve, else the branch insignia */
+const TECH_ICON: Record<string, AmmoId> = {
+  ord_he2: 'he', ord_ap2: 'ap', ord_napalm: 'incendiary', ord_cluster2: 'cluster', ord_drill2: 'drill',
+  gun_shell2: 'heavy', air_bay: 'airstrike', air_dive: 'airstrike', air_inc: 'incendiary', air_pen: 'bunker', air_ecm: 'airstrike', air_bay2: 'airstrike',
+  sp_drone2: 'drone', sp_sab2: 'saboteur', sp_charge: 'sticky', sp_fuse: 'sticky', log_bulk: 'shell',
+};
+const techIcon = (n: { id: string; branch: Branch; unlocks?: AmmoId[] }) => {
+  const a = n.unlocks?.[0] ?? TECH_ICON[n.id];
+  return a ? `<img src="${icon(a)}" alt="">` : `<img class="ins" src="ui/ins_${n.branch}.png" alt="">`;
+};
+
 export function showTech() {
+  const prevScroll = S.mode === 'tech' ? screen().querySelector('.techscreen')?.scrollTop ?? 0 : 0;
   S.mode = 'tech';
   $('#hud').classList.add('hidden');
   const branches = Object.keys(BRANCHES) as Branch[];
@@ -126,30 +138,44 @@ export function showTech() {
       ${tiers.map((t) => `<div class="tier-label">TIER ${['I', 'II', 'III', 'IV', 'V', 'VI'][t - 1]}</div><div class="tnodes">${nodes.filter((n) => n.tier === t).map((n) => {
         const owned = hasTech(S.save, n.id);
         const reqOk = n.requires.every((r) => hasTech(S.save, r));
-        const cls = owned ? 'owned' : reqOk ? `avail ${S.save.funds < n.cost ? 'poor' : ''}` : 'locked';
-        return `<div class="tnode ${cls}" data-t="${n.id}">
-          <span class="cost">${owned ? 'OWNED' : n.cost === 0 ? 'FREE' : n.cost}</span>
-          <h4>${n.name}</h4><p>${n.desc}</p>
-          ${n.unlocks ? `<div class="unl">${n.unlocks.map((a) => `<img src="${icon(a)}" title="${AMMO_BY_ID[a].name}">`).join('')}</div>` : ''}
-          ${!owned && n.requires.length ? `<div class="req">needs ${n.requires.map((r) => TECH_BY_ID[r].name).join(' + ')}</div>` : ''}
+        const poor = S.save.funds < n.cost;
+        const cls = owned ? `owned ${canRefund(S.save, n.id) ? 'refundable' : ''}` : reqOk ? `avail ${poor ? 'poor' : ''}` : 'locked';
+        const deps = owned ? dependents(S.save, n.id) : [];
+        const tip = owned ? (S.save.dev ? 'Dev mode: every technology is on' : n.id === 'ord_he' ? 'Standard issue' : deps.length ? `Refund ${deps.map((d) => d.name).join(', ')} first` : `Click to refund ${n.cost}`)
+          : reqOk ? (poor ? `Need ${n.cost - S.save.funds} more war funds` : `Click to research for ${n.cost}`) : '';
+        return `<div class="tnode ${cls}" data-t="${n.id}" title="${tip}">
+          <div class="ic">${techIcon(n)}</div>
+          <div class="tx">
+            <div class="top"><h4>${n.name}</h4><span class="cost">${owned ? (canRefund(S.save, n.id) ? `<span class="own">OWNED</span><span class="ref">REFUND ${n.cost}</span>` : 'OWNED') : n.cost === 0 ? 'FREE' : n.cost}</span></div>
+            <p>${n.desc}</p>
+            ${!owned && !reqOk ? `<div class="req">needs ${n.requires.filter((r) => !hasTech(S.save, r)).map((r) => TECH_BY_ID[r].name).join(' + ')}</div>` : ''}
+          </div>
         </div>`;
       }).join('')}</div>`).join('')}
     </section>`;
   };
   screen().innerHTML = `<div class="techscreen">${topbar('tech')}
-    <div class="board">${branches.map(col).join('')}</div>
-    <div style="margin:0 16px 20px;display:flex;gap:10px;align-items:center">
+    <div class="techbar">
+      <span class="mono">Click an orange card to research it. Click an owned card to refund it in full (top of a branch first). Refunds are free: experiment.</span>
       <button class="btn ghost small" id="reset">Refund all research</button>
-      <span class="mono" style="color:var(--bone-dim);font-size:12px">Refunds are free. Experiment.</span>
-    </div></div>`;
+    </div>
+    <div class="board">${branches.map(col).join('')}</div>
+  </div>`;
+  screen().querySelector('.techscreen')!.scrollTop = prevScroll;
   wireTopbar(showTech);
   screen().querySelectorAll<HTMLElement>('.tnode.avail').forEach((el) => el.addEventListener('click', () => {
     const n = TECH_BY_ID[el.dataset.t!];
     if (canResearch(S.save, n)) { research(S.save, n.id); audio.play('stamp'); audio.play('coins', undefined, 1, 1, 120); showTech(); }
   }));
-  $('#reset').addEventListener('click', () => {
-    const refund = S.save.tech.reduce((s, id) => s + (TECH_BY_ID[id]?.cost ?? 0), 0);
-    S.save.funds += refund;
+  screen().querySelectorAll<HTMLElement>('.tnode.refundable').forEach((el) => el.addEventListener('click', () => {
+    if (refund(S.save, el.dataset.t!)) { audio.play('coins', undefined, 1, 1, 0); showTech(); }
+  }));
+  const reset = $<HTMLButtonElement>('#reset');
+  reset.disabled = S.save.dev || S.save.tech.every((id) => id === 'ord_he');
+  reset.addEventListener('click', () => {
+    if (S.save.dev) return;
+    const back = S.save.tech.reduce((s, id) => s + (TECH_BY_ID[id]?.cost ?? 0), 0);
+    S.save.funds += back;
     S.save.tech = ['ord_he'];
     writeSave(S.save);
     showTech();
@@ -165,7 +191,15 @@ export function showArmory(level: LevelDef, keepCart = false) {
   S.mode = 'armory';
   setBattleView(level);
   $('#hud').classList.add('hidden');
+  S.survey = false;
   if (!keepCart) S.cart = {};
+  // a kept cart (retry) may hold rounds whose research was refunded, or cost more than the budget now allows
+  const owned = new Set(availableAmmo(S.save));
+  for (const id of Object.keys(S.cart) as AmmoId[]) if (!owned.has(id)) delete S.cart[id];
+  for (const id of (Object.keys(S.cart) as AmmoId[]).sort((a, b) => price(b) - price(a))) {
+    while ((S.cart[id] ?? 0) > 0 && cartCost() > budget()) S.cart[id]! -= 1;
+    if (!S.cart[id]) delete S.cart[id];
+  }
   renderArmory();
 }
 
@@ -188,10 +222,11 @@ function renderArmory() {
       <p style="font-size:12px;margin:4px 0 14px">Unspent funds and unfired rounds count toward your score.</p>
       ${S.save.dev ? `<label class="mono" style="font-size:12px;display:block;margin-bottom:10px"><input type="checkbox" id="devb" ${S.devBudget ? 'checked' : ''}> Dev: unlimited budget</label>` : ''}
       <div class="row-btns" style="justify-content:flex-start">
-        <button class="btn" id="deploy" ${cartCost() === 0 ? 'disabled' : ''}>Deploy</button>
+        <button class="btn" id="deploy" ${cartCost() === 0 ? 'disabled title="Buy at least one round first"' : ''}>Deploy</button>
         <button class="btn ghost" id="survey">Survey</button>
         <button class="btn ghost" id="back">Back</button>
       </div>
+      ${cartCost() === 0 ? '<p class="mono nudge">Buy rounds with <b>+</b> on the munitions rack, then deploy.</p>' : ''}
     </div>
     <div class="plate rack">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="stencil" style="font-size:22px">Munitions rack</span><span class="label">Muzzle velocity cap ${st.maxSpeed} m/s · reload ${st.reload}s</span></div>
@@ -207,15 +242,19 @@ function renderArmory() {
           <img src="${icon(a.id)}" alt="">
           <div class="nm">${a.name}<span>$${p}</span></div>
           <div class="d">${a.desc}</div>
-          <div class="qty"><button data-a="${a.id}" data-d="-1" ${n ? '' : 'disabled'}>−</button><b>${n}</b><button data-a="${a.id}" data-d="1" ${p <= left ? '' : 'disabled'}>+</button></div>
+          <div class="qty"><button data-a="${a.id}" data-d="-1" ${n ? '' : 'disabled'} title="Remove one">−</button><b>${n}</b><button data-a="${a.id}" data-d="1" ${p <= left ? 'title="Add one (shift-click: five)"' : `disabled title="Not enough funds left ($${left})"`}>+</button></div>
           <div class="gb"><span class="g">+ ${a.good}</span> &nbsp; <span class="b">− ${a.bad}</span></div>
         </div>`;
       }).join('')}</div>
     </div>
   </div>`;
-  screen().querySelectorAll<HTMLButtonElement>('.qty button').forEach((b) => b.addEventListener('click', () => {
+  screen().querySelectorAll<HTMLButtonElement>('.qty button').forEach((b) => b.addEventListener('click', (e) => {
     const id = b.dataset.a as AmmoId;
-    S.cart[id] = Math.max(0, (S.cart[id] ?? 0) + +b.dataset.d!);
+    const have = S.cart[id] ?? 0;
+    let n = Math.max(0, have + +b.dataset.d! * (e.shiftKey ? 5 : 1));
+    // never overspend: shift-click buys as many as the budget allows, up to five
+    while (n > have && cartCost() + (n - have) * price(id) > budget()) n--;
+    S.cart[id] = n;
     if (!S.cart[id]) delete S.cart[id];
     renderArmory();
   }));
@@ -223,9 +262,10 @@ function renderArmory() {
   $('#deploy').addEventListener('click', () => startBattle(S.cart, cartCost(), budget()));
   $('#back').addEventListener('click', showMap);
   $('#survey').addEventListener('click', () => {
+    S.survey = true;
     screen().innerHTML = `<div class="plate" style="position:absolute;top:14px;left:50%;transform:translateX(-50%);padding:10px 16px;display:flex;gap:12px;align-items:center">
-      <span class="mono" style="font-size:13px;color:var(--bone-dim)">Hover blocks to inspect. Wheel zooms, right-drag pans.</span><button class="btn small" id="ret">Back to armory</button></div>`;
-    $('#ret').addEventListener('click', renderArmory);
+      <span class="mono" style="font-size:13px;color:var(--bone-dim)">Hover blocks to inspect. Wheel zooms, drag pans.</span><button class="btn small" id="ret">Back to armory</button></div>`;
+    $('#ret').addEventListener('click', () => { S.survey = false; renderArmory(); });
   });
 }
 
@@ -234,28 +274,46 @@ export function showResult(win: boolean, reason: string) {
   S.mode = 'result';
   const g = S.game;
   const sc = g.score();
-  const stars = win ? sc.stars : 0;
-  let earned = 0;
+  // taking the objectives always clears the operation, so a win is worth at least one star
+  const stars = win ? Math.max(1, sc.stars) : 0;
+  let reward: Reward = { total: 0, lines: [] };
+  let record = false;
+  let opened: string[] = [];
   const id = S.nodeId;
   if (id && !S.save.dev) {
     const prev = S.save.stars[id] ?? 0;
-    earned = win ? missionReward(sc.total, stars, prev) : Math.round(sc.total / 80);
-    S.save.funds += earned;
+    const prevBest = S.save.best[id] ?? 0;
     if (win) {
+      const before = new Set(CAMPAIGN.filter((n) => nodeState(n, S.save.stars, false) === 'open').map((n) => n.id));
+      reward = missionReward(sc.total, stars, prev, prevBest);
+      record = sc.total > prevBest;
       S.save.stars[id] = Math.max(prev, stars);
-      S.save.best[id] = Math.max(S.save.best[id] ?? 0, sc.total);
+      S.save.best[id] = Math.max(prevBest, sc.total);
+      opened = CAMPAIGN.filter((n) => !before.has(n.id) && nodeState(n, S.save.stars, false) === 'open').map((n) => n.id);
+      if (opened.length) S.selectedNode = opened[0];
+    } else {
+      const obj = g.level.objectives;
+      const tot = obj.reduce((a, k) => a + (g.targetsTotal[k] ?? 0), 0);
+      const hit = obj.reduce((a, k) => a + Math.min(g.targetsDestroyed[k] ?? 0, g.targetsTotal[k] ?? 0), 0);
+      reward = salvageReward(S.save, id, tot ? hit / tot : 0);
     }
-    writeSave(S.save);
-  } else if (id && S.save.dev && win) {
-    S.save.stars[id] = Math.max(S.save.stars[id] ?? 0, stars);
+    S.save.funds += reward.total;
     writeSave(S.save);
   }
+  const earned = reward.total;
   const rows: [string, number][] = [
     ['Base', sc.parts.base], ['Time vs. par', sc.parts.time], ['Budget discipline', sc.parts.budget],
     ['Secondary targets', sc.parts.optional], ['Garrison casualties', sc.parts.garrison], ['Gun condition', sc.parts.cannon], ['Collateral', sc.parts.collateral],
   ];
+  const payNote = S.save.dev ? 'Dev mode: nothing is saved and no war funds are paid.'
+    : !id ? '' : earned ? ''
+    : win ? 'No new stars or record: replays pay only for improvements.'
+    : (S.save.stars[id] ?? 0) > 0 ? 'Failed replays pay nothing.' : 'No salvage: knock out more objectives than last time to earn some.';
+  const thresholds = g.level.stars.map((t, i) => `${'★'.repeat(i + 1)} ${t.toLocaleString()}`).join(' · ');
+  const nextNames = opened.map((n) => NODE_BY_ID[n].level().name);
   audio.play(win ? 'win' : 'fail');
   setTimeout(() => {
+    if (S.mode !== 'result') return;
     if (win) for (let i = 0; i < stars; i++) audio.play('star', undefined, 0.8, 1 + i * 0.12, 250 + i * 330);
     if (earned) audio.play('coins', undefined, 1, 1, 400 + stars * 330);
     screen().innerHTML = `<div class="modalwrap"><div class="paper aar">
@@ -265,13 +323,15 @@ export function showResult(win: boolean, reason: string) {
       <p class="mono" style="font-size:13px">${esc(reason)}</p>
       ${win ? `<div class="stars">${[0, 1, 2].map((i) => `<span class="${i < stars ? '' : 'off'}">★</span>`).join('')}</div>` : ''}
       <table>${rows.map(([k, v]) => `<tr><td>${k}</td><td style="color:${v < 0 ? '#9a2a1a' : 'inherit'}">${v.toLocaleString()}</td></tr>`).join('')}
-      <tr><td><b>Total</b></td><td><b>${sc.total.toLocaleString()}</b></td></tr></table>
-      <p class="mono" style="font-size:12px">Time ${Math.floor(g.battleTime / 60)}:${String(Math.floor(g.battleTime % 60)).padStart(2, '0')} · Spent $${g.spentBudget}</p>
-      ${earned ? `<p class="earn">+${earned.toLocaleString()} war funds</p>` : ''}
+      <tr><td><b>Total</b>${record && win ? ' <span class="rec">new record</span>' : ''}</td><td><b>${sc.total.toLocaleString()}</b></td></tr></table>
+      <p class="mono" style="font-size:12px;margin:0 0 4px">Time ${Math.floor(g.battleTime / 60)}:${String(Math.floor(g.battleTime % 60)).padStart(2, '0')} · Spent $${g.spentBudget} · Stars at ${thresholds}</p>
+      ${earned ? `<p class="earn">+${earned.toLocaleString()} war funds <span>${reward.lines.map(([k, v]) => `${k} +${v}`).join(' · ')}</span></p>` : ''}
+      ${payNote ? `<p class="mono" style="font-size:12px;opacity:.75">${payNote}</p>` : ''}
+      ${nextNames.length ? `<p class="mono opened">New operation${nextNames.length > 1 ? 's' : ''} open: <b>${nextNames.map(esc).join(', ')}</b></p>` : ''}
       <div class="row-btns">
-        <button class="btn ghost" id="tomap">Operations map</button>
-        <button class="btn ghost" id="retry">Retry</button>
-        <button class="btn" id="research">Research</button>
+        <button class="btn ${win ? '' : 'ghost'}" id="tomap">Operations map</button>
+        <button class="btn ${win ? 'ghost' : ''}" id="retry">Retry</button>
+        <button class="btn ghost" id="research">Research</button>
       </div></div></div>`;
     $('#tomap').addEventListener('click', showMap);
     $('#retry').addEventListener('click', () => showArmory(S.level, true));

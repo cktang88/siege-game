@@ -125,6 +125,8 @@ export class Game {
   battleTime = 0;
   running = false;
   ended = false;
+  /** fraction of the screen height under the ground line; the HUD raises it so panels don't cover the gun */
+  groundFrac = 0.2;
   revealed = false;
   enemyBlind = 0;
   cannonHp = 100;
@@ -1640,18 +1642,20 @@ export class Game {
     // big castles: the overview covers the gun and the near works; pan, zoom or use the minimap for the rest
     const x1 = Math.min(x0 + 115, Math.max(fb.x1 + 4, ...this.level.houses.filter((h) => h.x < fb.x1 + 10).map((h) => h.x + h.w + 1)));
     const aspect = r.width / r.height;
-    let viewH = Math.max(16, (x1 - x0) / aspect, Math.min(40, (fb.y1 - this.groundY(fb.x0)) * 1.7)) / this.zoom;
+    let viewH = Math.max(16, (x1 - x0) / aspect, Math.min(40, (fb.y1 - this.groundY(fb.x0)) * 1.7) * (0.8 / (1 - this.groundFrac))) / this.zoom;
     this.baseCx = (x0 + x1) / 2;
     let cx = this.baseCx + this.pan;
-    let cy = Math.min(this.groundY(this.level.cannonX), this.groundY(fb.x0)) + viewH * 0.3;
+    // groundFrac: share of the screen height below the ground line (raised in battle so the gun clears the HUD)
+    const gf = this.groundFrac, below = 0.5 - gf;
+    let cy = Math.min(this.groundY(this.level.cannonX), this.groundY(fb.x0)) + viewH * below;
     // keep the whole battlefield in view, expanding to include whatever is in flight
     if (this.focus) {
       const fx = this.focus.x, fy = this.focus.y;
       const bx0 = Math.min(cx - (viewH * aspect) / 2, fx - 6), bx1 = Math.max(cx + (viewH * aspect) / 2, fx + 6);
-      const by0 = cy - viewH * 0.3, by1 = Math.max(cy + viewH * 0.7, fy + 5);
+      const by0 = cy - viewH * below, by1 = Math.max(cy + viewH * (1 - below), fy + 5);
       viewH = Math.max((bx1 - bx0) / aspect, (by1 - by0));
       cx = (bx0 + bx1) / 2;
-      cy = by0 + viewH * 0.3;
+      cy = by0 + viewH * below;
     }
     const k = snap ? 1 : 1 - Math.exp(-dt * 3);
     r.viewH += (viewH - r.viewH) * k;

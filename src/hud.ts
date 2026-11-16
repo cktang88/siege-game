@@ -3,6 +3,13 @@ import type { Block } from './game';
 import { blockTip } from './screens';
 import { $, S, icon } from './state';
 
+/** short names for target kinds (TARGETS[].desc is a sentence for some kinds) */
+const TARGET_NAME: Record<TargetKind, string> = {
+  command: 'Command post', ammo: 'Munitions store', barracks: 'Barracks', artillery: 'Counter-battery gun',
+  workshop: 'Engineers', flak: 'Flak battery', mast: 'Airship mast',
+};
+export const targetName = (k: TargetKind) => TARGET_NAME[k] ?? TARGETS[k].desc.split(' — ')[0];
+
 const fmtTime = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const labels = new Map<Block, HTMLElement>();
 let fcpFor: AmmoId | null = null;
@@ -30,11 +37,11 @@ export function buildHud() {
     <div id="fcp" class="plate"></div>
     <canvas id="minimap" class="plate" width="520" height="84" title="Click to look there"></canvas>
     <div id="toasts"></div>
-    <div id="tooltip" class="hidden"></div>
-    <div id="help">drag to aim · ↑↓ elevation · ←→ velocity (shift fine) · space fire · 1-9 munitions · wheel zoom · right-drag pan · R reset view · M mute</div>`;
+    <div id="help">mouse aims · click fires · wheel velocity (shift coarse) · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute</div>`;
   $('#lvl-name').textContent = S.game.level.name;
   $('#hp').innerHTML = '<i></i>'.repeat(12);
   buildRack();
+  $('#fcp').addEventListener('pointerdown', (e) => e.stopPropagation());
   updateObjectives();
   const mm = $<HTMLCanvasElement>('#minimap');
   const look = (e: PointerEvent) => {
@@ -69,7 +76,7 @@ export function updateObjectives() {
   $('#objectives').innerHTML = kinds.map((k) => {
     const tot = g.targetsTotal[k] ?? 0, d = g.targetsDestroyed[k] ?? 0;
     const obj = l.objectives.includes(k);
-    return `<li class="${d >= tot ? 'done' : ''} ${obj ? '' : 'opt'}"><span class="dot" style="background:${TARGETS[k].color}"></span>${TARGETS[k].desc.split(' — ')[0]}${tot > 1 ? ` ${d}/${tot}` : ''}${obj ? '' : ' <span class="label">secondary</span>'}</li>`;
+    return `<li class="${d >= tot ? 'done' : ''} ${obj ? '' : 'opt'}"><span class="dot" style="background:${TARGETS[k].color}"></span>${targetName(k)}${tot > 1 ? ` ${d}/${tot}` : ''}${obj ? '' : ' <span class="label">secondary</span>'}</li>`;
   }).join('');
 }
 
@@ -163,6 +170,7 @@ function buildFcp() {
       <div class="opts"><div class="opt"><span class="label">Plant at x</span>${numRow('px', 'm').replace('class="numrow"', 'class="numrow" style="grid-column: span 2;justify-content:flex-start"')}</div></div>
       <div class="firerow"><button class="btn firebtn" id="fire">Send team</button><button class="btn ghost small" id="clear-sab">First wall</button></div>`;
   } else {
+    html = html.replace('</div>', `<button class="aimtoggle ${S.mouseAim ? 'on' : ''}" id="aimtoggle" title="T: the barrel follows the mouse over the battlefield; the wheel sets muzzle velocity">Mouse aim ${S.mouseAim ? 'on' : 'off'}</button></div>`);
     html += `<div class="dials"><div class="dial">${quadrantSvg(st.minAngle, st.maxAngle)}<div class="label">Elevation</div>${numRow('ang', '°')}</div>
       <div class="dial">${velocitySvg(st.maxSpeed, g.maxSpeedFor)}<div class="label">Muzzle velocity</div>${numRow('vel', 'm/s')}</div></div>
       <div class="opts">
@@ -173,14 +181,15 @@ function buildFcp() {
       <div class="firerow"><button class="btn firebtn" id="fire">Fire</button></div>`;
   }
   fcp.innerHTML = html;
-  fcp.addEventListener('pointerdown', (e) => e.stopPropagation());
   fcp.querySelector('#fire')?.addEventListener('click', () => { if (!g.triggerAbility()) g.fire(); });
+  fcp.querySelector('#aimtoggle')?.addEventListener('click', () => { S.mouseAim = !S.mouseAim; });
   fcp.querySelector('#clear-sab')?.addEventListener('click', () => { g.sabTarget = null; });
   fcp.querySelectorAll<HTMLElement>('[data-dir]').forEach((b) => b.addEventListener('click', () => { g.strike.dir = +b.dataset.dir! as 1 | -1; buildFcp(); }));
   fcp.querySelectorAll<HTMLElement>('[data-ord]').forEach((b) => b.addEventListener('click', () => { g.strike.ordnance = b.dataset.ord as 'he'; buildFcp(); }));
   const bindRange = (id: string, set: (v: number) => void) => {
     const el = fcp.querySelector<HTMLInputElement>(`#${id}`);
     el?.addEventListener('input', () => set(+el.value));
+    el?.addEventListener('change', () => el.blur());
   };
   bindRange('s-alt', (v) => { g.strike.alt = v; });
   bindRange('s-dive', (v) => { g.strike.dive = v; });
@@ -196,12 +205,12 @@ function buildFcp() {
     px: (v) => { g.sabTarget = v; },
   };
   const getters: Record<string, () => number> = {
-    ang: () => (g.angle * 180) / Math.PI, vel: () => g.speed, sx: () => g.strike.x,
+    ang: () => (g.angle * 180) / Math.PI, vel: () => g.launchSpeed, sx: () => g.strike.x,
     dx: () => g.droneTarget?.x ?? 0, px: () => g.sabTarget ?? 0,
   };
   fcp.querySelectorAll<HTMLElement>('.numrow button').forEach((b) => b.addEventListener('click', () => {
     const k = b.dataset.n!;
-    setters[k](getters[k]() + +b.dataset.d!);
+    setters[k](Math.round((getters[k]() + +b.dataset.d!) * 10) / 10);
   }));
   fcp.querySelectorAll<HTMLInputElement>('.numrow input').forEach((inp) => {
     const k = inp.id.slice(3);
@@ -212,13 +221,15 @@ function buildFcp() {
   // drag the dials directly
   fcp.querySelectorAll<SVGSVGElement>('svg[data-dial]').forEach((svg) => {
     const apply = (e: PointerEvent) => {
-      const r = svg.getBoundingClientRect();
-      const sx = (e.clientX - r.left) * (120 / r.width), sy = (e.clientY - r.top) * (96 / r.height);
+      const m = svg.getScreenCTM();
+      if (!m) return;
+      const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+      const sx = pt.x, sy = pt.y;
       if (svg.dataset.dial === 'angle') g.setAngleDeg((Math.atan2(78 - sy, sx - 16) * 180) / Math.PI);
       else {
         let deg = (Math.atan2(56 - sy, sx - 60) * 180) / Math.PI;
         if (deg < -90) deg += 360;
-        g.setSpeed(((210 - deg) / 240) * g.stats.maxSpeed);
+        g.setSpeed(Math.min(g.maxSpeedFor, ((210 - deg) / 240) * g.stats.maxSpeed));
       }
     };
     svg.addEventListener('pointerdown', (e) => { svg.setPointerCapture(e.pointerId); apply(e); });
@@ -252,13 +263,18 @@ function updateFcp() {
   rv('o-fuse', `${g.fuseSetting.toFixed(1)}s`);
   rv('o-burst', g.airburst > 0 ? `${g.airburst.toFixed(1)}s` : 'manual');
   rv('o-flak', `${g.flakFuse.toFixed(1)}s`);
+  const at = fcp.querySelector<HTMLElement>('#aimtoggle');
+  if (at && at.classList.contains('on') !== S.mouseAim) { at.classList.toggle('on', S.mouseAim); at.textContent = `Mouse aim ${S.mouseAim ? 'on' : 'off'}`; }
   const fire = fcp.querySelector<HTMLButtonElement>('#fire');
   if (fire) {
     const ability = g.hasAbilityProjectile();
     fire.disabled = !ability && !g.canFire();
-    if (ability) fire.textContent = 'Scatter!';
-    else if (AMMO_BY_ID[g.selected].mode === 'physics' || AMMO_BY_ID[g.selected].mode === 'penetrator' || AMMO_BY_ID[g.selected].mode === 'pellets')
-      fire.textContent = g.reload > 0 ? `Reloading ${g.reload.toFixed(1)}` : (g.inventory[g.selected] ?? 0) > 0 ? 'Fire' : 'Empty';
+    const m = AMMO_BY_ID[g.selected].mode;
+    const verb = m === 'airstrike' ? 'Commit strike' : m === 'drone' ? 'Launch drone' : m === 'saboteur' ? 'Send team' : 'Fire';
+    const left = g.inventory[g.selected] ?? 0;
+    const txt = ability ? 'Scatter!' : g.ended ? 'Ceasefire' : left <= 0 ? 'None left' : g.reload > 0 ? `Reloading ${g.reload.toFixed(1)}s` : verb;
+    if (fire.textContent !== txt) fire.textContent = txt;
+    fire.title = ability ? 'Burst the cluster shell in flight (Space)' : fire.disabled ? '' : `${verb} (Space) · ${left} left`;
   }
 }
 
@@ -360,10 +376,12 @@ export function updateLabels() {
   });
 }
 
-export function updateTooltip(mouse: { x: number; y: number }, dragging: boolean) {
+export function hideTooltip() { document.querySelector('#tooltip')?.classList.add('hidden'); }
+
+export function updateTooltip(mouse: { x: number; y: number }, hide: boolean) {
   const tip = document.querySelector<HTMLElement>('#tooltip');
   if (!tip) return;
-  if (dragging) { tip.classList.add('hidden'); return; }
+  if (hide) { tip.classList.add('hidden'); return; }
   const w = S.renderer.screenToWorld(mouse.x, mouse.y);
   const b = S.game.pickBlock(w.x, w.y);
   if (!b) { tip.classList.add('hidden'); return; }
@@ -371,7 +389,7 @@ export function updateTooltip(mouse: { x: number; y: number }, dragging: boolean
   tip.innerHTML = blockTip(S.game.shownMat(b), known, b.hp, b.maxHp, b.target ? TARGETS[b.target].label : undefined, !!b.highlight, b.burning > 0);
   tip.classList.remove('hidden');
   tip.style.left = `${Math.min(mouse.x + 16, window.innerWidth - tip.offsetWidth - 8)}px`;
-  tip.style.top = `${mouse.y + 18}px`;
+  tip.style.top = `${mouse.y + 18 + tip.offsetHeight > window.innerHeight - 8 ? mouse.y - tip.offsetHeight - 10 : mouse.y + 18}px`;
 }
 
 export const MIN_SPEED = PHYS.minSpeed;
