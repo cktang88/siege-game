@@ -1,5 +1,5 @@
 import type { MatId, TargetKind } from './config';
-import { rng } from './fortgen';
+import { cannonFor, rng } from './fortgen';
 import type { BlockDef, HouseDef, LevelDef } from './levels';
 import { flare, roof, wedge } from './shapes';
 
@@ -212,12 +212,12 @@ export function generateGrand(spec: GrandSpec): LevelDef {
       'Upper storeys are timber. Lower storeys are masonry or concrete.',
       ...(d >= 6 ? ['The keep\'s ground-floor columns do not look like ordinary masonry.'] : []),
       `${towers.length} tower guns will range on you. Flak on the keep roof.`,
-      'The rear works may be out of range of an un-upgraded gun. Air power or Cordite Charges help.',
+      'The rear works are only in range of a gun with Cordite Charges. Air power helps.',
     ],
     budget: Math.round((2600 + d * 450 + nRooms * 30) / 100) * 100,
     wind: [-2 - d * 0.4, 2 + d * 0.4],
     parTime: 150 + nRooms * 4,
-    ground, cannonX: x0 - 34, blocks, houses, objectives,
+    ground, cannonX: cannonFor(blocks, ground, objectives, [-2 - d * 0.4, 2 + d * 0.4], 44, x0 - 34, Math.min(x0 - 20, Math.min(...blocks.map((b) => b.x)) - 24)), blocks, houses, objectives,
     stars: [4000, 9000 + d * 600, 14000 + d * 900], collateralMult: 1,
     backdrops: rooms.map((r) => ({ x: r.x0, y: r.y0, w: r.x1 - r.x0, h: r.y1 - r.y0 + SLAB * 0.5, mat: r.mat, deps: r.deps })),
   };

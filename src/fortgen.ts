@@ -13,7 +13,37 @@ export function rng(seed: number) {
   };
 }
 
-export type Theme = 'timber' | 'stone' | 'concrete' | 'mixed';
+/**
+ * Where to put the player's gun so every target is in range of a gun with muzzle velocity `vCap`
+ * (30 m/s base, 36 and 44 with research) against the strongest headwind the level can roll.
+ * Objectives get a 5% margin, other targets 1%. The gun starts at `far` and only moves up toward the
+ * castle, never closer than `near`. Ballistics: v² = g·(dy + √(dx²+dy²)) for the best elevation, plus ~1.2% per m/s of headwind.
+ */
+export function cannonFor(blocks: BlockDef[], ground: [number, number][], objectives: TargetKind[], wind: [number, number], vCap: number, far: number, near: number) {
+  const gY = (x: number) => {
+    if (x <= ground[0][0]) return ground[0][1];
+    for (let i = 1; i < ground.length; i++) if (x <= ground[i][0]) { const t = (x - ground[i - 1][0]) / (ground[i][0] - ground[i - 1][0] || 1); return ground[i - 1][1] + (ground[i][1] - ground[i - 1][1]) * t; }
+    return ground[ground.length - 1][1];
+  };
+  const wf = 1 + 0.012 * Math.max(Math.abs(wind[0]), Math.abs(wind[1]));
+  const worst = (cx: number) => {
+    const ox = cx + 0.15, oy = gY(cx) + 2.35;
+    let r = 0;
+    for (const b of blocks) {
+      if (!b.target) continue;
+      const dx = b.x + b.w / 2 - ox, dy = b.y + b.h / 2 - oy;
+      const v = Math.sqrt(-PHYS_G * (dy + Math.hypot(dx, dy))) * wf;
+      r = Math.max(r, v / (objectives.includes(b.target) ? 0.95 : 0.99));
+    }
+    return r;
+  };
+  let x = far;
+  while (x < near && worst(x) > vCap) x += 0.5;
+  return Math.min(near, x);
+}
+const PHYS_G = -9.81;
+
+export type Theme ='timber' | 'stone' | 'concrete' | 'mixed';
 
 export interface GenSpec {
   id: string;
