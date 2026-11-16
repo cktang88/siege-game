@@ -39,14 +39,16 @@ Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a muniti
 | Cluster Shell | scatters bomblets: tap in flight, or set an airburst timer | single hard points |
 | Delayed Fuse | bouncing or rolling into rooms; blows 3 s after impact | — |
 | Sticky Charge | gluing onto pillars; too slow to set off reactive armor | wind |
-| Burrowing Drill | landing short, tunnelling forward and blowing the foundations from below | high targets |
+| Burrowing Drill | landing short, tunnelling forward and blowing the foundations (or an earthwork) from below | high targets |
 | Canister Shot | shredding infantry | buildings |
-| Smoke Screen | blinding enemy guns for 15 s | — |
+| Smoke Screen | blinding the counter-battery guns for 15 s | — |
 | Scout Drone | revealing disguised armor, true HP and load-bearing members | flak |
 | Saboteur | running in to plant a charge at the wall base | enemy infantry |
-| Air Strike | a planned bomb run: heading, altitude, dive, interval, ordnance | flak |
+| Air Strike | a planned bomb run: heading, altitude, dive, interval, ordnance | flak (bombs released within its reach scatter; it downs the bomber) |
 
 Your gun sits on a raised earthen redoubt, about 3.5 m up. Elevation goes down to −30°, so you can fire down on infantry that halt at the foot of the slope. Canister pellets each pass through up to two men, and solid shot (round shot, heavy shell) ploughs through a whole file. In the armory, press and hold + or − to keep buying or selling.
+
+`BASE=http://127.0.0.1:5173 node scripts/munition-lab.cjs [test or munition ids]` (Playwright, dev server running) sets up a small lab scenario for every munition and counter above, fires it, steps the simulation and prints a PASS/FAIL table of each claim with the measured numbers.
 
 ## The enemy fights back
 
@@ -56,7 +58,7 @@ Your gun sits on a raised earthen redoubt, about 3.5 m up. Elevation goes down t
 - **Counter-battery gun:** fires at your cannon, with each shot landing closer (bracketing). Silence it or blind it with smoke.
 - **Barracks:** sends infantry at your gun. Destroy it to stop reinforcements.
 - **Engineers:** repair damaged blocks and rebuild destroyed wall sections, so waiting costs you.
-- **Flak:** shoots down bombers and drones.
+- **Flak:** shoots down bombers and drones. A bomber that releases within a flak gun's reach (about 48 m) has its stick thrown off the aim point, so fly high over defended targets.
 - **Munitions store:** detonates in a chain reaction when destroyed or burned.
 
 ## Structures
