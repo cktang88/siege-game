@@ -747,25 +747,36 @@ export class Game {
 
   burst(x: number, y: number, s: number, smokeOnly = false) {
     const nearGround = y - this.groundY(x) < 1.5;
-    if (!smokeOnly) {
-      this.r.fire.spawn({ x, y, max: 0.12, size0: 4 * s + 1, size1: 6 * s + 1, c0: [3, 2.6, 2], c1: [2, 1, 0.3], a0: 1, a1: 0 });
-      for (let i = 0; i < 26 * s + 6; i++) {
-        const a = Math.random() * Math.PI * 2, sp = (2 + Math.random() * 7) * s + 1;
-        this.r.fire.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 1, max: 0.35 + Math.random() * 0.35, size0: (0.8 + Math.random()) * s + 0.3, size1: 0.2,
-          c0: [2.8, 1.5, 0.45], c1: [1.2, 0.25, 0.05], a0: 1, a1: 0, drag: 3.5, grav: 2 });
-      }
-      for (let i = 0; i < 18 * s + 3; i++) {
-        const a = Math.random() * Math.PI * 2, sp = (8 + Math.random() * 16) * s;
-        this.r.fire.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, max: 0.4 + Math.random() * 0.4, size0: 0.18, size1: 0.08,
-          c0: [3, 2.2, 1], c1: [2, 0.6, 0.1], a0: 1, a1: 0, drag: 1.5, grav: -12 });
-      }
-    }
+    // smoke first: the pool draws in spawn order, so the fireball below sits on top of its own smoke
     for (let i = 0; i < (smokeOnly ? 70 : 22 * s + 6); i++) {
       const a = Math.random() * Math.PI * 2, sp = Math.random() * (smokeOnly ? 5 : 3.5 * s + 1);
       const g = 0.25 + Math.random() * 0.15;
       this.r.smoke.spawn({ x: x + Math.cos(a) * 0.3, y: y + Math.sin(a) * 0.3, vx: Math.cos(a) * sp + this.wind * 0.3, vy: Math.sin(a) * sp * 0.7 + 0.8,
         max: (smokeOnly ? 9 : 2.2) + Math.random() * 1.5, size0: (smokeOnly ? 2 : 1.2 * s + 0.5), size1: (smokeOnly ? 7 : 4 * s + 1.5),
         c0: smokeOnly ? [0.85, 0.85, 0.82] : [g + 0.15, g + 0.12, g + 0.1], c1: smokeOnly ? [0.75, 0.75, 0.74] : [0.55, 0.53, 0.5], a0: 0.85, a1: 0, drag: 1.8, grav: 0.4 });
+    }
+    if (!smokeOnly) {
+      // the flash: brief and warm, so the fireball (not a white disc) is what reads
+      this.r.fire.spawn({ x, y, max: 0.08, size0: 2.6 * s + 0.8, size1: 4.2 * s + 1, c0: [2.2, 1.7, 1.0], c1: [1.6, 0.8, 0.25], a0: 0.85, a1: 0 });
+      // fireball: opaque cel-shaded puffs (rim + lit top from the puff shader) cooling yellow → orange → ember;
+      // additive puffs stacked into a white HDR blob that the bloom smeared over the whole screen
+      for (let i = 0; i < 20 * s + 5; i++) {
+        const a = Math.random() * Math.PI * 2, sp = (2 + Math.random() * 7) * s + 1;
+        const hot = Math.random();
+        this.r.smoke.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 1, max: 0.35 + Math.random() * 0.4, size0: (0.8 + Math.random()) * s + 0.3, size1: 0.25,
+          c0: [1.75, 1.2 + hot * 0.35, 0.4 + hot * 0.3], c1: [0.6, 0.2, 0.07], a0: 1, a1: 0, drag: 3.5, grav: 2 });
+      }
+      // a few additive hot cores keep the centre glowing (and feed the bloom a little)
+      for (let i = 0; i < 4 + 3 * s; i++) {
+        const a = Math.random() * Math.PI * 2, sp = Math.random() * 3 * s;
+        this.r.fire.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 1, max: 0.18 + Math.random() * 0.15, size0: (0.6 + Math.random() * 0.5) * s + 0.2, size1: 0.2,
+          c0: [1.4, 0.9, 0.35], c1: [0.6, 0.15, 0.02], a0: 0.8, a1: 0, drag: 3 });
+      }
+      for (let i = 0; i < 18 * s + 3; i++) {
+        const a = Math.random() * Math.PI * 2, sp = (8 + Math.random() * 16) * s;
+        this.r.fire.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, max: 0.4 + Math.random() * 0.4, size0: 0.18, size1: 0.08,
+          c0: [3, 2.2, 1], c1: [2, 0.6, 0.1], a0: 1, a1: 0, drag: 1.5, grav: -12 });
+      }
     }
     if (nearGround && !smokeOnly) {
       const c = new THREE.Color(0.4, 0.31, 0.22);
@@ -1633,8 +1644,29 @@ export class Game {
   }
 
   // ───────────────────────── Camera & view ─────────────────────────
+  private groundFrac = 0.2;
+  private hudPoll = 0;
+  private hudShown = false;
+  /** share of the view below the ground line: lifted so the fire-control plate (bottom left) never hides the gun */
+  private viewGroundFrac(force: boolean) {
+    const hud = document.getElementById('hud'), fcp = document.getElementById('fcp');
+    const shown = !!hud && !hud.classList.contains('hidden');
+    // the plate's size is read (a layout query) only every 20 frames, or at once when the HUD appears or hides
+    if (!force && shown === this.hudShown && --this.hudPoll > 0) return this.groundFrac;
+    this.hudShown = shown;
+    this.hudPoll = 20;
+    let f = 0.2;
+    if (shown && fcp) {
+      const rc = fcp.getBoundingClientRect();
+      if (rc.height > 0 && rc.left < this.r.width * 0.25) f = Math.min(0.4, Math.max(0.2, (this.r.height - rc.top + 6) / this.r.height));
+    }
+    this.groundFrac = f;
+    return f;
+  }
+
   frameCamera(snap = false, dt = 0.016) {
     const r = this.r;
+    const gl = this.viewGroundFrac(snap);
     const fb = this.fortressBounds;
     const x0 = this.level.cannonX - 5;
     // big castles: the overview covers the gun and the near works; pan, zoom or use the minimap for the rest
@@ -1642,17 +1674,20 @@ export class Game {
     const aspect = r.width / r.height;
     let viewH = Math.max(16, (x1 - x0) / aspect, Math.min(40, (fb.y1 - this.groundY(fb.x0)) * 1.7)) / this.zoom;
     this.baseCx = (x0 + x1) / 2;
+    // panning (drag or minimap) stops with the view centre between the gun and the far end of the works
+    this.pan = Math.max(x0 - this.baseCx, Math.min(Math.max(x1, fb.x1 + 8) - this.baseCx, this.pan));
     let cx = this.baseCx + this.pan;
-    let cy = Math.min(this.groundY(this.level.cannonX), this.groundY(fb.x0)) + viewH * 0.3;
+    const ground = Math.min(this.groundY(this.level.cannonX), this.groundY(fb.x0));
     // keep the whole battlefield in view, expanding to include whatever is in flight
     if (this.focus) {
       const fx = this.focus.x, fy = this.focus.y;
       const bx0 = Math.min(cx - (viewH * aspect) / 2, fx - 6), bx1 = Math.max(cx + (viewH * aspect) / 2, fx + 6);
-      const by0 = cy - viewH * 0.3, by1 = Math.max(cy + viewH * 0.7, fy + 5);
-      viewH = Math.max((bx1 - bx0) / aspect, (by1 - by0));
+      // the view top sits (1 - gl) of the view above the ground line; a high lob must stay under it
+      const top = Math.max(ground + viewH * (1 - gl), fy + 5);
+      viewH = Math.max((bx1 - bx0) / aspect, (top - ground) / (1 - gl));
       cx = (bx0 + bx1) / 2;
-      cy = by0 + viewH * 0.3;
     }
+    const cy = ground + viewH * (0.5 - gl);
     const k = snap ? 1 : 1 - Math.exp(-dt * 3);
     r.viewH += (viewH - r.viewH) * k;
     r.cx += (cx - r.cx) * k;
@@ -1662,9 +1697,17 @@ export class Game {
   syncMeshes() {
     for (const b of this.blocks) {
       if (b.dead) continue;
-      const t = b.body.translation();
-      b.mesh.position.set(t.x, t.y, 4);
-      b.mesh.rotation.z = b.body.rotation();
+      // most of a castle is asleep: only re-pose (and rebuild the matrix of) blocks that move
+      const mesh = b.mesh;
+      const awake = !b.body.isSleeping();
+      if (mesh.matrixAutoUpdate || awake || mesh.userData.awake) {
+        mesh.userData.awake = awake;
+        const t = b.body.translation();
+        mesh.position.set(t.x, t.y, 4);
+        mesh.rotation.z = b.body.rotation();
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+      }
       b.flash = Math.max(0, b.flash - 0.08);
       b.uni.uFlash.value = b.flash * 0.6;
       b.uni.uDamage.value = Math.max(0, 1 - b.hp / b.maxHp);
@@ -1678,23 +1721,26 @@ export class Game {
     this.barrel.rotation.z = this.angle;
   }
 
+  private tmpM = new THREE.Matrix4();
   /** trajectory preview: only the first stretch, so reading wind & drop remains a skill */
   updatePreview(show: boolean) {
     const a = AMMO_BY_ID[this.selected];
-    const m = new THREE.Matrix4();
+    const m = this.tmpM;
     const ok = show && a.mode !== 'drone' && a.mode !== 'saboteur' && a.mode !== 'airstrike';
     this.previewDots.visible = ok;
     if (!ok) return;
     const s = this.launchSpeed;
     let { x, y } = this.muzzle;
     let vx = Math.cos(this.angle) * s, vy = Math.sin(this.angle) * s;
-    const n = Math.min(60, this.stats.previewSteps);
+    let n = Math.min(60, this.stats.previewSteps);
     for (let i = 0; i < 60; i++) {
       if (i < n) {
         for (let k = 0; k < 4; k++) {
           vy += PHYS.gravity * DT; vx += this.wind * a.wind * 0.35 * DT;
           x += vx * DT; y += vy * DT;
         }
+        // the arc ends where it meets the ground instead of tunnelling on under the terrain
+        if (y < this.groundY(x)) { n = i; m.makeScale(0, 0, 0); this.previewDots.setMatrixAt(i, m); continue; }
         const sc = 1 - (i / n) * 0.7;
         m.makeScale(sc, sc, 1); m.setPosition(x, y, 0);
       } else m.makeScale(0, 0, 0);

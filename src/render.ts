@@ -50,21 +50,29 @@ export class LightPool {
     this.lights.push({ x, y, r, c, i, life: 1, max: 1, flicker, key, seen: true });
   }
   update(dt: number, time: number) {
-    this.lights = this.lights.filter((l) => {
-      if (l.key) { const keep = !!l.seen; l.seen = false; return keep; }
-      l.life -= dt; return l.life > 0;
-    });
-    const ranked = [...this.lights].sort((a, b) => b.i * b.r - a.i * a.r).slice(0, MAX_LIGHTS);
-    ranked.forEach((l, k) => {
+    // compact in place (no per-frame arrays): keyed lights live while refreshed, transient ones while life lasts
+    const ls = this.lights;
+    let w = 0;
+    for (let i = 0; i < ls.length; i++) {
+      const l = ls[i];
+      if (l.key) { if (!l.seen) continue; l.seen = false; } else { l.life -= dt; if (l.life <= 0) continue; }
+      ls[w++] = l;
+    }
+    ls.length = w;
+    if (w > MAX_LIGHTS) ls.sort(byPower);
+    const n = Math.min(w, MAX_LIGHTS);
+    for (let k = 0; k < n; k++) {
+      const l = ls[k];
       const fade = l.key ? 1 : (l.life / l.max) ** 1.5;
       const fl = 1 - l.flicker * (0.5 + 0.5 * Math.sin(time * 23 + k * 7.1) * Math.sin(time * 13.7 + k));
       const I = l.i * fade * fl;
       LIGHTS.uLightPos.value[k].set(l.x, l.y, l.r, 0);
       LIGHTS.uLightCol.value[k].set(l.c[0] * I, l.c[1] * I, l.c[2] * I);
-    });
-    LIGHTS.uLightCount.value = ranked.length;
+    }
+    LIGHTS.uLightCount.value = n;
   }
 }
+const byPower = (a: Light, b: Light) => b.i * b.r - a.i * a.r;
 const LIGHT_GLSL = /* glsl */ `
 uniform vec4 uLightPos[${MAX_LIGHTS}]; uniform vec3 uLightCol[${MAX_LIGHTS}]; uniform int uLightCount;
 vec3 pointLights(vec2 w) {
@@ -76,7 +84,8 @@ vec3 pointLights(vec2 w) {
     f = floor(f * f * 4.0 + 0.5) / 4.0; // hard cel steps: light as a toy would see it
     acc += uLightCol[i] * f;
   }
-  return acc;
+  // soft knee: one light reads clearly, a pile-up of blasts glows instead of blowing out to white
+  return acc / (1.0 + 0.45 * acc);
 }
 `;
 const litVert = /* glsl */ `
@@ -94,14 +103,12 @@ void main(){ vUv = uv; vDA = aDA; vDB = aDB; vec4 w = modelMatrix * vec4(positio
 export function blockGeometry(w: number, h: number, poly?: [number, number][]) {
   const pts: [number, number][] = poly ? poly.map(([x, y]) => [x - w / 2, y - h / 2]) : [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
   const n = pts.length;
-  const normals: THREE.Vector2[] = [];
   const lines: { nx: number; ny: number; c: number }[] = [];
   for (let i = 0; i < 8; i++) {
-    if (i >= n) { normals.push(new THREE.Vector2(0, 0)); lines.push({ nx: 0, ny: 0, c: 99 }); continue; }
+    if (i >= n) { lines.push({ nx: 0, ny: 0, c: 99 }); continue; }
     const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % n];
     const ex = bx - ax, ey = by - ay, len = Math.hypot(ex, ey) || 1;
     const nx = ey / len, ny = -ex / len; // outward for CCW polygons
-    normals.push(new THREE.Vector2(nx, ny));
     lines.push({ nx, ny, c: -(nx * ax + ny * ay) });
   }
   const pos: number[] = [], uv: number[] = [], da: number[] = [], db: number[] = [], idx: number[] = [];
@@ -119,14 +126,13 @@ export function blockGeometry(w: number, h: number, poly?: [number, number][]) {
   g.setAttribute('aDA', new THREE.Float32BufferAttribute(da, 4));
   g.setAttribute('aDB', new THREE.Float32BufferAttribute(db, 4));
   g.setIndex(idx);
-  g.userData.normals = normals;
   return g;
 }
 
 const blockFrag = /* glsl */ `
 uniform vec3 uColor; uniform vec2 uSize; uniform float uKind; uniform float uDamage; uniform float uBurn;
 uniform float uFlash; uniform float uHighlight; uniform float uSeed; uniform float uTime; uniform float uTarget; uniform vec3 uTargetColor;
-uniform float uFade; uniform vec2 uNorm[8];
+uniform float uFade;
 varying vec2 vUv; varying vec2 vWorld; varying vec4 vDA; varying vec4 vDB;
 ${NOISE}
 ${LIGHT_GLSL}
@@ -227,9 +233,13 @@ void main(){
   col *= 1.0 - line * 0.45;
 
   // nearest edge (exact for any convex outline)
-  float dmin = 99.0; vec2 nrm = vec2(0.0);
-  float ds[8]; ds[0] = vDA.x; ds[1] = vDA.y; ds[2] = vDA.z; ds[3] = vDA.w; ds[4] = vDB.x; ds[5] = vDB.y; ds[6] = vDB.z; ds[7] = vDB.w;
-  for (int i = 0; i < 8; i++) { if (ds[i] < dmin) { dmin = ds[i]; nrm = uNorm[i]; } }
+  float dmin = min(min(min(vDA.x, vDA.y), min(vDA.z, vDA.w)), min(min(vDB.x, vDB.y), min(vDB.z, vDB.w)));
+  // distance-to-edge has a unit gradient in world space, so its screen derivative gives both the
+  // exact metres-per-pixel (rotation-proof outline width) and the nearest edge's world normal
+  // (bevels stay lit from the top-left when a block topples)
+  vec2 gd = vec2(dFdx(dmin), dFdy(dmin));
+  float mpp = max(length(gd), 1e-5);
+  vec2 nrm = -gd / mpp;
   // cel lighting: bevel bands, key light from the top-left
   float bev = 0.07;
   float lit = 1.0;
@@ -253,7 +263,7 @@ void main(){
     col += vec3(2.4, 0.9, 0.2) * ember;
   }
   // outline
-  float edge = dmin / max(px.x, 1e-4);
+  float edge = dmin / mpp;
   col = mix(uColor * 0.18, col, smoothstep(1.2, 2.2, edge));
   // highlight (load bearing)
   if (uHighlight > 0.0) {
@@ -266,8 +276,8 @@ void main(){
 }
 `;
 
-export function makeBlockMaterial(color: [number, number, number], w: number, h: number, kind: number, geo?: THREE.BufferGeometry) {
-  const normals: THREE.Vector2[] = geo?.userData.normals ?? [new THREE.Vector2(0, -1), new THREE.Vector2(1, 0), new THREE.Vector2(0, 1), new THREE.Vector2(-1, 0), ...Array.from({ length: 4 }, () => new THREE.Vector2())];
+/** one material per block (its uniforms carry damage, burn and flash); the edge normals come from the geometry's distance attributes */
+export function makeBlockMaterial(color: [number, number, number], w: number, h: number, kind: number, _geo?: THREE.BufferGeometry) {
   return new THREE.ShaderMaterial({
     vertexShader: litVert,
     fragmentShader: blockFrag,
@@ -285,7 +295,6 @@ export function makeBlockMaterial(color: [number, number, number], w: number, h:
       uTarget: { value: 0 },
       uTargetColor: { value: new THREE.Color(1, 0, 0) },
       uFade: { value: 1 },
-      uNorm: { value: normals },
       ...LIGHTS,
     },
   });
@@ -356,7 +365,9 @@ void main(){
   if (uHasTex > 0.5) {
     float S = 55.0;
     float px = uCam.x * 0.45 + (w.x - uCam.x);
-    float py = w.y * 0.75 + uCam.y * 0.25;
+    // vertical parallax: the far range drifts at 0.35 of the camera's climb (it used to outrun the foreground,
+    // since the old mapping moved it 1.33x the world); +9 keeps the horizon where it sat at the usual camera height
+    float py = (w.y - uCam.y) * 0.75 + uCam.y * 0.35 + 9.0;
     vec2 uv = vec2(px / S, 0.33 + py / S);
     uv.x = abs(fract(uv.x * 0.5) * 2.0 - 1.0);
     vec3 top = texture2D(uTex, vec2(uv.x, 0.995)).rgb;
@@ -411,6 +422,7 @@ export class ParticlePool {
   points: THREE.Points;
   parts: Particle[] = [];
   private geo: THREE.BufferGeometry;
+  private attrs: THREE.BufferAttribute[];
   private pos: Float32Array; private size: Float32Array; private col: Float32Array; private alpha: Float32Array; private kindA: Float32Array;
   material: THREE.ShaderMaterial;
   constructor(public max: number, public additive: boolean, z: number) {
@@ -429,17 +441,20 @@ export class ParticlePool {
       vertexShader: partVert, fragmentShader: partFrag, transparent: true, depthWrite: false, depthTest: false,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, uniforms: { uPx: { value: 10 } },
     });
+    this.attrs = ['position', 'aSize', 'aColor', 'aAlpha'].map((n) => this.geo.getAttribute(n) as THREE.BufferAttribute);
+    for (const a of this.attrs) a.setUsage(THREE.DynamicDrawUsage);
     this.points = new THREE.Points(this.geo, this.material);
     this.points.frustumCulled = false;
     this.points.position.z = z;
     this.points.renderOrder = additive ? 20 : 15;
   }
+  private evict = 0;
   spawn(p: Partial<Particle> & { x: number; y: number }) {
-    if (this.parts.length >= this.max) this.parts.shift();
     const max = p.max ?? 1;
-    this.parts.push({
-      vx: 0, vy: 0, size0: 1, size1: 1, c0: [1, 1, 1], c1: [1, 1, 1], a0: 1, a1: 0, drag: 0, grav: 0, ...p, life: 0, max,
-    } as Particle);
+    const np = { vx: 0, vy: 0, size0: 1, size1: 1, c0: [1, 1, 1], c1: [1, 1, 1], a0: 1, a1: 0, drag: 0, grav: 0, ...p, life: 0, max } as Particle;
+    // full: overwrite round-robin (O(1)) rather than shifting the whole array for every spawn
+    if (this.parts.length >= this.max) this.parts[this.evict++ % this.max] = np;
+    else this.parts.push(np);
   }
   update(dt: number) {
     const ps = this.parts;
@@ -455,18 +470,22 @@ export class ParticlePool {
       ps[w++] = p;
     }
     ps.length = w;
-    for (let i = 0; i < this.max; i++) {
-      if (i < w) {
-        const p = ps[i];
-        const t = p.life / p.max;
-        this.pos[i * 3] = p.x; this.pos[i * 3 + 1] = p.y; this.pos[i * 3 + 2] = 0;
-        this.size[i] = p.size0 + (p.size1 - p.size0) * t;
-        for (let k = 0; k < 3; k++) this.col[i * 3 + k] = p.c0[k] + (p.c1[k] - p.c0[k]) * t;
-        this.alpha[i] = p.a0 + (p.a1 - p.a0) * t;
-      } else this.alpha[i] = 0;
+    const pos = this.pos, col = this.col;
+    for (let i = 0; i < w; i++) {
+      const p = ps[i];
+      const t = p.life / p.max;
+      pos[i * 3] = p.x; pos[i * 3 + 1] = p.y;
+      this.size[i] = p.size0 + (p.size1 - p.size0) * t;
+      col[i * 3] = p.c0[0] + (p.c1[0] - p.c0[0]) * t;
+      col[i * 3 + 1] = p.c0[1] + (p.c1[1] - p.c0[1]) * t;
+      col[i * 3 + 2] = p.c0[2] + (p.c1[2] - p.c0[2]) * t;
+      this.alpha[i] = p.a0 + (p.a1 - p.a0) * t;
     }
+    if (w === 0) this.alpha[0] = 0;
     this.geo.setDrawRange(0, Math.max(w, 1));
-    for (const n of ['position', 'aSize', 'aColor', 'aAlpha']) (this.geo.getAttribute(n) as THREE.BufferAttribute).needsUpdate = true;
+    // upload only the live range, not the whole pool
+    const live = Math.max(w, 1);
+    for (const a of this.attrs) { a.clearUpdateRanges(); a.addUpdateRange(0, live * a.itemSize); a.needsUpdate = true; }
   }
 }
 
@@ -479,6 +498,8 @@ export class DebrisPool {
   private q = new THREE.Quaternion();
   private v = new THREE.Vector3();
   private sc = new THREE.Vector3();
+  private v2 = new THREE.Vector3();
+  private evict = 0;
   constructor(public max: number, private groundY: (x: number) => number) {
     const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), mat, max);
@@ -486,10 +507,12 @@ export class DebrisPool {
     this.mesh.frustumCulled = false;
     this.mesh.position.z = 6;
     for (let i = 0; i < max; i++) this.mesh.setColorAt(i, new THREE.Color(0, 0, 0));
+    this.mesh.count = 0;
   }
   spawn(x: number, y: number, vx: number, vy: number, s: number, color: THREE.Color) {
-    if (this.chunks.length >= this.max) this.chunks.shift();
-    this.chunks.push({ x, y, vx, vy, s, r: Math.random() * 6, vr: (Math.random() - 0.5) * 14, life: 4 + Math.random() * 3, color });
+    const c = { x, y, vx, vy, s, r: Math.random() * 6, vr: (Math.random() - 0.5) * 14, life: 4 + Math.random() * 3, color };
+    if (this.chunks.length >= this.max) this.chunks[this.evict++ % this.max] = c;
+    else this.chunks.push(c);
   }
   update(dt: number) {
     let w = 0;
@@ -503,19 +526,17 @@ export class DebrisPool {
       this.chunks[w++] = c;
     }
     this.chunks.length = w;
-    for (let i = 0; i < this.max; i++) {
-      if (i < w) {
-        const c = this.chunks[i];
-        const s = c.s * Math.min(1, c.life);
-        this.q.setFromAxisAngle(this.v.set(0, 0, 1), c.r);
-        this.m.compose(this.v.set(c.x, c.y, 0), this.q, this.sc.set(s, s * 0.7, 1));
-        this.mesh.setMatrixAt(i, this.m);
-        this.mesh.setColorAt(i, c.color);
-      } else {
-        this.m.makeScale(0, 0, 0);
-        this.mesh.setMatrixAt(i, this.m);
-      }
+    // only the live chunks are drawn (instance count), so the rest need no zero-scale matrices
+    const z = this.v2.set(0, 0, 1);
+    for (let i = 0; i < w; i++) {
+      const c = this.chunks[i];
+      const s = c.s * Math.min(1, c.life);
+      this.q.setFromAxisAngle(z, c.r);
+      this.m.compose(this.v.set(c.x, c.y, 0), this.q, this.sc.set(s, s * 0.7, 1));
+      this.mesh.setMatrixAt(i, this.m);
+      this.mesh.setColorAt(i, c.color);
     }
+    this.mesh.count = w;
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
