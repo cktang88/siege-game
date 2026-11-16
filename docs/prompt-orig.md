@@ -1,0 +1,6 @@
+ - 2d side view, maybe threejs or canvas webgl, vite, webgl or tsl shaders, make it look great, rapier or other great physics engine or mdoern 2d physics engine
+- can use openrouter key and image gen w cheap image models, i do like the toon cel-shaded style, not comicky though, prob only need small sprites
+- 10+ types of shots eg armor piercing incendiary bunker buster burrowing cluster delayed fuse sticky /misc tools/airplane bombing, scout drones, saboteurs, etc
+- obv enemies castles got all kinds of defense t counter each of these eg reinforced plate, reactive armor at certain spots, double wall armor, fireproof containment rooms, etc
+- enemies occasionall also sends groups of soldiers, if u destroy barracks rooms then they'll stop coming
+- score based on tiemto destroy all specific weakpoints like angry birds
