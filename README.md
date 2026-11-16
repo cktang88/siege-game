@@ -58,9 +58,31 @@ Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a muniti
 
 Every block is a Rapier rigid body with a material (timber, masonry, reinforced concrete, armor plate, reactive armor, firebrick, munitions). Each material has its own HP, density and modifiers against kinetic, blast, fire and penetration damage. Fortresses stand on real support, so taking out a load-bearing column drops whatever it holds up. Falling debris deals impact damage, explosions are occluded by intervening walls, and some armor is disguised until you scout it.
 
-## Castles
+## Castles and structures
 
-There are 4 hand-built fortresses and a seeded generator (`src/fortgen.ts`). The generator builds stable fortresses from modules: towers, halls, concrete bunkers, firebrick vaults, sheds, front walls with optional disguised reactive skirts, and double walls. It takes a theme (timber, stone, concrete or mixed) and a difficulty.
+Blocks can be any convex polygon: wedges, trapezoids, roofs, rotated beams and arch voussoirs. Slope matters:
+
+- Shells and penetrators lose effectiveness as 1/cos(obliquity).
+- Past the critical angle they ricochet: steel at ~56°, concrete at ~65°.
+- Low, flat shots skip off a sloped glacis. High plunging fire, air-dropped AP bombs or bunker busters get through.
+
+Materials include earthworks (soak up blast), clay roof tiles, plaster over timber (burns) and volatile fuel tanks (chain-explode).
+
+Real-structure archetypes live in `src/archetypes.ts`. Proportions and sources are in `docs/RESEARCH.md`.
+
+| Operation | Built from |
+|---|---|
+| Kurogane-jō | ishigaki fan-slope stone base, four-tier tenshu with flared tile eaves, yagura turrets |
+| Saltworks Refinery | fuel tanks, pipe racks, cracking column, brick stack, concrete-arch airship hangar |
+| Fort Sainte-Barbe | glacis, ditch, masonry escarp, earth rampart and parapet, buried vaulted magazine |
+| St. Aldric's Abbey | arcade of arches, end buttresses, flying buttresses on pinnacled piers, bell-tower spire |
+| Battery Greywater | dragon's teeth, hedgehogs, Regelbau casemates under earth berms, steel-glacis command bunker |
+| Harrowgate Castle | moat, battered curtains with machicolations, twin-towered gatehouse with arch and portcullis, hoarded tower keep |
+| Zoo Flak Tower | thick concrete frame with cantilevered corner gun tubs |
+| Kestrel Bastille | concentric castle with moat, gatehouse, bailey, inner curtain, gun towers and a five-storey great keep (47 rooms) |
+| Wardenhold | obstacle belts, casemates, earth rampart, flak tower, armoured bunker and refinery (24 rooms) |
+
+There are also 4 hand-built fortresses and a seeded modular generator (`src/fortgen.ts`).
 
 ### Great fortresses
 

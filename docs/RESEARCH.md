@@ -90,3 +90,31 @@ Applied here:
   3. cut the parts with per-part polygon masks plus pivot JSON
   4. build a bone hierarchy in three.js
   5. animate it with procedural pose functions
+
+## Real structures and sloped armour (third iteration)
+
+"Stormwinds" did not match any game or aircraft. The closest are [Stormworks: Build and Rescue](https://en.wikipedia.com/wiki/Stormworks:_Build_and_Rescue) and a Roblox build-a-plane game ([roblox](https://www.roblox.com/games/112395180136815)). Stormworks builders favour faceted wedge-on-box hulls ([Steam discussion](https://steamcommunity.com/app/573090/discussions/0/2266942281798999360)), which is the look of the convex-polygon blocks here.
+
+The archetype proportions below come from these sources. Where a number has no source it is a game heuristic, and it says so.
+
+- **Talus / batter.** A sloped skirt at the wall foot. It defeated sapping and ladders and kicked dropped objects outward ([Wikipedia](https://en.wikipedia.org/wiki/Talus_(fortification))). Here it covers the bottom ~30% of the wall at ~70° (heuristic).
+- **Hoardings and machicolations.** Hoardings are timber galleries projecting from the wall head; machicolations are the stone version on corbels ([Britannica](https://www.britannica.com/technology/battlement), [castlesandmanorhouses](https://www.castlesandmanorhouses.com/architecture_03_walls.htm)). Both are built as inverted-trapezoid "flare" blocks.
+- **Concentric castles.** At Beaumaris the inner curtain is ~11 m high and 4.7 m thick ([medievalheritage](https://medievalheritage.eu/en/main-page/heritage/wales/beaumaris-castle/)). The Harlech gatehouse has multiple portcullises and murder holes ([britishcastle](https://britishcastle.co.uk/?p=588)).
+- **Vauban fronts.** The 1911 Britannica gives:
+  - parapets 18 ft thick of earth
+  - a ditch ~18 ft deep
+  - a rampart command of 25 ft ([EB1911](https://kwx.liehendr.com/content/wikisource_en_all_maxi_2022-09/A/Page%3AEB1911_-_Volume_10.djvu/709))
+
+  The parapet top falls outward at 1/6 ([American Cyclopaedia](https://chestofbooks.com/reference/American-Cyclopaedia-V7/Fortification-Part-2.html)). The glacis is a gentle earth slope to the covered way ([sites-vauban](https://sites-vauban.org/en/resources/glossary/glacis)).
+- **Regelbau casemates.** Walls 1.5–2 m thick ([Wikipedia](https://en.wikipedia.org/wiki/Regelbau)).
+- **Flak towers.** Zoo Tower walls are 2.4 m ([Wikipedia](https://en.wikipedia.org/wiki/Zoo_Tower)); the Vienna towers have 2–2.5 m walls and 3.5–4 m roofs ([nonument](https://nonument.org/?p=826)).
+- **Dragon's teeth and hedgehogs.** Dragon's teeth are truncated concrete pyramids in staggered rows ([Wikipedia](https://Www.Wikipedia.org/wiki/Dragon%27s_teeth_(fortification))).
+- **Ishigaki.** A concave "fan slope" stone base, ~45° at the foot steepening toward the top ([JAANUS](https://projects.mcah.columbia.edu/jaanus/node/1829)). Himeji has 5 roof tiers outside ([nippon.com](https://nippon.com/en/guide-to-japan/gu900254)).
+- **Flying buttresses** carry vault thrust over the aisles to outer piers ([Beauvais](https://cathedrale-beauvais.fr/?p=3789)). In-game, the piers carry pinnacles for dead weight, and massive end buttresses take the arcade thrust. Without them the physics pushes the end pier out, just as it would a real one.
+- **Arches.** A semicircular masonry arch needs a thickness of at least ~0.11× its radius to stand (Heyman's minimum-thickness result). The first hangar arch broke that rule and Rapier duly collapsed it.
+- **Sloped armour.**
+  - Line-of-sight thickness is t / cos θ ([Wikipedia](https://en.wikipedia.org/wiki/Sloped_armour)).
+  - The Tiger II upper glacis is 150 mm at 50° ≈ 233 mm ([ww2-weapons](https://ww2-weapons.com/panzer-vi-ausf-b)).
+  - The critical ricochet angle is not fixed. It rises with velocity, e.g. 62° at 830 m/s to 80° at 1800 m/s ([LS-DYNA study](https://dynalook.com/conferences/15th-international-ls-dyna-conference/modeling/numerical-ricochet-model-of-a-7.62-mm-projectile-penetrating-an-armor-steel-plate)).
+  - In-game values: steel ricochets past ~56° and concrete past ~65°, and damage scales with cos θ.
+  - Lab check against a 30° steel glacis: flat fire (60° obliquity) glances off for 5–20 damage, while plunging fire (5°) does 38–251.

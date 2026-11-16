@@ -1,6 +1,7 @@
 import type { MatId, TargetKind } from './config';
 import { rng } from './fortgen';
 import type { BlockDef, HouseDef, LevelDef } from './levels';
+import { flare, roof, wedge } from './shapes';
 
 /*
   Grand fortresses for the late campaign: 20–40+ real rooms.
@@ -70,16 +71,19 @@ export function generateGrand(spec: GrandSpec): LevelDef {
   }
 
   /** a solid curtain wall: two leaves of coursed masonry with a walkway and merlons */
-  function curtain(x: number, y0: number, h: number, mat: MatId, thick = 2) {
+  function curtain(x: number, y0: number, h: number, mat: MatId, thick = 2, talus = true) {
     const courses = Math.round(h / 1.2);
+    // talus: the battered foot, ~30% of the height at ~70°
+    if (talus) blocks.push(wedge(x - h * 0.3 * 0.38, y0, h * 0.3 * 0.38, h * 0.3, mat, 'right'));
     for (let i = 0; i < courses; i++) {
       // stagger the leaves so courses bond
       if (i % 2 === 0) { add(x, y0 + i * 1.2, thick / 2, 1.2, mat); add(x + thick / 2, y0 + i * 1.2, thick / 2, 1.2, mat); }
       else { add(x, y0 + i * 1.2, thick, 1.2, mat); }
     }
     const top = y0 + courses * 1.2;
-    add(x - 0.3, top, thick + 0.6, 0.4, mat);
-    battlements(x - 0.3, x + thick + 0.3, top + 0.4, mat);
+    // machicolated wall-head: a gallery cantilevered over the face on corbels
+    blocks.push(flare(x, top, thick, 0.5, mat, 0.7, 0.2));
+    battlements(x - 0.7, x + thick + 0.2, top + 0.5, mat);
     return x + thick;
   }
 
@@ -92,13 +96,13 @@ export function generateGrand(spec: GrandSpec): LevelDef {
     const h = 6 + Math.round(R() * 2);
     for (let i = 0; i < Math.round(h / 1); i++) add(x - 0.6, g + i, 0.6, 1, 'reactive', { disguise: 'stone' });
   }
-  x = curtain(x, g, 7 + Math.round(R() * 3), heavy, 2);
+  x = curtain(x, g, 7 + Math.round(R() * 3), heavy, 2, d < 6);
   if (d >= 7) { x += 2.2; x = curtain(x, g, 6, 'concrete', 1.6); }
   x += 3;
 
   // ── gatehouse ──
   const gate = frame('gate', x, g, 2, 3, 3.4, 2.5, 1, (f) => ({ col: f < 2 ? heavy : light, slab: f < 2 ? heavy : light }));
-  battlements(x, gate.x1, gate.top);
+  blocks.push(roof(x - 0.8, gate.top, gate.x1 - x + 1.6, 4.6, 'tile'));
   x = gate.x1 + 3;
 
   // ── outer bailey: workshops and barracks ──
@@ -106,6 +110,7 @@ export function generateGrand(spec: GrandSpec): LevelDef {
   for (let i = 0; i < 2; i++) {
     const id = `shed${i}`;
     const s = frame(id, x, g, 1, 1, 4.6, 2.3, 0.7, () => ({ col: 'wood', slab: 'wood' }));
+    blocks.push(roof(x - 0.5, s.top, s.x1 - x + 1, 2.2, 'tile'));
     sheds.push(id);
     x = s.x1 + 2.2;
   }
@@ -119,7 +124,9 @@ export function generateGrand(spec: GrandSpec): LevelDef {
   const tower = (id: string) => {
     const floors = 5 + Math.floor(R() * 3) + (d >= 7 ? 1 : 0);
     const t = frame(id, x, g, 1, floors, 2.8, 2.4, 1, (f) => ({ col: f < 3 ? heavy : pick([heavy, light]), slab: f < 2 ? heavy : light }));
-    towers.push({ id, top: t.top, x0: x, x1: t.x1 });
+    // timber hoarding round the tower head; the gun sits on it
+    blocks.push(flare(x, t.top, t.x1 - x, 0.8, 'wood', 0.6, 0.6));
+    towers.push({ id, top: t.top + 0.8, x0: x, x1: t.x1 });
     x = t.x1 + 2;
   };
   const keeps: { id: string; floors: number; cols: number; top: number; x0: number; x1: number }[] = [];
@@ -127,13 +134,17 @@ export function generateGrand(spec: GrandSpec): LevelDef {
     const cols = 4 + Math.floor(R() * 2) + (d >= 7 ? 1 : 0);
     const floors = 4 + Math.floor(R() * 2) + (d >= 8 ? 1 : 0);
     const steelCore = d >= 6;
+    blocks.push(wedge(x - 1.6, g, 1.6, 3.4, heavy, 'right'));
     const k = frame(id, x, g, cols, floors, 3.8 + R() * 0.6, 2.6, 1.1, (f) => ({
       col: f === 0 && steelCore ? 'steel' : f < 2 ? heavy : f < floors - 1 ? pick([heavy, 'wood']) : 'wood',
       slab: f < 2 ? (spec.theme === 'mixed' ? 'concrete' : heavy) : f < floors - 1 ? pick([heavy, 'wood']) : 'wood',
       disguise: f === 0 && steelCore ? heavy : undefined,
     }));
-    keeps.push({ id, floors, cols, top: k.top, x0: x, x1: k.x1 });
-    battlements(x, k.x1, k.top);
+    blocks.push(wedge(k.x1, g, 1.6, 3.4, heavy, 'left'));
+    // hoarding gallery along the keep head, merlons on it
+    blocks.push(flare(x, k.top, k.x1 - x, 1.0, 'wood', 0.9, 0.9));
+    keeps.push({ id, floors, cols, top: k.top + 1.0, x0: x, x1: k.x1 });
+    battlements(x - 0.9, k.x1 + 0.2, k.top + 1.0, 'wood');
     x = k.x1 + 2;
   };
   tower('towerA');

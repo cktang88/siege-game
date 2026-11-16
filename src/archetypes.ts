@@ -113,20 +113,22 @@ export function curtain(s: Site, h: number, thick = 2.2, mat: MatId = 'stone') {
 }
 
 /** tower keep: battered base, rooms, timber hoarding at the wall head, steep conical roof */
-export function towerKeep(s: Site, opts: { floors?: number; w?: number; roofMat?: MatId; hoarding?: boolean; tag?: string } = {}) {
+export function towerKeep(s: Site, opts: { floors?: number; w?: number; cols?: number; roofMat?: MatId; hoarding?: boolean; roof?: boolean; tag?: string } = {}) {
   const R = s.R, g = s.g, x = s.x;
   const floors = opts.floors ?? 3 + Math.floor(R() * 2);
-  const w = opts.w ?? 9 + Math.round(R() * 3);
+  const cols = opts.cols ?? 2;
+  const w = opts.w ?? (cols > 2 ? cols * 4.4 + 1.2 : 9 + Math.round(R() * 3));
   const tag = opts.tag ?? 'keep';
-  const roomW = (w - 1.2 * 3) / 2;
+  const roomW = (w - 1.2 * (cols + 1)) / cols;
   s.push(wedge(x - 1.4, g, 1.4, 3, 'stone', 'right'), wedge(x + w, g, 1.4, 3, 'stone', 'left'));
-  const f = s.frame(tag, x, g, 2, floors, roomW, 2.6, 1.2, (k) => ({ col: k < floors - 1 ? 'stone' : 'wood', slab: k < 1 ? 'stone' : 'wood', back: 'stone' }));
+  const f = s.frame(tag, x, g, cols, floors, roomW, 2.6, 1.2, (k) => ({ col: k < floors - 1 ? 'stone' : 'wood', slab: k < 1 ? 'stone' : 'wood', back: 'stone' }));
   let top = f.top;
   if (opts.hoarding ?? true) {
     s.push(flare(x, top, w, 1.1, 'wood', 1.0, 1.0));
     top += 1.1;
   }
-  s.push(roof(x - 1.2, top, w + 2.4, (w + 2.4) * 0.75, opts.roofMat ?? 'tile'));
+  if (opts.roof ?? true) s.push(roof(x - 1.2, top, w + 2.4, Math.min(9, (w + 2.4) * 0.75), opts.roofMat ?? 'tile'));
+  else s.battlements(x - 1, f.x1 + 0.3, top, 'wood');
   s.x = f.x1 + 2.4;
   return { x0: x, x1: f.x1, top };
 }
@@ -194,7 +196,7 @@ export function starFortFront(s: Site, guns = 2) {
   s.add(rx + 4.2, top, 1.2, 0.5, 'earth');
   // guns on the terreplein behind the parapet
   for (let k = 0; k < guns; k++) s.roofGun(rx + 5.6 + k * 2.4, top, 'artillery');
-  s.x = rx + rw + 2;
+  s.x = rx + rw + 3.2;
   s.g = g + 0.5;
   s.intel.push('Earthen ramparts soak up high explosive. Drills, bunker busters and plunging fire do better.');
 }
@@ -230,8 +232,8 @@ export function casemate(s: Site, target: TargetKind = 'artillery') {
 /** sloped steel glacis plates leaning against a concrete command bunker: shells glance off */
 export function armoredBunker(s: Site) {
   const x = s.x, g = s.g;
-  s.add(x - 0.7, g, 0.5, 0.6, 'concrete'); // toe block stops the plate sliding
-  s.push(beam(x, g + 0.4, x + 2.0, g + 4.0, 0.5, 'steel'));
+  // a shallow glacis (~30° from horizontal, like a tank's upper plate): flat fire skips off, plunging fire bites
+  s.push(wedge(x - 4.6, g, 6.9, 4.0, 'steel', 'right'));
   const f = s.frame('bunker', x + 2.3, g, 2, 1, 2.8, 2.8, 1.4, () => ({ col: 'concrete', slab: 'concrete', back: 'concrete' }), 1.2);
   s.place('bunker', 'command', (r) => r[r.length - 1]);
   s.push(trap(x + 2.0, f.top, f.x1 - x - 1.7, 1.2, 'steel', 1.6, 0.4));
@@ -479,4 +481,23 @@ export const THEMED: Composition[] = [
     build: (s) => { moat(s, 6, 2.5); curtain(s, 6, 2); s.x += 2.5; gatehouse(s); barracksBlock(s); curtain(s, 8, 2.4); s.x += 2.5; const k = towerKeep(s, { floors: 4, w: 11 }); s.place('keep', 'command', (r) => r.find((q) => q.floor === 2)); s.place('keep', 'ammo', (r) => r.find((q) => q.floor === 0)); s.roofGun((k.x0 + k.x1) / 2, k.top, 'artillery'); hall(s, 'hall2', 'workshop'); } },
   { id: 'zooflak', name: 'Zoo Flak Tower', seed: 131, difficulty: 5, brief: 'A concrete flak tower with gun tubs at every corner, ringed by casemates.',
     build: (s) => { hedgehogs(s, 3); casemate(s, 'barracks'); s.x += 2; flakTower(s, 5); casemate(s, 'artillery'); } },
+  // ── great fortresses built from the same modules ──
+  { id: 'kestrel', name: 'Kestrel Bastille', seed: 211, difficulty: 5,
+    brief: 'A concentric castle: moat, battered outer curtain, gatehouse, bailey, inner curtain, gun towers, a five-storey great keep and a hall.',
+    build: (s) => {
+      moat(s, 7, 3); curtain(s, 7, 2); s.x += 3; gatehouse(s); barracksBlock(s); barracksBlock(s, 'workshop'); magazine(s);
+      curtain(s, 10, 2.4); s.x += 3;
+      const t1 = towerKeep(s, { floors: 6, w: 5.2, cols: 1, tag: 'towerA', roof: false }); s.roofGun((t1.x0 + t1.x1) / 2, t1.top + 0.9, 'artillery');
+      const k = towerKeep(s, { floors: 5, cols: 5, tag: 'great' });
+      s.place('great', 'command', (r) => r.find((q) => q.floor === 2 && q.x0 > (k.x0 + k.x1) / 2 - 3));
+      s.place('great', 'ammo', (r) => r.find((q) => q.floor === 0));
+      const t2 = towerKeep(s, { floors: 6, w: 5.2, cols: 1, tag: 'towerB', roof: false }); s.roofGun((t2.x0 + t2.x1) / 2, t2.top + 0.9, 'flak');
+      hall(s, 'hall', 'barracks');
+    } },
+  { id: 'warden', name: 'Wardenhold', seed: 419, difficulty: 7,
+    brief: 'A modern fortress line: obstacle belts, casemates under earth, a Vauban-style earth rampart, a flak tower and an armour-faced command bunker.',
+    build: (s) => {
+      dragonsTeeth(s, 4); hedgehogs(s, 3); casemate(s, 'artillery'); casemate(s, 'barracks');
+      starFortFront(s, 2); magazine(s); flakTower(s, 6); armoredBunker(s); casemate(s, 'artillery'); refinery(s, 2);
+    } },
 ];

@@ -86,7 +86,7 @@ export type GameEvent =
 
 const DT = 1 / 60;
 /** cos(obliquity) below which rounds glance off (steel ~60°, concrete ~68°) */
-const RICOCHET: Partial<Record<MatId, number>> = { steel: 0.5, concrete: 0.37, rock: 0.5 };
+const RICOCHET: Partial<Record<MatId, number>> = { steel: 0.56, concrete: 0.42, rock: 0.5 };
 
 export class Game {
   world!: RAPIER.World;
@@ -951,7 +951,7 @@ export class Game {
         }
         const cosI = Math.max(0.2, Math.abs(dir.x * hit.normal.x + dir.y * hit.normal.y));
         const crit = RICOCHET[b.matId];
-        if (crit && cosI < crit * 0.85) {
+        if (crit && cosI < crit * 0.95) {
           // glance: reflect off the face, lose energy and most of the penetrating power
           const dn = dir.x * hit.normal.x + dir.y * hit.normal.y;
           const rx = dir.x - 2 * dn * hit.normal.x, ry = dir.y - 2 * dn * hit.normal.y;

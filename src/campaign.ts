@@ -50,11 +50,11 @@ export const CAMPAIGN: CampaignNode[] = [
 
   // ── the great fortresses: 20–40+ room castles, the end of the front ──
   { id: 'kestrel', mx: 84, my: 18, from: ['greywater', 'ironmill'], starGate: 20, region: 'Marches',
-    level: grand({ id: 'kestrel', name: 'Kestrel Bastille', seed: 211, difficulty: 5, theme: 'stone' }) },
+    level: themed('kestrel') },
   { id: 'ironcrown', mx: 88, my: 84, from: ['hollowcrown', 'thronefall'], starGate: 24, region: 'Marches',
     level: grand({ id: 'ironcrown', name: 'Castle Ironcrown', seed: 307, difficulty: 6, theme: 'mixed' }) },
   { id: 'warden', mx: 92, my: 38, from: ['kestrel', 'thronefall'], starGate: 28, region: 'Capital',
-    level: grand({ id: 'warden', name: 'Wardenhold', seed: 419, difficulty: 7, theme: 'concrete' }) },
+    level: themed('warden') },
   { id: 'blackcitadel', mx: 93, my: 62, from: ['warden', 'ironcrown'], starGate: 32, region: 'Capital',
     level: grand({ id: 'blackcitadel', name: 'The Black Citadel', seed: 523, difficulty: 8, theme: 'mixed', keeps: 2,
       brief: 'The capital\'s citadel: two keeps, three gun towers, double curtain walls. End the war here.' }) },
