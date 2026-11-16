@@ -5,6 +5,7 @@ import type { BlockDef, HouseDef, LevelDef } from './levels';
 import { Renderer, makeBlockMaterial, makeGround, makeSprite } from './render';
 import { baseStats, type Stats } from './progress';
 import { SoldierRig } from './soldier';
+import { audio } from './audio';
 
 type V2 = { x: number; y: number };
 
@@ -367,6 +368,7 @@ export class Game {
       }
       this.muzzleBlast(m.x, m.y, this.angle, 1);
       this.r.shake = Math.max(this.r.shake, 0.5);
+      audio.play('cannon', m.x, a.mode === 'pellets' ? 0.8 : 1, a.id === 'heavy' ? 0.85 : 1);
     }
     this.inventory[this.selected] = (this.inventory[this.selected] ?? 0) - 1;
     this.reload = this.stats.reload;
@@ -572,6 +574,7 @@ export class Game {
     this.root.remove(b.mesh);
     const gun = this.enemyGuns.get(b);
     if (gun) { this.root.remove(gun); this.enemyGuns.delete(b); }
+    audio.play(b.matId === 'wood' || b.matId === 'crate' ? 'splinter' : b.matId === 'steel' || b.matId === 'reactive' ? 'clang' : 'crumble', t.x, 0.7);
     // debris
     const c = new THREE.Color(...MATERIALS[this.shownMat(b)].color);
     const n = Math.min(26, 4 + Math.round(b.w * b.h * 6));
@@ -629,6 +632,7 @@ export class Game {
 
   explode(x: number, y: number, radius: number, dmg: number, opts: BlastOpts = {}) {
     const vis = opts.visual ?? radius / 3;
+    if (!opts.smoke) audio.play(radius < 2.2 ? 'blastSmall' : radius < 4.6 ? 'blast' : 'blastBig', x, Math.min(1.2, 0.5 + radius / 5));
     // visuals
     this.burst(x, y, vis, opts.smoke);
     this.r.shake = Math.min(2.2, this.r.shake + vis * 0.7);
@@ -855,6 +859,7 @@ export class Game {
   }
 
   reactiveDetonate(b: Block, x: number, y: number) {
+    audio.play('reactive', x);
     this.burst(x, y, 0.8);
     this.r.flash = Math.min(1, this.r.flash + 0.3);
     this.destroyBlock(b, 'reactive');
@@ -1018,6 +1023,7 @@ export class Game {
       // fire
       if (b.burning > 0) {
         b.burning -= dt;
+        if (Math.random() < dt * 3) audio.play('fire', t.x, 0.5);
         b.burnAmt = Math.min(1, b.burnAmt + dt * 0.25);
         this.damageBlock(b, b.mat.fire * 9 * dt, 'fire');
         if (b.dead) continue;
@@ -1189,7 +1195,8 @@ export class Game {
     void before;
   }
 
-  tracer(x0: number, y0: number, x1: number, y1: number) {
+  tracer(x0: number, y0: number, x1: number, y1: number, sound: 'rifle' | 'flak' | null = 'rifle') {
+    if (sound) audio.play(sound, x0, sound === 'flak' ? 0.6 : 0.5);
     const dx = x1 - x0, dy = y1 - y0, d = Math.hypot(dx, dy);
     const sp = 60;
     this.r.fire.spawn({ x: x0, y: y0, vx: (dx / d) * sp, vy: (dy / d) * sp, max: Math.min(0.5, d / sp), size0: 0.18, size1: 0.18, c0: [3, 2.4, 1], c1: [3, 1.6, 0.6], a0: 1, a1: 0.6 });
@@ -1203,6 +1210,7 @@ export class Game {
     const flak = this.liveTargets('flak');
     for (const pl of this.planes) {
       if (pl.dead) continue;
+      if ((this.time * 1000) % 3500 < 17) audio.play('plane', pl.x, 0.9);
       if (!pl.down) {
         const vx = pl.ux * pl.speed, vy = pl.uy * pl.speed;
         pl.s += pl.speed * dt;
@@ -1237,7 +1245,7 @@ export class Game {
               pl.flakT = 0.15;
               const bx = pl.x + (Math.random() - 0.3) * 6, by = pl.y + (Math.random() - 0.5) * 5;
               this.burst(bx, by, 0.3, false);
-              this.tracer(f.x, f.y + 0.5, bx, by);
+              this.tracer(f.x, f.y + 0.5, bx, by, 'flak');
             }
             pl.exposure += dt * (d < 30 ? 1 : 0.4);
             if (pl.exposure > (this.stats.ecm ? 5 : 1.6)) { pl.down = true; pl.vy = pl.uy * pl.speed; this.toast('Flak shot down your bomber!', 'bad'); }
@@ -1266,6 +1274,7 @@ export class Game {
     for (const d of this.drones) {
       if (d.dead) continue;
       d.t += dt;
+      if ((this.time * 1000) % 2200 < 17) audio.play('drone', d.x, 0.8);
       if (d.state === 'out') {
         const dx = d.tx - d.x, dy = d.ty - d.y, dist = Math.hypot(dx, dy);
         const sp = 18 * dt;
@@ -1396,6 +1405,9 @@ export class Game {
           const v = Math.sqrt(Math.max(1, (-PHYS.gravity * dx * dx) / Math.max(0.01, denom)));
           this.spawnProjectile(AMMO_BY_ID.he, sx, sy, c * v, s * v, true);
           this.muzzleBlast(sx, sy, th, 0.8);
+          audio.play('enemyGun', sx);
+          const flight = Math.abs(dx / (c * v)) * 1000;
+          audio.play('whistle', tx, 1, 1, Math.max(0, flight - 1300));
           this.toast(this.artilleryShots === 1 ? 'Enemy gun is ranging on you!' : 'Incoming!', 'bad');
         }
       }

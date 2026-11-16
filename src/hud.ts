@@ -29,7 +29,7 @@ export function buildHud() {
     <div id="fcp" class="plate"></div>
     <div id="toasts"></div>
     <div id="tooltip" class="hidden"></div>
-    <div id="help">drag to aim · ↑↓ elevation · ←→ velocity (shift fine) · space fire · 1-9 munitions · wheel zoom · right-drag pan · R reset view</div>`;
+    <div id="help">drag to aim · ↑↓ elevation · ←→ velocity (shift fine) · space fire · 1-9 munitions · wheel zoom · right-drag pan · R reset view · M mute</div>`;
   $('#lvl-name').textContent = S.game.level.name;
   $('#hp').innerHTML = '<i></i>'.repeat(12);
   buildRack();

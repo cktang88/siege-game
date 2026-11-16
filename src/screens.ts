@@ -4,6 +4,7 @@ import { startBattle } from './hud';
 import type { LevelDef } from './levels';
 import { BRANCHES, TECH, TECH_BY_ID, availableAmmo, canResearch, computeStats, hasTech, missionReward, research, writeSave, type Branch } from './progress';
 import { $, S, icon } from './state';
+import { audio } from './audio';
 
 const screen = () => $('#screen');
 const totalStars = () => Object.values(S.save.stars).reduce((a, b) => a + b, 0);
@@ -144,7 +145,7 @@ export function showTech() {
   wireTopbar(showTech);
   screen().querySelectorAll<HTMLElement>('.tnode.avail').forEach((el) => el.addEventListener('click', () => {
     const n = TECH_BY_ID[el.dataset.t!];
-    if (canResearch(S.save, n)) { research(S.save, n.id); showTech(); }
+    if (canResearch(S.save, n)) { research(S.save, n.id); audio.play('stamp'); audio.play('coins', undefined, 1, 1, 120); showTech(); }
   }));
   $('#reset').addEventListener('click', () => {
     const refund = S.save.tech.reduce((s, id) => s + (TECH_BY_ID[id]?.cost ?? 0), 0);
@@ -253,7 +254,10 @@ export function showResult(win: boolean, reason: string) {
     ['Base', sc.parts.base], ['Time vs. par', sc.parts.time], ['Budget discipline', sc.parts.budget],
     ['Secondary targets', sc.parts.optional], ['Gun condition', sc.parts.cannon], ['Collateral', sc.parts.collateral],
   ];
+  audio.play(win ? 'win' : 'fail');
   setTimeout(() => {
+    if (win) for (let i = 0; i < stars; i++) audio.play('star', undefined, 0.8, 1 + i * 0.12, 250 + i * 330);
+    if (earned) audio.play('coins', undefined, 1, 1, 400 + stars * 330);
     screen().innerHTML = `<div class="modalwrap"><div class="paper aar">
       <div class="stamp ${win ? 'ok' : ''}">${win ? 'Accomplished' : 'Failed'}</div>
       <div class="label">After-action report</div>

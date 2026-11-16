@@ -1,6 +1,7 @@
 import './style.css';
 import RAPIER from '@dimforge/rapier2d-compat';
 import * as THREE from 'three';
+import { audio } from './audio';
 import { AMMO_BY_ID } from './config';
 import { Game } from './game';
 import { rackIds, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
@@ -18,6 +19,13 @@ let down: { x: number; y: number; btn: number; pan: number } | null = null;
 let aiming = false;
 let mouse = { x: 0, y: 0 };
 const isTargeting = () => { const m = AMMO_BY_ID[S.game.selected].mode; return m === 'airstrike' || m === 'drone' || m === 'saboteur'; };
+
+// audio can only start from a gesture
+const wake = () => { audio.unlock(); audio.startMusic(); };
+window.addEventListener('pointerdown', wake, { capture: true });
+window.addEventListener('keydown', wake, { capture: true });
+document.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('button, .node, .tnode')) audio.play('click'); });
+window.addEventListener('keydown', (e) => { if ((e.key === 'm' || e.key === 'M') && (e.target as HTMLElement).tagName !== 'INPUT') audio.toggleMute(); });
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointerdown', (e) => {
@@ -140,6 +148,9 @@ function frame(now: number) {
   }
   if (live) updateLabels();
   if (S.mode === 'battle' || S.mode === 'armory') updateTooltip(mouse, !!down);
+  audio.lx = S.renderer.cx;
+  audio.half = S.renderer.viewW / 2;
+  audio.intensity = S.mode !== 'battle' ? 0 : g.soldiers.some((x) => !x.dead) || g.liveTargets('artillery').length ? 2 : 1;
   S.renderer.render(dt, now / 1000);
   requestAnimationFrame(frame);
 }
