@@ -14,6 +14,19 @@ const STYLE = 'Toon cel-shaded game art, clean bold dark outlines, 2-3 flat shad
   'side view facing right, on a perfectly flat solid pure magenta (#FF00FF) background with no shadow on the ground.';
 
 const SPRITES = {
+  airship: `A steampunk military airship (rigid zeppelin) with a riveted gondola, propellers and gun turrets, seen from the side, facing left. ${STYLE.replace('facing right', 'facing left')}`,
+  gyro: `A small steampunk gyrocopter gunship with a single rotor, pilot and machine gun, seen from the side, facing left. ${STYLE.replace('facing right', 'facing left')}`,
+  mast: `A tall steel lattice airship mooring mast with a small winch house at the base and a mooring cone at the top, side view. ${STYLE.replace('side view facing right, ', '')}`,
+  p_barrel: `A single wooden powder barrel with iron hoops, side view. ${STYLE.replace('side view facing right, ', '')}`,
+  p_table: `A heavy wooden war-room table with a map and a lantern on it, side view. ${STYLE.replace('side view facing right, ', '')}`,
+  p_bunk: `A simple military wooden bunk bed with grey blankets, side view. ${STYLE.replace('side view facing right, ', '')}`,
+  p_rack: `A wooden weapon rack holding rifles and a sword, side view. ${STYLE.replace('side view facing right, ', '')}`,
+  p_banner: `A hanging heraldic war banner, dark red with a black eagle, on a pole. ${STYLE.replace('side view facing right, ', '')}`,
+  p_shells: `A stack of artillery shells in a wooden cradle, side view. ${STYLE.replace('side view facing right, ', '')}`,
+  p_radio: `A WW2 field radio set on a small table with a headset, side view. ${STYLE.replace('side view facing right, ', '')}`,
+  p_cauldron: `An iron cooking cauldron on a tripod over a small fire, side view. ${STYLE.replace('side view facing right, ', '')}`,
+  p_shelf: `A tall wooden shelf with sacks, jars and crates of supplies, side view. ${STYLE.replace('side view facing right, ', '')}`,
+  p_cannon: `A small bronze fortress cannon on a wooden garrison carriage, facing left. ${STYLE.replace('facing right', 'facing left')}`,
   carriage: `An empty wooden siege-cannon carriage with two large spoked wheels and a trail, WITHOUT any barrel or gun tube. ${STYLE}`,
   barrel: `A single long black iron cannon barrel (gun tube) lying perfectly horizontal, muzzle pointing right, no carriage, no wheels. ${STYLE}`,
   soldier: `A single infantry soldier walking, helmet, grey-green uniform, rifle, full body, facing left. ${STYLE.replace('facing right', 'facing left')}`,

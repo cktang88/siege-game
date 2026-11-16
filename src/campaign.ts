@@ -1,5 +1,5 @@
 import { generateLevel, type GenSpec } from './fortgen';
-import { generateGrand, type GrandSpec } from './grandgen';
+import { generateGrand } from './grandgen';
 import { THEMED, compose } from './archetypes';
 import { LEVELS, type LevelDef } from './levels';
 
@@ -17,10 +17,6 @@ export interface CampaignNode {
 }
 
 const hand = (i: number) => () => LEVELS[i];
-const grand = (spec: GrandSpec) => {
-  let cache: LevelDef | null = null;
-  return () => (cache ??= generateGrand(spec));
-};
 const themed = (id: string) => {
   let cache: LevelDef | null = null;
   return () => (cache ??= compose(THEMED.find((t) => t.id === id)!));
@@ -52,12 +48,11 @@ export const CAMPAIGN: CampaignNode[] = [
   { id: 'kestrel', mx: 84, my: 18, from: ['greywater', 'ironmill'], starGate: 20, region: 'Marches',
     level: themed('kestrel') },
   { id: 'ironcrown', mx: 88, my: 84, from: ['hollowcrown', 'thronefall'], starGate: 24, region: 'Marches',
-    level: grand({ id: 'ironcrown', name: 'Castle Ironcrown', seed: 307, difficulty: 6, theme: 'mixed' }) },
+    level: themed('ironcrown') },
   { id: 'warden', mx: 92, my: 38, from: ['kestrel', 'thronefall'], starGate: 28, region: 'Capital',
     level: themed('warden') },
   { id: 'blackcitadel', mx: 93, my: 62, from: ['warden', 'ironcrown'], starGate: 32, region: 'Capital',
-    level: grand({ id: 'blackcitadel', name: 'The Black Citadel', seed: 523, difficulty: 8, theme: 'mixed', keeps: 2,
-      brief: 'The capital\'s citadel: two keeps, three gun towers, double curtain walls. End the war here.' }) },
+    level: themed('blackcitadel') },
 ];
 
 export const NODE_BY_ID = Object.fromEntries(CAMPAIGN.map((n) => [n.id, n])) as Record<string, CampaignNode>;

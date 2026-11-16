@@ -243,6 +243,8 @@ export class Game {
     for (let i = 0; i < 90; i++) this.world.step(this.eq);
     this.eq.drainCollisionEvents(() => {});
     for (const b of this.blocks) { const v = b.body.linvel(); b.lastVel = { x: v.x, y: v.y }; }
+    // back walls remember where their frame came to rest, not where it was spawned
+    for (const bd of this.backdrops) bd.home = bd.deps.map((b) => { const t = b.body.translation(); return { x: t.x, y: t.y }; });
     this.syncMeshes();
     this.frameCamera(true);
   }

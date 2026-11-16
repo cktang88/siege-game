@@ -10,7 +10,7 @@ import { arch, beam, flare, roof, trap, wedge } from './shapes';
 */
 
 type Backdrop = NonNullable<LevelDef['backdrops']>[number];
-interface Room { x0: number; x1: number; y0: number; y1: number; floor: number; deps: number[]; tag: string }
+interface Room { x0: number; x1: number; y0: number; y1: number; floor: number; deps: number[]; tag: string; floorIdx: number }
 
 export class Site {
   blocks: BlockDef[] = [];
@@ -46,26 +46,43 @@ export class Site {
    * Each room gets a cutaway back wall that disappears when its columns or ceiling fail.
    */
   frame(tag: string, x0: number, y0: number, cols: number, floors: number, roomW: number, floorH: number, colW: number,
-    mats: (f: number) => { col: MatId; slab: MatId; back?: MatId; disguise?: MatId }, slabH = 0.5) {
-    const cx = (c: number) => x0 + c * (roomW + colW);
+    mats: (f: number) => { col: MatId; slab: MatId; back?: MatId; disguise?: MatId }, slabH = 0.5,
+    /** per-storey taper: inset from each side and column thickness (walls thin as they rise) */
+    shape?: (f: number) => { inset: number; colW: number }) {
+    const W = cols * roomW + (cols + 1) * colW;
     let y = y0;
+    let lx0 = x0, lx1 = x0 + W;
+    let below: { a: number; b: number; idx: number }[] = [];
     for (let f = 0; f < floors; f++) {
       const m = mats(f);
+      const sh = shape ? shape(f) : { inset: 0, colW };
+      const cw = sh.colW;
+      const fx0 = x0 + sh.inset;
+      const fw = W - 2 * sh.inset;
+      const rw = (fw - cw * (cols + 1)) / cols;
+      const cx = (c: number) => fx0 + c * (rw + cw);
       const colIdx: number[][] = [];
-      for (let c = 0; c <= cols; c++) colIdx.push(this.col(cx(c), y, colW, floorH, m.col, floorH > 2 ? floorH / 2 : floorH, m.disguise ? { disguise: m.disguise } : {}));
+      for (let c = 0; c <= cols; c++) colIdx.push(this.col(cx(c), y, cw, floorH, m.col, floorH > 2 ? floorH / 2 : floorH, m.disguise ? { disguise: m.disguise } : {}));
       const fy = y;
       y += floorH;
+      const slabs: { a: number; b: number; idx: number }[] = [];
       for (let c = 0; c < cols; c++) {
-        const a = c === 0 ? cx(0) - 0.15 : cx(c) + colW / 2;
-        const b = c === cols - 1 ? cx(cols) + colW + 0.15 : cx(c + 1) + colW / 2;
+        const a = c === 0 ? cx(0) - 0.15 : cx(c) + cw / 2;
+        const b = c === cols - 1 ? cx(cols) + cw + 0.15 : cx(c + 1) + cw / 2;
         const slab = this.add(a, y, b - a, slabH, m.slab);
+        slabs.push({ a, b, idx: slab });
         const deps = [...colIdx[c], ...colIdx[c + 1], slab];
-        this.rooms.push({ x0: cx(c) + colW, x1: cx(c + 1), y0: fy, y1: fy + floorH, floor: f, deps, tag });
-        this.backdrops.push({ x: cx(c) + colW, y: fy, w: roomW, h: floorH + slabH * 0.5, mat: m.back ?? (m.col === 'steel' ? 'concrete' : m.col), deps });
+        const rx0 = cx(c) + cw, rx1 = cx(c + 1);
+        const mid = (rx0 + rx1) / 2;
+        const floorIdx = below.find((q) => mid >= q.a && mid <= q.b)?.idx ?? -1;
+        this.rooms.push({ x0: rx0, x1: rx1, y0: fy, y1: fy + floorH, floor: f, deps, tag, floorIdx });
+        this.backdrops.push({ x: rx0, y: fy, w: rw, h: floorH + slabH * 0.5, mat: m.back ?? (m.col === 'steel' ? 'concrete' : m.col), deps });
       }
+      below = slabs;
+      lx0 = fx0; lx1 = fx0 + fw;
       y += slabH;
     }
-    return { top: y, x1: cx(cols) + colW };
+    return { top: y, x1: x0 + W, topX0: lx0, topX1: lx1 };
   }
 
   /** drop a target (or furniture) into a room of the given tag */
@@ -100,37 +117,72 @@ export function curtain(s: Site, h: number, thick = 2.2, mat: MatId = 'stone') {
   const th = h * 0.3;
   s.push(wedge(x - th * 0.38, g, th * 0.38, th, mat, 'right'));
   const courses = Math.round(h / 1.2);
+  // walls are thickest at the base: the upper third steps back to ~65% (a wall-walk ledge behind)
+  let tTop = thick;
   for (let i = 0; i < courses; i++) {
-    if (i % 2 === 0) { s.add(x, g + i * 1.2, thick / 2, 1.2, mat); s.add(x + thick / 2, g + i * 1.2, thick / 2, 1.2, mat); }
-    else s.add(x, g + i * 1.2, thick, 1.2, mat);
+    const t = i < courses * 0.6 ? thick : thick * 0.65;
+    tTop = t;
+    if (i % 2 === 0) { s.add(x, g + i * 1.2, t / 2, 1.2, mat); s.add(x + t / 2, g + i * 1.2, t / 2, 1.2, mat); }
+    else s.add(x, g + i * 1.2, t, 1.2, mat);
   }
   const top = g + courses * 1.2;
   // machicolation: a stone gallery cantilevered on corbels, merlons on top
-  s.push(flare(x, top, thick, 0.5, mat, 0.7, 0.2));
-  s.battlements(x - 0.7, x + thick + 0.2, top + 0.5, mat);
+  s.push(flare(x, top, tTop, 0.5, mat, 0.7, 0.2));
+  s.battlements(x - 0.7, x + tTop + 0.2, top + 0.5, mat);
   s.x = x + thick;
   return top;
 }
 
-/** tower keep: battered base, rooms, timber hoarding at the wall head, steep conical roof */
+/** columns thin from `base` to `top` metres as the storeys rise; optional butter-churn step inward */
+const taper = (floors: number, base: number, top: number, stepAt = -1, step = 0) => (f: number) => ({
+  colW: +(base + (top - base) * (f / Math.max(1, floors - 1))).toFixed(2),
+  inset: stepAt >= 0 && f >= stepAt ? step : 0,
+});
+
+/**
+ * Tall tower keep: battered base, walls thinning with height, the upper storeys stepped in
+ * (a butter-churn keep), timber hoarding at the wall head and a steep conical roof.
+ */
 export function towerKeep(s: Site, opts: { floors?: number; w?: number; cols?: number; roofMat?: MatId; hoarding?: boolean; roof?: boolean; tag?: string } = {}) {
   const R = s.R, g = s.g, x = s.x;
-  const floors = opts.floors ?? 3 + Math.floor(R() * 2);
+  const floors = opts.floors ?? 6 + Math.floor(R() * 3);
   const cols = opts.cols ?? 2;
-  const w = opts.w ?? (cols > 2 ? cols * 4.4 + 1.2 : 9 + Math.round(R() * 3));
+  const w = opts.w ?? cols * 4.2 + 1.6;
   const tag = opts.tag ?? 'keep';
-  const roomW = (w - 1.2 * (cols + 1)) / cols;
-  s.push(wedge(x - 1.4, g, 1.4, 3, 'stone', 'right'), wedge(x + w, g, 1.4, 3, 'stone', 'left'));
-  const f = s.frame(tag, x, g, cols, floors, roomW, 2.6, 1.2, (k) => ({ col: k < floors - 1 ? 'stone' : 'wood', slab: k < 1 ? 'stone' : 'wood', back: 'stone' }));
+  const roomW = (w - 1.6 * (cols + 1)) / cols;
+  const stepAt = cols > 1 ? Math.ceil(floors * 0.6) : -1;
+  s.push(wedge(x - 1.8, g, 1.8, 3.6, 'stone', 'right'), wedge(x + w, g, 1.8, 3.6, 'stone', 'left'));
+  const f = s.frame(tag, x, g, cols, floors, roomW, 2.6, 1.6,
+    (k) => ({ col: k < floors - 2 ? 'stone' : 'wood', slab: k < 2 ? 'stone' : 'wood', back: k < floors - 2 ? 'stone' : 'plaster' }), 0.5,
+    taper(floors, 1.6, 0.8, stepAt, 1.2));
   let top = f.top;
+  const tw = f.topX1 - f.topX0;
   if (opts.hoarding ?? true) {
-    s.push(flare(x, top, w, 1.1, 'wood', 1.0, 1.0));
+    s.push(flare(f.topX0, top, tw, 1.1, 'wood', 0.9, 0.9));
     top += 1.1;
   }
-  if (opts.roof ?? true) s.push(roof(x - 1.2, top, w + 2.4, Math.min(9, (w + 2.4) * 0.75), opts.roofMat ?? 'tile'));
-  else s.battlements(x - 1, f.x1 + 0.3, top, 'wood');
+  if (opts.roof ?? true) s.push(roof(f.topX0 - 1.1, top, tw + 2.2, Math.min(12, (tw + 2.2) * 1.1), opts.roofMat ?? 'tile'));
+  else s.battlements(f.topX0 - 0.9, f.topX1 + 0.2, top, 'wood');
   s.x = f.x1 + 2.4;
-  return { x0: x, x1: f.x1, top };
+  return { x0: f.topX0, x1: f.topX1, top };
+}
+
+/** bergfried: a slender main tower 25–35 m tall, very thick at the foot, stepped narrower above */
+export function bergfried(s: Site, opts: { floors?: number; gun?: 'artillery' | 'flak'; tag?: string } = {}) {
+  const x = s.x, g = s.g;
+  const floors = opts.floors ?? 9;
+  const tag = opts.tag ?? `berg${Math.round(x)}`;
+  s.push(wedge(x - 1.4, g, 1.4, 4, 'stone', 'right'), wedge(x + 6.4, g, 1.4, 4, 'stone', 'left'));
+  const f = s.frame(tag, x, g, 1, floors, 2.6, 2.5, 1.9,
+    (k) => ({ col: k < floors - 2 ? 'stone' : 'wood', slab: k < 3 ? 'stone' : 'wood', back: 'stone' }), 0.45,
+    taper(floors, 1.9, 0.8, Math.ceil(floors * 0.65), 0.6));
+  const tw = f.topX1 - f.topX0;
+  s.push(flare(f.topX0, f.top, tw, 0.9, 'wood', 0.8, 0.8));
+  const top = f.top + 0.9;
+  if (opts.gun) s.roofGun((f.topX0 + f.topX1) / 2, top, opts.gun);
+  else s.push(roof(f.topX0 - 1, top, tw + 2, (tw + 2) * 1.8, 'tile'));
+  s.x = x + 6.4 + 2.2;
+  return { tag, top };
 }
 
 /** twin-towered gatehouse: arched passage, portcullis bars, conical roofs */
@@ -259,7 +311,7 @@ export function hedgehogs(s: Site, n = 3) {
 /** flak tower: a concrete block house with 2.5 m walls, corner gun platforms on cantilevers */
 export function flakTower(s: Site, floors = 4) {
   const x = s.x, g = s.g;
-  const f = s.frame('flak', x, g, 3, floors, 3.2, 2.8, 2, () => ({ col: 'concrete', slab: 'concrete', back: 'concrete' }), 0.9);
+  const f = s.frame('flak', x, g, 2, floors, 3.4, 2.8, 2.2, () => ({ col: 'concrete', slab: 'concrete', back: 'concrete' }), 0.9, taper(floors, 2.2, 1.4));
   // corner gun tubs: cantilevered on flared corbels
   s.push(flare(x - 0.4, f.top, 3.4, 1.1, 'concrete', 1.4, 0));
   s.push(flare(f.x1 - 3.0, f.top, 3.4, 1.1, 'concrete', 0, 1.4));
@@ -277,7 +329,7 @@ export function flakTower(s: Site, floors = 4) {
 /** ishigaki base (concave fan slope, ~45° at the foot to near-vertical at the top) and a tiered tenshu */
 export function japaneseCastle(s: Site, tiers = 4) {
   const x = s.x, g = s.g;
-  const baseW = 20;
+  const baseW = 16;
   const insets = [1.4, 0.9, 0.55, 0.3, 0.15];
   let y = g, l = x, r = x + baseW;
   for (const ins of insets) {
@@ -293,13 +345,13 @@ export function japaneseCastle(s: Site, tiers = 4) {
     const cols = w > 9 ? 3 : w > 5.5 ? 2 : 1;
     const colW = 0.6;
     const roomW = (w - colW * (cols + 1)) / cols;
-    const f = s.frame(`tenshu${t}`, tx, y, cols, 1, roomW, 2.6, colW, () => ({ col: 'wood', slab: 'wood', back: 'plaster' }), 0.35);
+    const f = s.frame(`tenshu${t}`, tx, y, cols, 1, roomW, 2.9, colW, () => ({ col: 'wood', slab: 'wood', back: 'plaster' }), 0.35);
     // flared tile eaves: the next tier stands on top of them
     const eave = t === tiers - 1 ? 0 : 0.9;
     if (t < tiers - 1) {
       s.push(flare(tx, f.top, w, 0.7, 'tile', eave, eave));
       y = f.top + 0.7;
-      const nw = Math.max(4.2, w - 3.2);
+      const nw = Math.max(4.4, w - 2.2);
       tx += (w - nw) / 2; w = nw;
     } else {
       s.push(roof(tx - 1.2, f.top, w + 2.4, 3.2, 'tile'));
@@ -328,8 +380,8 @@ export function yagura(s: Site, target?: TargetKind) {
 export function abbey(s: Site) {
   const x = s.x, g = s.g;
   // bell tower first (facing the attacker)
-  const bt = s.frame('belltower', x, g, 1, 4, 2.6, 2.6, 0.9, () => ({ col: 'stone', slab: 'wood', back: 'stone' }));
-  s.push(roof(x - 0.3, bt.top, bt.x1 - x + 0.6, 7, 'tile'));
+  const bt = s.frame('belltower', x, g, 1, 7, 2.6, 2.6, 1.3, () => ({ col: 'stone', slab: 'wood', back: 'stone' }), 0.45, taper(7, 1.3, 0.7, 4, 0.4));
+  s.push(roof(bt.topX0 - 0.3, bt.top, bt.topX1 - bt.topX0 + 0.6, 9, 'tile'));
   const px = bt.x1 + 1.5;
   const naveX = px + 3.4;
   // nave: tall arcade of pointed-ish arches on piers, clerestory wall, timber roof
@@ -468,7 +520,7 @@ export function compose(c: Composition): LevelDef {
 /** the themed operations */
 export const THEMED: Composition[] = [
   { id: 'kurogane', name: 'Kurogane-jō', seed: 41, difficulty: 2, brief: 'A five-tier castle on a fan-sloped stone base. Timber and plaster above the stones.',
-    build: (s) => { yagura(s, 'barracks'); s.x += 2; japaneseCastle(s, 4); yagura(s, 'workshop'); } },
+    build: (s) => { yagura(s, 'barracks'); yagura(s, 'workshop'); s.x += 2; japaneseCastle(s, 5); } },
   { id: 'saltworks', name: 'Saltworks Refinery', seed: 37, difficulty: 2, brief: 'A refinery turned strongpoint. The control house directs the garrison; the solvent store is in the hangar.',
     build: (s) => { barracksBlock(s); refinery(s, 3); hangar(s); } },
   { id: 'sainte-barbe', name: 'Fort Sainte-Barbe', seed: 53, difficulty: 3, brief: 'A Vauban fort: glacis, ditch, masonry escarp and an earthen rampart with guns on the terreplein.',
@@ -477,27 +529,53 @@ export const THEMED: Composition[] = [
     build: (s) => { curtain(s, 6); s.x += 3; abbey(s); barracksBlock(s); } },
   { id: 'greywater', name: 'Battery Greywater', seed: 83, difficulty: 4, brief: 'Coastal battery: dragon\'s teeth, hedgehogs, Regelbau casemates and an armour-faced command bunker.',
     build: (s) => { dragonsTeeth(s, 3); hedgehogs(s, 2); s.x += 2; casemate(s, 'artillery'); casemate(s, 'artillery'); armoredBunker(s); barracksBlock(s); casemate(s, 'ammo'); } },
-  { id: 'harrowgate', name: 'Harrowgate Castle', seed: 97, difficulty: 4, brief: 'A concentric castle with a moat, a battered curtain, a twin-towered gatehouse and a great tower keep.',
-    build: (s) => { moat(s, 6, 2.5); curtain(s, 6, 2); s.x += 2.5; gatehouse(s); barracksBlock(s); curtain(s, 8, 2.4); s.x += 2.5; const k = towerKeep(s, { floors: 4, w: 11 }); s.place('keep', 'command', (r) => r.find((q) => q.floor === 2)); s.place('keep', 'ammo', (r) => r.find((q) => q.floor === 0)); s.roofGun((k.x0 + k.x1) / 2, k.top, 'artillery'); hall(s, 'hall2', 'workshop'); } },
-  { id: 'zooflak', name: 'Zoo Flak Tower', seed: 131, difficulty: 5, brief: 'A concrete flak tower with gun tubs at every corner, ringed by casemates.',
-    build: (s) => { hedgehogs(s, 3); casemate(s, 'barracks'); s.x += 2; flakTower(s, 5); casemate(s, 'artillery'); } },
-  // ── great fortresses built from the same modules ──
-  { id: 'kestrel', name: 'Kestrel Bastille', seed: 211, difficulty: 5,
-    brief: 'A concentric castle: moat, battered outer curtain, gatehouse, bailey, inner curtain, gun towers, a five-storey great keep and a hall.',
+  { id: 'harrowgate', name: 'Harrowgate Castle', seed: 97, difficulty: 4, brief: 'A concentric castle: moat, battered curtains, a twin-towered gatehouse, a gun tower and a tall hoarded keep at the back of the ward.',
     build: (s) => {
-      moat(s, 7, 3); curtain(s, 7, 2); s.x += 3; gatehouse(s); barracksBlock(s); barracksBlock(s, 'workshop'); magazine(s);
-      curtain(s, 10, 2.4); s.x += 3;
-      const t1 = towerKeep(s, { floors: 6, w: 5.2, cols: 1, tag: 'towerA', roof: false }); s.roofGun((t1.x0 + t1.x1) / 2, t1.top + 0.9, 'artillery');
-      const k = towerKeep(s, { floors: 5, cols: 5, tag: 'great' });
-      s.place('great', 'command', (r) => r.find((q) => q.floor === 2 && q.x0 > (k.x0 + k.x1) / 2 - 3));
+      moat(s, 6, 2.5); curtain(s, 7, 2); s.x += 2.5; gatehouse(s); barracksBlock(s); hall(s, 'hall', 'workshop');
+      curtain(s, 10, 2.4); s.x += 3; bergfried(s, { floors: 8, gun: 'artillery' });
+      towerKeep(s, { floors: 7, cols: 2 });
+      s.place('keep', 'command', (r) => r.find((q) => q.floor === 3));
+      s.place('keep', 'ammo', (r) => r.find((q) => q.floor === 0));
+    } },
+  { id: 'zooflak', name: 'Zoo Flak Tower', seed: 131, difficulty: 5, brief: 'A concrete flak tower with gun tubs at every corner, ringed by casemates.',
+    build: (s) => { hedgehogs(s, 3); casemate(s, 'barracks'); casemate(s, 'artillery'); s.x += 2; flakTower(s, 8); } },
+  // ── great fortresses: outer works to the keep, built tall rather than deep ──
+  { id: 'kestrel', name: 'Kestrel Bastille', seed: 211, difficulty: 5,
+    brief: 'A concentric castle: moat, battered outer curtain, gatehouse, bailey, a towering inner curtain, a gun bergfried and an eight-storey great keep.',
+    build: (s) => {
+      moat(s, 7, 3); curtain(s, 9, 2.4); s.x += 3; gatehouse(s); bergfried(s, { floors: 7, gun: 'flak' });
+      barracksBlock(s); barracksBlock(s, 'workshop');
+      curtain(s, 12, 2.6); s.x += 3; bergfried(s, { floors: 10, gun: 'artillery' });
+      towerKeep(s, { floors: 8, cols: 3, tag: 'great' });
+      s.place('great', 'command', (r) => r.find((q) => q.floor === 4));
       s.place('great', 'ammo', (r) => r.find((q) => q.floor === 0));
-      const t2 = towerKeep(s, { floors: 6, w: 5.2, cols: 1, tag: 'towerB', roof: false }); s.roofGun((t2.x0 + t2.x1) / 2, t2.top + 0.9, 'flak');
-      hall(s, 'hall', 'barracks');
+    } },
+  { id: 'ironcrown', name: 'Castle Ironcrown', seed: 307, difficulty: 6,
+    brief: 'A mountain castle in iron and stone: armoured outer gate, a magazine in the bailey, twin bergfrieds and a nine-storey keep.',
+    build: (s) => {
+      curtain(s, 9, 2.4, 'stone'); s.x += 3; gatehouse(s); barracksBlock(s); magazine(s); bergfried(s, { floors: 8, gun: 'flak' });
+      curtain(s, 13, 2.8); s.x += 3; bergfried(s, { floors: 11, gun: 'artillery' });
+      towerKeep(s, { floors: 9, cols: 3, tag: 'iron' });
+      s.place('iron', 'command', (r) => r.find((q) => q.floor === 5));
+      s.place('iron', 'ammo', (r) => r.find((q) => q.floor === 1));
+      s.place('iron', 'workshop', (r) => r.find((q) => q.floor === 0));
     } },
   { id: 'warden', name: 'Wardenhold', seed: 419, difficulty: 7,
-    brief: 'A modern fortress line: obstacle belts, casemates under earth, a Vauban-style earth rampart, a flak tower and an armour-faced command bunker.',
+    brief: 'A modern fortress line: obstacle belts, casemates under earth, an earth rampart, an armour-faced command bunker and a seven-storey flak tower.',
     build: (s) => {
       dragonsTeeth(s, 4); hedgehogs(s, 3); casemate(s, 'artillery'); casemate(s, 'barracks');
-      starFortFront(s, 2); magazine(s); flakTower(s, 6); armoredBunker(s); casemate(s, 'artillery'); refinery(s, 2);
+      starFortFront(s, 2); magazine(s); armoredBunker(s); flakTower(s, 7);
+    } },
+  { id: 'blackcitadel', name: 'The Black Citadel', seed: 523, difficulty: 8,
+    brief: 'The capital\'s citadel: moat, double curtain, gatehouse, a lesser keep, a thirteen-metre inner curtain, two gun bergfrieds and a ten-storey keep. End the war here.',
+    build: (s) => {
+      moat(s, 8, 3.5); curtain(s, 10, 2.6); s.x += 2.2; curtain(s, 8, 2.0); s.x += 3; gatehouse(s); bergfried(s, { floors: 8, gun: 'flak' });
+      barracksBlock(s); barracksBlock(s, 'workshop'); magazine(s);
+      towerKeep(s, { floors: 6, cols: 2, tag: 'lesser' });
+      s.place('lesser', 'command', (r) => r.find((q) => q.floor === 2));
+      curtain(s, 14, 3); s.x += 3; bergfried(s, { floors: 12, gun: 'artillery' });
+      towerKeep(s, { floors: 10, cols: 3, tag: 'black' });
+      s.place('black', 'command', (r) => r.find((q) => q.floor === 6));
+      s.place('black', 'ammo', (r) => r.find((q) => q.floor === 0));
     } },
 ];
