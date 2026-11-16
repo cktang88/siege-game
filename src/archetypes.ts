@@ -560,7 +560,7 @@ export function compose(c: Composition): LevelDef {
   return {
     id: c.id, name: c.name, brief: c.brief,
     // the castle stands on a hill: the gun fires level or upward at it
-    elevation: c.elevation ?? 6 + d * 0.6, siteX: x0 - 12, gunCap,
+    elevation: c.elevation ?? 5.4 + d * 0.5, siteX: x0 - 12, gunCap,
     intel: [...new Set(s.intel)],
     budget: Math.round((900 + d * 300 + width * 12 + mass) / 50) * 50,
     wind, parTime: 60 + d * 20 + Math.round(width),
@@ -596,7 +596,7 @@ export const THEMED: Composition[] = [
   { id: 'zooflak', gun: 36, era: 'modern', name: 'Zoo Flak Tower', seed: 131, difficulty: 5, brief: 'A concrete flak tower with gun tubs at every corner, ringed by casemates.',
     build: (s) => { hedgehogs(s, 3); casemate(s, 'barracks'); motorPool(s, true); mooringMast(s); casemate(s, 'artillery'); s.x += 2; flakTower(s, 7, 4); } },
   // ── great fortresses: outer works to the keep, built tall rather than deep ──
-  { id: 'kestrel', gun: 36, elevation: 6, name: 'Kestrel Bastille', seed: 211, difficulty: 5,
+  { id: 'kestrel', gun: 36, elevation: 5.2, name: 'Kestrel Bastille', seed: 211, difficulty: 5,
     brief: 'A concentric castle: moat, battered outer curtain, gatehouse, bailey, a towering inner curtain, a gun bergfried and an eight-storey great keep.',
     build: (s) => {
       moat(s, 7, 3); curtain(s, 9, 2.4); s.x += 3; gatehouse(s); bergfried(s, { floors: 7, gun: 'flak' });
@@ -623,7 +623,7 @@ export const THEMED: Composition[] = [
       dragonsTeeth(s, 3); hedgehogs(s, 2); casemate(s, 'artillery'); casemate(s, 'barracks'); motorPool(s, true);
       starFortFront(s, 2, 10); magazine(s); armoredBunker(s); mooringMast(s); flakTower(s, 7);
     } },
-  { id: 'blackcitadel', gun: 44, name: 'The Black Citadel', seed: 523, difficulty: 8,
+  { id: 'blackcitadel', elevation: 8.5, gun: 44, name: 'The Black Citadel', seed: 523, difficulty: 8,
     brief: 'The capital\'s citadel: moat, double curtain, gatehouse, a lesser keep, a thirteen-metre inner curtain, two gun bergfrieds and a ten-storey keep. End the war here.',
     build: (s) => {
       moat(s, 8, 3.5); curtain(s, 10, 2.6); s.x += 2.2; curtain(s, 8, 2.0); s.x += 3; gatehouse(s); bergfried(s, { floors: 8, gun: 'flak' });

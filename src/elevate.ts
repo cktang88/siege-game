@@ -14,7 +14,7 @@ export function elevate(level: LevelDef): LevelDef {
   const firstBlock = Math.min(...level.blocks.map((b) => b.x));
   // the site begins where its own terrain starts (glacis, moat, ramp) or a little before the first wall
   const site = level.siteX ?? firstBlock - 10;
-  const foot = site - H * 1.7; // ~30° approach slope
+  const foot = site - H * 1.35; // ~36° approach slope
   const gY = (pts: [number, number][], x: number) => {
     if (x <= pts[0][0]) return pts[0][1];
     for (let i = 1; i < pts.length; i++) if (x <= pts[i][0]) { const t = (x - pts[i - 1][0]) / (pts[i][0] - pts[i - 1][0] || 1); return pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t; }
@@ -43,7 +43,13 @@ export function elevate(level: LevelDef): LevelDef {
     rooms: level.rooms?.map((r) => ({ ...r, y0: r.y0 + H, y1: r.y1 + H })),
   };
   // keep everything in range: the gun moves up toward the hill if it must, but stays off the slope
-  const near = Math.min(level.cannonX + 40, foot - 12);
-  lifted.cannonX = cannonFor(blocks, out, level.objectives, level.wind, level.gunCap ?? 36, Math.min(level.cannonX, near), near);
+  // leave a real valley floor (~14 m) between the redoubt's foot (cannonX + 12) and the hill's foot;
+  // only where that leaves an objective out of range does the gun creep closer (floor down to ~4 m)
+  const cap = level.gunCap ?? 36;
+  const place = (near: number) => cannonFor(blocks, out, level.objectives, level.wind, cap, Math.min(level.cannonX, near), near);
+  const wide = Math.min(level.cannonX + 40, foot - 26);
+  let cx = place(wide);
+  if (cx >= wide - 0.01) cx = place(Math.min(level.cannonX + 40, foot - 16));
+  lifted.cannonX = cx;
   return lifted;
 }

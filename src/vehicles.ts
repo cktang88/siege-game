@@ -194,7 +194,8 @@ export class MotorPool {
       if (u.wreckT >= 0) { this.updateWreck(u, dt); continue; }
       // drive at the gun until in range, queueing behind anything in front, never through masonry
       let go = u.x > u.stopX;
-      if (go) for (const o of this.units) if (o !== u && o.x < u.x && u.x - o.x - (u.len + o.len) / 2 < 1.2) { go = false; break; }
+      // queue behind wrecks and same-type vehicles; a car may pass a halted tank (they halt at different points)
+      if (go) for (const o of this.units) if (o !== u && o.x < u.x && (o.wreckT >= 0 || o.kind === u.kind) && u.x - o.x - (u.len + o.len) / 2 < 1.2) { go = false; break; }
       if (go) {
         const front = this.world(u, -u.len / 2 - 0.35, 0.9);
         g.world.intersectionsWithShape(front, u.rot, new RAPIER.Cuboid(0.3, 0.6), (c) => {
