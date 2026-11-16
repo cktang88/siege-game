@@ -1504,7 +1504,7 @@ export class Game {
       budget: Math.round((this.moneyLeft + unused * 0.5) * 3),
       optional: opt * 400,
       cannon: Math.round(this.cannonHp * 10),
-      collateral: -Math.round(this.collateral),
+      collateral: -Math.round(this.collateral) || 0,
     };
     const total = Math.max(0, Object.values(parts).reduce((a, b) => a + b, 0));
     const stars = this.level.stars.filter((s) => total >= s).length;
