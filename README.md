@@ -2,6 +2,8 @@
 
 ![Kestrel Bastille on its hill: curtain towers, gun towers and a spired great keep](docs/screenshots/kestrel.webp)
 
+**[▶ Play in your browser](https://cktang88.github.io/siege-game/)**
+
 A 2D side-view physics siege game. You plan an armament within a budget, then bring a fortress down while it fights back.
 
 Built with Vite, TypeScript, Three.js (orthographic camera, custom cel-shading GLSL, bloom) and Rapier2D physics.
