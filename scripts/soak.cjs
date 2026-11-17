@@ -113,6 +113,7 @@ function installSoak() {
     K.maxMs = 0;
     K.sumMs = 0;
     K.endedAt = -1;
+    K.endReason = '';
     K.objDownAt = -1;
     K.idleSince = -1;
     K.blasts = 0;
@@ -328,6 +329,7 @@ function installSoak() {
           K.spikes.sort((a, b) => b.ms - a.ms); K.spikes.length = Math.min(8, K.spikes.length);
         }
       }
+      for (const ev of g.events) if (ev.type === 'end') K.endReason = (ev.win ? 'won: ' : 'lost: ') + ev.reason;
       g.events.length = 0;
       try { r.tickFx(1 / 60, g.time); g.frameCamera(false, 1 / 60); K.check(); if (i % 20 === 0) K.checkSlow(); K.checkEnd(); } catch (e) { V('exception', `check: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`); }
     }
@@ -339,7 +341,7 @@ function installSoak() {
   K.status = () => {
     const g = K.g, mem = g.r.renderer.info.memory;
     return {
-      t: +g.battleTime.toFixed(1), ended: g.ended, endedAt: K.endedAt, live: g.blocks.filter((b) => !b.dead).length, all: g.blocks.length,
+      t: +g.battleTime.toFixed(1), ended: g.ended, endedAt: K.endedAt, endReason: K.endReason, live: g.blocks.filter((b) => !b.dead).length, all: g.blocks.length,
       proj: g.projectiles.length, soldiers: g.soldiers.length, veh: g.motor.units.length, air: g.air.units.length, root: g.root.children.length,
       geo: mem.geometries, tex: mem.textures, parts: g.r.smoke.parts.length + g.r.fire.parts.length + g.r.flame.parts.length, lights: g.r.lights.lights.length,
       ammo: Object.values(g.inventory).reduce((s, n) => s + (n || 0), 0), cannon: +g.cannonHp.toFixed(0),
@@ -415,7 +417,7 @@ if (require.main === module) (async () => {
       const r = { ...j, info, st, viol, crashed };
       results.push(r);
       const vc = (st.violCounts || []).reduce((s, [, n]) => s + n, 0) + errs.length;
-      console.log(`${String(results.length).padStart(3)}/${jobs.length} ${j.id.padEnd(16)} s${j.seed} ${crashed ? 'CRASH ' : ''}t=${st.t} ended=${st.ended}${st.ended ? '@' + st.endedAt.toFixed(0) : ''} live=${st.live}/${st.all} obj=${st.destroyed}/${st.totalT} splits=${st.splits} avg=${st.avgMs}ms max=${st.maxMs}ms slow=${st.slow} geo=${st.geo} root=${st.root} viol=${vc}  [${((Date.now() - t0) / 60000).toFixed(1)} min]`);
+      console.log(`${String(results.length).padStart(3)}/${jobs.length} ${j.id.padEnd(16)} s${j.seed} ${crashed ? 'CRASH ' : ''}t=${st.t} ended=${st.ended}${st.ended ? '@' + st.endedAt.toFixed(0) + ' (' + st.endReason + ')' : ''} live=${st.live}/${st.all} obj=${st.destroyed}/${st.totalT} splits=${st.splits} avg=${st.avgMs}ms max=${st.maxMs}ms slow=${st.slow} geo=${st.geo} root=${st.root} viol=${vc}  [${((Date.now() - t0) / 60000).toFixed(1)} min]`);
       for (const v of viol.slice(0, 6)) console.log(`      ${v.kind}: ${v.msg}${v.t !== undefined ? ' @' + v.t : ''}`);
     }
   };
@@ -443,7 +445,8 @@ if (require.main === module) (async () => {
     console.log('| round | level | geometries | textures | programs | scene objects | scene children | world children |');
     console.log('|---|---|---|---|---|---|---|---|');
     for (const r of rows) console.log(`| ${r.round + 1} | ${r.id} | ${r.geo} | ${r.tex} | ${r.progs} | ${r.scene} | ${r.sceneKids} | ${r.worldKids} |`);
-    const grew = second5.filter((r, i) => r.geo > first5[i].geo + 8 || r.tex > first5[i].tex || r.scene > first5[i].scene || r.worldKids > first5[i].worldKids);
+    // geometries are counted once drawn, so what is in frame varies a little: allow 3% + 8
+    const grew = second5.filter((r, i) => r.geo > first5[i].geo * 1.03 + 8 || r.tex > first5[i].tex || r.scene > first5[i].scene || r.worldKids > first5[i].worldKids);
     if (grew.length) console.log(`LEAK: ${grew.length}/5 levels hold more on the second load: ${grew.map((r, i) => `${r.id} geo ${first5[second5.indexOf(r)].geo}->${r.geo} tex ${first5[second5.indexOf(r)].tex}->${r.tex} scene ${first5[second5.indexOf(r)].scene}->${r.scene}`).join('; ')}`);
     else console.log('no growth between rounds');
     leak.grew = grew.length;
