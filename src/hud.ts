@@ -62,7 +62,8 @@ function buildRack() {
   const g = S.game;
   const ids = (Object.keys(g.inventory) as AmmoId[]).sort((a, b) => AMMO.findIndex((x) => x.id === a) - AMMO.findIndex((x) => x.id === b));
   const rack = $('#rack');
-  rack.innerHTML = ids.map((id, i) => `<button class="slot" data-a="${id}" title="${AMMO_BY_ID[id].name}"><span class="key">${i < 9 ? i + 1 : ''}</span><img src="${icon(id)}" alt=""><div class="nm">${AMMO_BY_ID[id].name}</div><span class="ct"></span><div class="reload"></div></button>`).join('');
+  const tip = (id: AmmoId, i: number) => { const a = AMMO_BY_ID[id]; return `${a.name}${i < 9 ? ` [${i + 1}]` : ''}: ${a.desc}\n+ ${a.good}\n− ${a.bad}`.replace(/"/g, '&quot;'); };
+  rack.innerHTML = ids.map((id, i) => `<button class="slot" data-a="${id}" title="${tip(id, i)}"><span class="key">${i < 9 ? i + 1 : ''}</span><img src="${icon(id)}" alt=""><div class="nm">${AMMO_BY_ID[id].name}</div><span class="ct"></span><div class="reload"></div></button>`).join('');
   rack.querySelectorAll<HTMLElement>('.slot').forEach((el) => {
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     el.addEventListener('click', () => { g.selected = el.dataset.a as AmmoId; });
@@ -93,8 +94,31 @@ export function updateObjectives() {
   $('#objectives').innerHTML = kinds.map((k) => {
     const tot = g.targetsTotal[k] ?? 0, d = g.targetsDestroyed[k] ?? 0;
     const obj = l.objectives.includes(k);
-    return `<li class="${d >= tot ? 'done' : ''} ${obj ? '' : 'opt'}"><span class="dot" style="background:${TARGETS[k].color}"></span>${targetName(k)}${tot > 1 ? ` ${d}/${tot}` : ''}${obj ? '' : ' <span class="label">secondary</span>'}</li>`;
+    return `<li class="${d >= tot ? 'done' : ''} ${obj ? '' : 'opt'}" data-k="${k}" title="${TARGETS[k].desc}${d < tot ? '. Click to look at it.' : ''}"><span class="dot" style="background:${TARGETS[k].color}"></span>${targetName(k)}${tot > 1 ? ` ${d}/${tot}` : ''}${obj ? '' : ' <span class="label">secondary</span>'}</li>`;
   }).join('');
+  $('#objectives').querySelectorAll<HTMLElement>('li').forEach((li) => li.addEventListener('click', () => lookAtTarget(li.dataset.k as TargetKind)));
+}
+
+/** pan the view to the nearest standing block of this kind (big castles run off the edge of the overview) */
+function lookAtTarget(k: TargetKind) {
+  const g = S.game;
+  const live = g.blocks.filter((b) => !b.dead && b.target === k);
+  if (!live.length) return;
+  const cx = S.renderer.cx;
+  const t = live.map((b) => b.body.translation()).sort((a, b) => Math.abs(a.x - cx) - Math.abs(b.x - cx))[0];
+  g.pan = t.x - g.baseCx;
+}
+
+/** called after every shot: last-round and out-of-ammo warnings, and which round the gun switched to */
+let shownSel: AmmoId | null = null;
+export function onFired() {
+  const g = S.game;
+  const left = Object.values(g.inventory).reduce((s, n) => s + (n ?? 0), 0);
+  if (left === 0) toast('Out of ammunition. Waiting for the last rounds to land…', 'bad');
+  else if (left === 1) toast('Last round in the rack!', 'bad');
+  else if (shownSel && shownSel !== g.selected && (g.inventory[shownSel] ?? 0) <= 0) toast(`${AMMO_BY_ID[shownSel].name} expended. ${AMMO_BY_ID[g.selected].name} loaded.`);
+  else if ((g.inventory[g.selected] ?? 0) === 1) toast(`Last ${AMMO_BY_ID[g.selected].name.toLowerCase()} round.`);
+  shownSel = g.selected;
 }
 
 const toastTimers = new WeakMap<HTMLElement, number[]>();
@@ -357,8 +381,10 @@ export function updateHud() {
     el.querySelector('.ct')!.textContent = String(n);
     el.classList.toggle('sel', g.selected === id);
     el.classList.toggle('empty', n <= 0);
+    el.classList.toggle('low', n === 1);
     (el.querySelector('.reload') as HTMLElement).style.width = g.selected === id ? `${(g.reload / g.stats.reload) * 100}%` : '0';
   });
+  shownSel = g.selected;
   updateFcp();
   drawMinimap();
 }

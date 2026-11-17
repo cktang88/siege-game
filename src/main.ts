@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { audio } from './audio';
 import { AMMO_BY_ID } from './config';
 import { Game } from './game';
-import { gunHit, hideTooltip, rackIds, requestWithdraw, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
+import { gunHit, hideTooltip, onFired, rackIds, requestWithdraw, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
 import { writeSave } from './progress';
 import { Renderer, loadTextures } from './render';
 import { showMap, showResult } from './screens';
@@ -179,6 +179,7 @@ function frame(now: number) {
       if (ev.type === 'toast') toast(ev.text, ev.tone);
       else if (ev.type === 'target') updateObjectives();
       else if (ev.type === 'gunhit') gunHit(ev.dmg);
+      else if (ev.type === 'fired') onFired();
       else if (ev.type === 'end') showResult(ev.win, ev.reason);
     }
     g.events.length = 0;

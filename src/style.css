@@ -315,3 +315,13 @@ button { font: inherit; color: inherit; }
 #withdraw.armed { color: #1a1206; background: var(--bad); box-shadow: none; }
 .aar .objtally tr.done td { color: #3f7a2a; }
 .aar .objtally tr.left td { color: #9a2a1a; font-weight: 700; }
+/* ammo state on the rack; objectives can be clicked to look at them */
+.slot.low .ct { color: var(--bad); }
+.slot.empty .ct { color: var(--bad); }
+.slot .key { color: #9a968a; }
+#objectives li[data-k] { cursor: pointer; }
+#objectives li[data-k]:not(.done):hover { color: var(--amber); }
+/* narrow screens: rack slots shrink to fit before the rack scrolls (with a visible scrollbar) */
+#rack .slot { width: auto; flex: 0 1 68px; min-width: 50px; }
+#rack .slot img { width: min(46px, 100%); height: auto; aspect-ratio: 1; }
+#rack { scrollbar-width: thin; scrollbar-color: var(--signal) rgba(0, 0, 0, 0.3); }
