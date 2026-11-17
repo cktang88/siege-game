@@ -102,7 +102,7 @@ function renderDossier() {
     <div class="label">Intelligence</div>
     <ul>${lvl.intel.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>
     <div class="meta">
-      <div>Budget<b>$${Math.round(lvl.budget * stats.budgetMult)}</b></div>
+      <div>Budget<b>$${Math.round(lvl.budget * stats.budgetMult).toLocaleString()}</b></div>
       <div>Par time<b>${lvl.parTime}s</b></div>
       <div>Record<b>${best ? best.toLocaleString() : '—'}</b></div>
       <div>Stars<b style="color:#8a6a10">${'★'.repeat(s)}${'☆'.repeat(3 - s)}</b></div>
@@ -392,7 +392,7 @@ export function showResult(win: boolean, reason: string) {
       ${win ? '' : `<div class="label">Objectives</div><table class="objtally">${objRows}</table>`}
       ${!win ? '' : `<table>${rows.map(([k, v]) => `<tr><td>${k}</td><td style="color:${v < 0 ? '#9a2a1a' : 'inherit'}">${v.toLocaleString()}</td></tr>`).join('')}
       <tr><td><b>Total</b>${record && win ? ' <span class="rec">new record</span>' : ''}</td><td><b>${sc.total.toLocaleString()}</b></td></tr></table>`}
-      <p class="mono" style="font-size:12px;margin:0 0 4px">Time ${Math.floor(g.battleTime / 60)}:${String(Math.floor(g.battleTime % 60)).padStart(2, '0')} · Spent $${g.spentBudget}${win ? ` · Stars at ${thresholds}` : ''}</p>
+      <p class="mono" style="font-size:12px;margin:0 0 4px">Time ${Math.floor(g.battleTime / 60)}:${String(Math.floor(g.battleTime % 60)).padStart(2, '0')} · Spent $${g.spentBudget.toLocaleString()}${win ? ` · Stars at ${thresholds}` : ''}</p>
       ${earned ? `<p class="earn">+${earned.toLocaleString()} war funds <span>${reward.lines.map(([k, v]) => `${k} +${v}`).join(' · ')}</span></p>` : ''}
       ${payNote ? `<p class="mono" style="font-size:12px;opacity:.75">${payNote}</p>` : ''}
       ${nextNames.length ? `<p class="mono opened">New operation${nextNames.length > 1 ? 's' : ''} open: <b>${nextNames.map(esc).join(', ')}</b></p>` : ''}
