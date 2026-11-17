@@ -443,7 +443,7 @@ export function drawMinimap() {
   for (const s of g.soldiers) if (!s.dead) { ctx.fillStyle = s.shield > 0 ? '#9fb0c8' : '#c9d6a0'; ctx.fillRect(X(s.x), Y(s.y + 1.3), 1.5, 3); }
   for (const u of g.motor.units) { ctx.fillStyle = u.wreckT >= 0 ? '#5a5650' : '#e2503a'; const w = u.kind === 'tank' ? 7 : 5; ctx.fillRect(X(u.x) - w / 2, Y(u.y + 1.4), w, 4); }
   for (const bl of g.blocks) {
-    if (bl.dead || !bl.target || !g.level.objectives.includes(bl.target)) continue;
+    if (bl.dead || !bl.target || !g.level.objectives.includes(bl.target) || g.garrison.rooms.conceals(bl)) continue;
     const t = bl.body.translation();
     const x = X(t.x), y = Math.max(6, Y(t.y + bl.h / 2) - 6);
     ctx.fillStyle = TARGETS[bl.target].color; ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
