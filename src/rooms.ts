@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MATERIALS, type MatId, type TargetKind } from './config';
 import type { Block, Game } from './game';
 import type { LevelDef } from './levels';
-import { blockGeometry, makeBlockMaterial, makeLadder } from './render';
+import { blockGeometry, dropObject, makeBlockMaterial, makeLadder } from './render';
 
 /*
   Runtime rooms: where each room really stands after the frame settled, whether it has failed or is
@@ -328,7 +328,7 @@ export class Rooms {
         c.uni.uFade.value = c.fade;
         c.mark.uniforms.uFade.value = c.fade;
         c.uni.uDamage.value = Math.min(1, (1 - c.fade) * 2.2);
-        if (c.fade <= 0) { c.mesh.parent?.remove(c.mesh); c.mesh.geometry.dispose(); (c.mesh.children[0] as THREE.Mesh | undefined)?.geometry.dispose(); c.mark.dispose(); r.cover = null; }
+        if (c.fade <= 0) { dropObject(c.mesh); r.cover = null; }
       }
     }
     // a drone sweeping in finds rooms one after another: tell of them together once it has settled

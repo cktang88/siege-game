@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { AMMO_BY_ID } from './config';
 import type { Block, Game } from './game';
-import { makeSprite } from './render';
+import { dropObject, makeSprite } from './render';
 import { audio } from './audio';
 
 /*
@@ -153,7 +153,7 @@ export class AirForce {
       if (!u.down) u.mesh.scale.x = u.dir < 0 ? 1 : -1;
       if (u.kind === 'gyro' && !u.down && Math.random() < dt * 2) audio.play('drone', u.x, 0.6, 0.7);
       if (u.kind === 'airship' && !u.down && Math.random() < dt * 0.4) audio.play('plane', u.x, 0.5, 0.6);
-      if (u.dead) u.mesh.parent?.remove(u.mesh);
+      if (u.dead) dropObject(u.mesh);
     }
     this.units = this.units.filter((u) => !u.dead);
   }
