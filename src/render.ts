@@ -494,7 +494,7 @@ export function dropObject(o: THREE.Object3D) {
 export const textures: Record<string, THREE.Texture> = {};
 export async function loadTextures() {
   const loader = new THREE.TextureLoader();
-  const names = ['carriage', 'barrel', 'soldier', 'plane', 'saboteur', 'drone', 'house', 'airship', 'gyro', 'mast', 'armoredcar', 'tank',
+  const names = ['carriage', 'barrel', 'soldier', 'plane', 'saboteur', 'drone', 'house', 'airship', 'gyro', 'mast', 'armoredcar', 'tank', 'eng_med', 'eng_mod',
     'p_barrel', 'p_table', 'p_bunk', 'p_rack', 'p_banner', 'p_shells', 'p_radio', 'p_cauldron', 'p_shelf', 'p_cannon'];
   await Promise.all([
     ...names.map((n) => loader.loadAsync(`sprites/${n}.png`).then((t) => { t.anisotropy = 4; textures[n] = t; }).catch(() => {})),

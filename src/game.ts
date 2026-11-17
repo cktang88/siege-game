@@ -12,6 +12,7 @@ import { AirForce } from './aircraft';
 import { elevate } from './elevate';
 import { MotorPool } from './vehicles';
 import { Fracture } from './fracture';
+import { Crew } from './engineers';
 
 type V2 = { x: number; y: number };
 
@@ -90,7 +91,7 @@ export interface Projectile {
   harmless?: boolean;
 }
 
-interface Soldier { x: number; y: number; rig: SoldierRig; dead: boolean; shootT: number; stopX: number; phase: number; deadT: number; /** shield hit points (0 = none) */ shield: number }
+export interface Soldier { x: number; y: number; rig: SoldierRig; dead: boolean; shootT: number; stopX: number; phase: number; deadT: number; /** shield hit points (0 = none) */ shield: number; /** a repair-crew engineer (src/engineers.ts moves him) */ eng?: boolean }
 
 interface Plane {
   mesh: THREE.Mesh; x: number; y: number; ux: number; uy: number; speed: number; s: number;
@@ -225,6 +226,8 @@ export class Game {
   motor = new MotorPool(this);
   /** block splitting and marks */
   frac = new Fracture(this);
+  /** the enemy repair crew and its scaffolding (src/engineers.ts) */
+  crew = new Crew(this);
   /** flak burst timer, seconds after launch */
   flakFuse = 2.5;
   mastSprites = new Map<Block, THREE.Mesh>();
@@ -371,6 +374,7 @@ export class Game {
     this.air.clear();
     this.motor.clear();
     this.frac.clear();
+    this.crew.clear();
     this.mastSprites.clear();
     this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
     this.pending = []; this.embers = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.gunElev.clear(); this.events = [];
@@ -953,6 +957,7 @@ export class Game {
       }
     }
     this.garrison.blast(x, y, radius);
+    this.crew.blast(x, y, radius);
     if (!opts.enemy) this.air.blast(x, y, radius, dmg, !!opts.flak);
     // infantry
     if (!opts.enemy) this.motor.blast(x, y, radius, dmg, opts);
@@ -1839,6 +1844,7 @@ export class Game {
 
   updateSoldiers(dt: number) {
     for (const s of this.soldiers) {
+      if (s.eng) continue; // engineers: src/engineers.ts
       if (s.dead) {
         s.deadT += dt;
         s.rig.update(dt, s.x, s.y, 'dead');
@@ -2205,7 +2211,7 @@ export class Game {
       if (this.barT <= 0) {
         this.barT = 16;
         // at most 9 infantry in the field, however many barracks there are
-        let room = 9 - this.soldiers.filter((s) => !s.dead).length;
+        let room = 9 - this.soldiers.filter((s) => !s.dead && !s.eng).length;
         if (room > 0) {
           const x0 = this.fortressBounds.x0 - 1;
           for (const b of bar) {
@@ -2218,42 +2224,15 @@ export class Game {
         }
       }
     }
-    // engineers: one crew, one block at a time, working from the bottom of the work up. They patch
-    // cracked blocks still standing in place; anything shattered, burning or knocked loose is beyond them.
-    if (this.liveTargets('workshop').length && !this.dev.freeze) this.updateEngineers(dt);
-    else this.repairing = null;
+    // engineers: a crew of men from the workshop, one cracked block at a time from the bottom up, from a
+    // scaffold they put up beside it; the block mends only while they are at work on it (src/engineers.ts)
+    this.updateEngineers(dt);
   }
 
+  /** the block the engineers are mending (null when none) */
   repairing: Block | null = null;
   updateEngineers(dt: number) {
-    const ok = (b: Block) => !b.dead && !b.mat.indestructible && b.burning <= 0 && b.hp < b.maxHp * 0.97 && b.hp > b.maxHp * 0.15 && !b.target
-      // short-lived rubble is not worth patching (a fractured piece still in place is)
-      && !this.frac.isRubble(b)
-      && Math.abs(b.body.rotation()) < 0.08 && Math.hypot(b.body.linvel().x, b.body.linvel().y) < 0.05;
-    if (this.repairing && !ok(this.repairing)) this.repairing = null;
-    if (!this.repairing) {
-      // the crew takes a while to move to the next job
-      this.repT -= dt;
-      if (this.repT > 0) return;
-      this.repT = 4;
-      let best: Block | null = null, by = Infinity;
-      for (const b of this.blocks) {
-        if (!ok(b)) continue;
-        const y = b.body.translation().y - b.h / 2;
-        if (y < by - 0.05) { by = y; best = b; }
-      }
-      if (!best) return;
-      this.repairing = best;
-      if (!this.repairToast) { this.repairToast = true; this.toast('Enemy engineers are patching a cracked wall. Knock out the engineers to stop them.', 'info'); }
-    }
-    const b = this.repairing;
-    // ~30 s to make good a badly cracked block
-    b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.028 * dt);
-    if (Math.random() < dt * 4) {
-      const t = b.body.translation();
-      this.r.fire.spawn({ x: t.x + (Math.random() - 0.5) * b.w, y: t.y + (Math.random() - 0.5) * b.h, vy: 1, max: 0.6, size0: 0.16, size1: 0.04, c0: [0.4, 1.6, 2.4], c1: [0.2, 0.6, 1.2], a0: 1, a1: 0 });
-    }
-    if (b.hp >= b.maxHp * 0.97) this.repairing = null;
+    this.crew.update(dt, this.liveTargets('workshop').length > 0 && !this.dev.freeze && this.repT < 900);
   }
   repairToast = false;
 
