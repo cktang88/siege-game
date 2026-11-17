@@ -1,3 +1,4 @@
+import RAPIER from '@dimforge/rapier2d-compat';
 import * as THREE from 'three';
 import type { Block, Game } from './game';
 import { makeLadder } from './render';
@@ -58,6 +59,15 @@ export interface ScaffoldPlan {
   pileX: number;
   /** which way the crew comes from the ladder to the spots, and back */
   wall: number;
+  /** side layout: where the block's face really is at each height (a battered or sloped face recedes) */
+  faces: { y: number; x: number }[];
+}
+
+/** x of the block's face at height y (side layout) */
+export function faceX(p: ScaffoldPlan, y: number) {
+  let best = p.faces[0], d = Infinity;
+  for (const f of p.faces) { const q = Math.abs(f.y - y); if (q < d) { d = q; best = f; } }
+  return best ? best.x : p.side < 0 ? p.x1 : p.x0;
 }
 
 const texCache = new Map<string, THREE.Texture>();
@@ -216,6 +226,7 @@ export class Scaffold {
     const lifts: number[] = [];
     for (let h = lift; h < p.height - 0.6; h += lift) lifts.push(h);
     const work = new Set(p.stations.filter((s) => s.h > 0).map((s) => s.h));
+    if (!work.size && lifts.length) work.add(lifts[0]);
     for (const h of work) if (!lifts.some((q) => Math.abs(q - h) < 0.05)) lifts.push(h);
     lifts.sort((a, b) => a - b);
     const nOrder = lifts.length + 3;
@@ -231,8 +242,9 @@ export class Scaffold {
       const o = (k + 1) / nOrder;
       const y = base + h;
       // ledger/putlog: in the side section it runs from the outer standard into the putlog hole in the wall
-      const a = p.layout === 'side' ? (p.side < 0 ? xL - 0.1 : wallX - 0.1) : xL - 0.15;
-      const b = p.layout === 'side' ? (p.side < 0 ? wallX + 0.1 : xR + 0.1) : xR + 0.15;
+      const fx = p.layout === 'side' ? faceX(p, y) : wallX;
+      const a = p.layout === 'side' ? (p.side < 0 ? xL - 0.1 : fx - 0.1) : xL - 0.15;
+      const b = p.layout === 'side' ? (p.side < 0 ? fx + 0.1 : xR + 0.1) : xR + 0.15;
       this.add(stick, a, y, b, y, thL, o);
       for (const x of xs) this.blob(joint, x, y, T ? 0.17 : 0.13, o + 0.3 / nOrder);
       if (work.has(h)) {
@@ -458,26 +470,38 @@ export function planScaffold(g: Game, b: Block, era: Era): ScaffoldPlan {
     const base = Math.max(g.groundY(x0), g.groundY(x1), g.groundY((x0 + x1) / 2));
     if (by0 < base - 0.6 || by1 - base > 16) continue;
     const st = stationsFor(base);
-    const height = Math.max(st[st.length - 1] + 1.1, Math.min(by1 - base + 0.2, st[st.length - 1] + 1.6));
+    const height = Math.max(lift + 0.9, st[st.length - 1] + 1.1, Math.min(by1 - base + 0.2, st[st.length - 1] + 1.6));
     // the strip must be free of other blocks (the wall the block stands in is on its inner edge)
     if (!clear(side < 0 ? x0 - 0.3 : x0 + 0.03, side < 0 ? x1 - 0.03 : x1 + 0.3, base + 0.08, base + height + 0.2)) continue;
-    const wall = side < 0 ? bx0 : bx1;
-    // the man stands ~0.5 m off the face (a hammer blow reaches it), a mate further out
-    const stations: Station[] = st.map((h) => ({ h, spots: [{ x: wall + side * 0.48, face: -side }, { x: wall + side * 1.12, face: -side }, { x: wall + side * 0.8, face: -side }] }));
+    // sound the face every 0.25 m up: a horizontal ray from the scaffold side onto this block only
+    const faces: { y: number; x: number }[] = [];
+    const ox = side < 0 ? bx0 - 0.05 : bx1 + 0.05;
+    let last = side < 0 ? bx0 : bx1;
+    for (let y = base + 0.1; y < base + height + 1.2; y += 0.25) {
+      const toi = b.collider.castRay(new RAPIER.Ray({ x: ox, y }, { x: -side, y: 0 }), b.w + 0.2, true);
+      if (toi >= 0) last = ox - side * toi;
+      faces.push({ y, x: last });
+    }
+    const partial = { side, x0, x1, faces } as ScaffoldPlan;
+    // the man stands ~0.5 m off the face at hand height (a hammer blow reaches it), mates further out
+    const stations: Station[] = st.map((h) => {
+      const wall = faceX(partial, base + h + 1.1);
+      return { h, spots: [{ x: wall + side * 0.48, face: -side }, { x: wall + side * 1.12, face: -side }, { x: wall + side * 0.8, face: -side }] };
+    });
     const outer = side < 0 ? x0 : x1;
     const ladderX = outer - side * 0.05;
-    return { layout: 'side', side, x0, x1, base, height, stations, ladderX, pileX: outer + (side < 0 ? -0.75 : 0.75), wall: side };
+    return { layout: 'side', side, x0, x1, base, height, stations, ladderX, pileX: outer + (side < 0 ? -0.75 : 0.75), wall: side, faces };
   }
   // across the front: the scaffold spans the block's face, from the ground at its centre
-  const x0 = bx0 - 0.3, x1 = bx1 + 0.3;
+  const x0 = Math.min(bx0 - 0.3, t.x - 1.0), x1 = Math.max(bx1 + 0.3, t.x + 1.0);
   const base = g.groundY(t.x);
   const st = stationsFor(base);
-  const height = Math.max(st[st.length - 1] + 1.1, Math.min(by1 - base + 0.2, st[st.length - 1] + 1.6));
+  const height = Math.max(lift + 0.9, st[st.length - 1] + 1.1, Math.min(by1 - base + 0.2, st[st.length - 1] + 1.6));
   const spots = (n: number) => {
     const out: { x: number; face: number }[] = [];
-    for (let i = 0; i < n; i++) { const x = t.x + (i % 2 ? 1 : -1) * (0.35 + Math.floor(i / 2) * 0.5) * Math.min(1, b.w / 1.4); out.push({ x, face: x < t.x ? 1 : -1 }); }
+    for (let i = 0; i < n; i++) { const x = t.x + (i % 2 ? 1 : -1) * (0.35 + Math.floor(i / 2) * 0.45) * Math.max(0.8, Math.min(1, b.w / 1.4)); out.push({ x, face: x < t.x ? 1 : -1 }); }
     return out;
   };
   const stations: Station[] = st.map((h) => ({ h, spots: spots(3) }));
-  return { layout: 'front', side: 0, x0, x1, base, height, stations, ladderX: x0 - 0.2, pileX: x0 - 0.95, wall: 1 };
+  return { layout: 'front', side: 0, x0, x1, base, height, stations, ladderX: x0 - 0.2, pileX: x0 - 0.95, wall: 1, faces: [] };
 }

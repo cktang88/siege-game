@@ -77,7 +77,13 @@ export class Crew {
 
   constructor(private g: Game) {}
 
-  get era(): Era { return this.g.level?.era ?? 'medieval'; }
+  /** the castle's era picks the kit; hand-built levels without one count as modern if built of concrete or steel */
+  get era(): Era {
+    const L = this.g.level;
+    if (!L) return 'medieval';
+    if (L.era) return L.era;
+    return L.blocks.some((b) => b.mat === 'concrete' || b.mat === 'steel' || b.mat === 'reactive') ? 'modern' : 'medieval';
+  }
   get alive() { return this.list.filter((e) => !e.s.dead && !e.gone); }
   /** men at work at the block right now */
   get working() { return this.list.filter((e) => !e.s.dead && e.mode === 'work').length; }
@@ -546,8 +552,8 @@ export class Crew {
     const col = new THREE.Color(...b.mat.color);
     const hammer = (e.s.rig as EngineerRig).tool === 'hammer';
     const dust = col.clone().lerp(new THREE.Color(0.86, 0.83, 0.76), 0.55);
-    g.r.smoke.spawn({ x: p.x, y: p.y, vx: -e.face * (0.2 + Math.random() * 0.3), vy: 0.25 + Math.random() * 0.3, max: 0.8 + Math.random() * 0.4, size0: hammer ? 0.14 : 0.09, size1: hammer ? 0.5 : 0.3,
-      c0: [dust.r, dust.g, dust.b], c1: [dust.r * 0.9, dust.g * 0.9, dust.b * 0.9], a0: hammer ? 0.6 : 0.4, a1: 0, drag: 2, windK: 0.3 });
+    g.r.smoke.spawn({ x: p.x, y: p.y, vx: -e.face * (0.2 + Math.random() * 0.3), vy: 0.25 + Math.random() * 0.3, max: 0.8 + Math.random() * 0.4, size0: hammer ? 0.08 : 0.06, size1: hammer ? 0.36 : 0.24,
+      c0: [dust.r, dust.g, dust.b], c1: [dust.r * 0.9, dust.g * 0.9, dust.b * 0.9], a0: hammer ? 0.45 : 0.3, a1: 0, drag: 2, windK: 0.3 });
     if (hammer) {
       for (let i = 0; i < 2; i++) g.r.debris.spawn(p.x, p.y, -e.face * (0.5 + Math.random()), 0.5 + Math.random() * 1.2, 0.035 + Math.random() * 0.035, col.clone().multiplyScalar(0.85 + Math.random() * 0.3));
       if (b.matId === 'steel' || b.matId === 'reactive') {
