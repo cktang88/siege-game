@@ -653,6 +653,17 @@ test('objective_angle', 'shell', 'A glancing or slow hit on an objective does fa
   return { pass: square && slow < 0.75, info: `square 26 m/s: ${square ? 'down' : 'standing'}; slow drop: ${slow === 1 ? 'down' : L.r(slow * 100, 0) + '% hp'}` };
 });
 
+test('objective_type', 'heavy', 'What a direct hit does depends on the round: a heavy shell at 12 m/s knocks an objective out, a light incendiary casing does not', () => {
+  const L = window.__lab;
+  L.setup([{ x: 30, y: 0, w: 1.6, h: 1.4, mat: 'stone', target: 'barracks' }]);
+  L.shoot('heavy', 27.5, 0.7, 12, 0); L.step(0.6);
+  const heavy = L.b(0).dead;
+  L.setup([{ x: 30, y: 0, w: 1.6, h: 1.4, mat: 'stone', target: 'barracks' }]);
+  L.shoot('incendiary', 27.5, 0.7, 12, 0); L.step(0.6);
+  const inc = L.b(0).dead ? 1 : L.frac(0);
+  return { pass: heavy && inc < 1, info: `heavy: ${heavy ? 'down' : 'standing'}; incendiary: ${inc === 1 ? 'down' : L.r(inc * 100, 0) + '% hp'}` };
+});
+
 // ───────────────────────── runner ─────────────────────────
 module.exports = { installLab };
 if (require.main === module) (async () => {

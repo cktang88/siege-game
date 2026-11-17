@@ -727,17 +727,21 @@ export class Game {
   /**
     Objectives are the soft heart of a work (a map table, a powder store, a radio room), not its walls:
     a shell striking one squarely and hard knocks it out. What counts is the velocity along the face
-    normal (speed x cos of the obliquity): 15 m/s or more square-on is a kill; below that the hit does a
-    share falling to a third at 6 m/s, and under 6 m/s (a spent or badly glancing round) only its
-    ordinary damage. Rounds past the ricochet angle glance off before they get here. Canister pellets,
-    smoke and flak do their ordinary damage.
+    normal (speed x cos of the obliquity) against what that round needs: a 9 kg round shot needs 15 m/s
+    square-on, a heavy shell about 10, a light incendiary or HE casing 20+ (HE's own blast does the
+    rest). Below that the hit does a share falling to a third at 40% of the kill speed, and under that
+    only its ordinary damage. Rounds past the ricochet angle glance off before they get here. Canister
+    pellets, smoke and flak do their ordinary damage.
   */
   objectiveHit(b: Block, p: Projectile, speed: number, cosI = 1) {
     if (!b.target || p.enemy || p.pellet) return 0;
-    if (p.ammo.id === 'smoke' || p.ammo.id === 'flak') return 0;
+    const a = p.ammo;
+    if (a.id === 'smoke' || a.id === 'flak') return 0;
+    const punch = Math.max(10, a.kinetic, (a.pen ?? 0) * 0.4);
+    const vKill = 15 * Math.sqrt(55 / punch), vMin = vKill * 0.4;
     const vn = speed * cosI;
-    if (vn < 6) return 0;
-    return b.maxHp * 1.05 * Math.min(1, 0.34 + 0.66 * (vn - 6) / 9);
+    if (vn < vMin) return 0;
+    return b.maxHp * 1.05 * Math.min(1, 0.34 + 0.66 * (vn - vMin) / (vKill - vMin));
   }
 
   damageBlock(b: Block, dmg: number, cause = '') {
@@ -872,8 +876,9 @@ export class Game {
       const bonus = opts.bonus?.[b.matId] ?? (opts.fuelChain && b.mat.volatile ? 0.5 : 1);
       // flak shells are thin-walled fragmentation rounds: little effect on masonry
       let bd = dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1);
-      // a shell bursting close to an objective (not behind a wall) takes half its strength: two near misses finish it
-      if (b.target && !opts.enemy && !opts.flak && !opts.smoke && dmg >= 20 && f > 0.25) bd = Math.max(bd, b.maxHp * (shielded ? 0.3 : 0.55));
+      // an HE shell (or bigger) bursting close to an objective, not behind a wall, takes half its strength:
+      // two near misses finish it. Smaller charges count in proportion (a heavy shell's burst ~30%, a round shot's ~14%).
+      if (b.target && !opts.enemy && !opts.flak && !opts.smoke && f > 0.25) bd = Math.max(bd, b.maxHp * (shielded ? 0.3 : 0.55) * Math.min(1, dmg / 100));
       this.damageBlock(b, bd, opts.source);
       // the fireball does not lick round a wall: a firebrick (or other non-flammable) wall in the way keeps the flames off
       if (opts.ignite && b.mat.flammable && f > 0.25 && !shielded) this.ignite(b, opts.ignite * 2.5);
@@ -961,7 +966,7 @@ export class Game {
   }
 
   /** seconds of fire a block holds: material burn time scaled by its size */
-  burnTime(b: Block) { return (b.mat.burn ?? 12) * Math.min(2, Math.max(0.6, Math.sqrt(b.w * b.h))); }
+  burnTime(b: Block) { return (b.mat.burn ?? 12) * Math.min(1.45, Math.max(0.6, Math.sqrt(b.w * b.h))); } // a big timber burns ~15-18 s, not half a minute
 
   /**
    * Set a block alight. Once it catches it burns through all its remaining fuel; `_heat` (the old
