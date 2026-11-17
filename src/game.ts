@@ -60,7 +60,8 @@ export interface Projectile {
   pen: number;
   bomblet?: boolean;
   split?: boolean;
-  burrow?: { dir: number; dist: number };
+  /** burrowing drill: heading, distance tunnelled, and the last x it passed under a structure */
+  burrow?: { dir: number; dist: number; under?: number };
   dead: boolean;
   trail: number;
   inert?: number;
@@ -454,7 +455,7 @@ export class Game {
     this.speed = Math.min(this.speed, this.stats.maxSpeed);
     const fb = this.fortressBounds;
     this.strike.x = (fb.x0 + fb.x1) / 2;
-    this.droneTarget = { x: (fb.x0 + fb.x1) / 2, y: fb.y1 + 6 };
+    this.droneTarget = this.defaultLoiter();
     this.sabTarget = null;
     this.spentBudget = spent;
     this.moneyLeft = budget - spent;
@@ -690,9 +691,19 @@ export class Game {
     return true;
   }
 
+  /**
+   * Where the drone loiters unless the player picks a spot: deep over the fortress (70% of the way across),
+   * 10 m above its ground, so its cameras sweep the rooms on the way in. (It used to default to 6 m above
+   * the highest block over the middle: over a spired grand castle that is 30+ m up, out of camera range
+   * of every walled-up room.)
+   */
+  defaultLoiter(): V2 {
+    const fb = this.fortressBounds, x = fb.x0 + (fb.x1 - fb.x0) * 0.7;
+    return { x, y: Math.min(fb.y1 + 6, this.groundY(x) + 10) };
+  }
+
   launchDrone() {
-    const fb = this.fortressBounds;
-    const tgt = this.droneTarget ?? { x: (fb.x0 + fb.x1) / 2, y: fb.y1 + 6 };
+    const tgt = this.droneTarget ?? this.defaultLoiter();
     const mesh = makeSprite('drone', 0.9, 14);
     const d: Drone = { mesh, x: this.level.cannonX, y: this.groundY(this.level.cannonX) + 3, tx: tgt.x, ty: Math.max(tgt.y, this.groundY(tgt.x) + 3), state: 'out', t: 0, vy: 0, dead: false };
     mesh.position.set(d.x, d.y, 14);
@@ -729,6 +740,14 @@ export class Game {
     a real shell striking one squarely knocks it out. Glancing hits (ricochets go elsewhere), canister
     pellets and spent rounds (under 9 m/s) do their ordinary damage.
   */
+  /** live block standing over the ground at x (what a burrowing drill is under) */
+  blockOver(x: number): Block | undefined {
+    const hit = this.world.castRay(new RAPIER.Ray({ x, y: this.groundY(x) + 0.05 }, { x: 0, y: 1 }), 1.2, true, undefined, undefined, undefined, undefined,
+      (c) => this.owners.get(c.handle)?.t === 'block');
+    const o = hit ? this.owners.get(hit.collider.handle) : undefined;
+    return o?.t === 'block' && !o.b.dead ? o.b : undefined;
+  }
+
   objectiveHit(b: Block, p: Projectile, speed: number) {
     if (!b.target || p.enemy || p.pellet || speed < 9) return 0;
     if (p.ammo.id === 'smoke' || p.ammo.id === 'flak') return 0;
@@ -903,7 +922,9 @@ export class Game {
     if (!opts.enemy) this.motor.blast(x, y, radius, dmg, opts);
     for (const s of this.soldiers) {
       if (s.dead) continue;
-      const R = radius * 1.15 + 0.3, d = Math.hypot(s.x - x, s.y + 0.6 - y);
+      // a flak shell is a thin-cased AA round: bursting on the ground it kills only the men right beside it
+      // (it used to kill anyone in its full 4.4 m radius, so a 45-credit AA round out-killed canister)
+      const R = (opts.flak ? radius * 0.35 : radius * 1.15) + 0.3, d = Math.hypot(s.x - x, s.y + 0.6 - y);
       if (d >= R) continue;
       // a shield takes a weak burst in front of it (solid shot striking it); a real blast, fire, or a burst behind or over him kills
       const e = dmg * (1 - d / R);
@@ -1239,7 +1260,10 @@ export class Game {
           this.burst(t.x, this.groundY(t.x), 0.4, false);
           this.toast('Drill is burrowing…', 'info');
         } else if (!ground) {
-          this.explode(t.x, t.y, 2.2, 70);
+          // struck masonry instead of earth: the bit grinds into the block and the charge goes off inside it
+          // (it used to fizzle with a 70-damage pop, wasting the round on any wall it clipped)
+          if (block && !block.dead) this.damageBlock(block, p.dmgMul * a.blastDamage * block.mat.blast * (a.bonus?.[block.matId] ?? 1));
+          this.boom(p, t.x, t.y, a.blastRadius * 0.8, a.blastDamage, { bonus: a.bonus });
           this.removeProjectile(p);
         }
         break;
@@ -1578,7 +1602,7 @@ export class Game {
         if (flakGo || (!isFlak && u)) {
           if (isFlak) { this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage, { flak: true, visual: 0.8 }); this.removeProjectile(p); continue; }
           if (u) {
-            this.air.damage(u, p.pellet ? 18 * p.dmgMul : p.ammo.kinetic * 1.4 + (p.ammo.pen ?? 0) * 0.25);
+            this.air.damage(u, p.pellet ? 9 * p.dmgMul : p.ammo.kinetic * 1.4 + (p.ammo.pen ?? 0) * 0.25);
             if (p.ammo.blastRadius > 0) this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage);
             else if (p.ammo.id === 'smoke') this.smokeScreen(p.x, p.y);
             else this.sparks(p.x, p.y, 8);
@@ -1600,16 +1624,21 @@ export class Game {
         p.x += step; p.burrow.dist += Math.abs(step);
         p.y = this.groundY(p.x) - 0.9;
         if (Math.random() < 0.5) this.r.debris.spawn(p.x, this.groundY(p.x) + 0.05, (Math.random() - 0.5) * 2, 2 + Math.random() * 2, 0.12, new THREE.Color(0.42, 0.32, 0.22));
-        // is there a structure above?
-        const hit = this.world.castRay(new RAPIER.Ray({ x: p.x, y: this.groundY(p.x) + 0.05 }, { x: 0, y: 1 }), 1.2, true, undefined, undefined, undefined, undefined,
-          (c) => this.owners.get(c.handle)?.t === 'block');
-        if (hit || p.burrow.dist > this.stats.drillRange) {
+        // the drill runs on under walls: it blows beneath the first target it reaches, or at the end of its run
+        // beneath the last structure it passed under (it used to stop under the first block, so the outer wall
+        // or glacis always took it and nothing behind could be reached)
+        const over = this.blockOver(p.x);
+        if (over) p.burrow.under = p.x;
+        const end = p.burrow.dist > this.stats.drillRange;
+        if (over?.target || end) {
+          if (!over && p.burrow.under !== undefined) p.x = p.burrow.under;
+          const ob = over ?? this.blockOver(p.x);
           const gy = this.groundY(p.x);
           const a = p.ammo;
-          // a tamped charge: the block sitting over the drill takes the focused blast (like a planted charge);
-          // earthworks are dirt like the ground, so the drill cuts them where shells only soak in
-          const over = hit ? this.owners.get(hit.collider.handle) : undefined;
-          if (over?.t === 'block' && !over.b.dead) this.damageBlock(over.b, p.dmgMul * a.blastDamage * over.b.mat.blast * (a.bonus?.[over.b.matId] ?? 1));
+          // a tamped charge: the block sitting over the drill takes the focused blast (like a planted charge),
+          // and an objective right above it is as good as hit; earthworks are dirt like the ground, so the drill
+          // cuts them where shells only soak in
+          if (ob) this.damageBlock(ob, Math.max(p.dmgMul * a.blastDamage * ob.mat.blast * (a.bonus?.[ob.matId] ?? 1), this.objectiveHit(ob, p, 99)));
           this.boom(p, p.x, gy - 0.4, a.blastRadius, a.blastDamage, { under: true, push: 1.4, bonus: a.bonus });
           this.removeProjectile(p);
           continue;
@@ -1647,7 +1676,8 @@ export class Game {
           const a = p.ammo;
           // charges in contact with (or buried in) a block hit it with the full, focused blast
           const host = p.stuck?.block;
-          if (host && !host.dead) this.damageBlock(host, p.dmgMul * a.blastDamage * (a.id === 'bunker' || a.id === 'bomb_pen' ? 1.6 : 0.8) * host.mat.blast * (a.bonus?.[host.matId] ?? 1));
+          // a saboteur's demolition charge is tamped against the wall like a bunker buster's
+          if (host && !host.dead) this.damageBlock(host, p.dmgMul * a.blastDamage * (a.id === 'bunker' || a.id === 'bomb_pen' || a.id === 'saboteur' ? 1.6 : 0.8) * host.mat.blast * (a.bonus?.[host.matId] ?? 1));
           this.boom(p, p.x, p.y, a.blastRadius, a.blastDamage, { bonus: a.bonus, push: a.id === 'bunker' ? 1.3 : 1 });
           this.removeProjectile(p);
           continue;

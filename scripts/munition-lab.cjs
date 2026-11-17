@@ -556,7 +556,7 @@ test('air_flak_aim', 'airstrike', 'Flak in reach of the release point throws the
       g.selected = 'airstrike'; g.fire();
       L.step(8);
       // GP bomb bursts only (not the wreck of a downed bomber)
-      for (const b of L.blasts) if (b.r === 3.2 && b.d === 120) errs.push(Math.abs(b.x - 60));
+      for (const b of L.blasts) if (b.r === L.cfg.AMMO_BY_ID.bomb_he.blastRadius && b.d === L.cfg.AMMO_BY_ID.bomb_he.blastDamage) errs.push(Math.abs(b.x - 60));
     }
     return errs.reduce((s, e) => s + e, 0) / Math.max(1, errs.length);
   };
