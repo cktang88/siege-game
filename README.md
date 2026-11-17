@@ -54,7 +54,7 @@ Every fortress stands on its own hill, so most shots go level or upward. Only th
 
 **Dev mode:** the `Dev` button on the map, or `?dev` in the URL, opens every castle and every technology for the current browser session. Dev mode is never written to the save, and dev battles pay no funds and record no stars. It also adds 12 procedurally generated proving grounds and an unlimited-budget toggle in the armory.
 
-Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a munition, the mouse wheel sets velocity (zooms outside battle), `Ctrl`+wheel or `Q`/`E` zoom, any drag pans, `R` resets the view, `T` toggles mouse aim and `M` mutes. Shortcuts are ignored while you type in a number field.
+Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a munition, the mouse wheel sets velocity (zooms outside battle), `Ctrl`+wheel or `Q`/`E` zoom, any drag pans, `R` resets the view, `T` toggles mouse aim, `M` mutes and `Esc` (or the *Withdraw* button, pressed twice) abandons the attack. Click an objective in the list, or an objective marker pinned to the screen edge, to look at it. Shortcuts are ignored while you type in a number field.
 
 ## Munitions (15)
 
