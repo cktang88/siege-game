@@ -1,0 +1,615 @@
+/*
+  Value lab: is every round worth its price? For each purchasable munition it fires an equal spend of
+  that round, aimed by a solver at the target the round is meant for, on real campaign levels, and
+  measures what the spend bought (block HP removed, objective HP, objectives killed, garrison and
+  infantry killed, aircraft downed, rooms uncovered, counter-battery damage avoided). Results are
+  given per 100 credits and as a ratio to the best of the baseline rounds (round shot / HE).
+
+    npx vite --port 5193 --host 127.0.0.1 --strictPort &      # then:
+    BASE=http://127.0.0.1:5193 NODE_PATH=$(npm root -g) node scripts/value-lab.cjs [sections] [trials]
+      sections: comma list of struct,infantry,air,smoke,drone,pen (default: all)
+      trials:   seeds per cell (default 3)
+    VALUE_JSON=out.json also writes the raw rows.
+
+  The simulation is stepped in-page (window.siege.game.update) with the page's own frame loop parked,
+  so a whole trial runs synchronously inside one page.evaluate and is reproducible: Math.random is
+  replaced by a seeded generator for the trial. Research is the base tree except for muzzle velocity
+  (set to the level's planned gun cap + 4 m/s) and reload (1.0 s); no damage upgrades are applied.
+  Enemy timers (counter-battery, reinforcements, engineers, air waves) are off except where a section
+  measures them.
+*/
+let chromium;
+try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require(require('child_process').execSync('npm root -g').toString().trim() + '/playwright')); }
+
+// ───────────────────────── in-page library ─────────────────────────
+function installValue() {
+  const V = {};
+  window.__val = V;
+  V.init = async () => {
+    V.hud = await import('/src/hud.ts');
+    V.cfg = await import('/src/config.ts');
+    V.prog = await import('/src/progress.ts');
+    V.camp = await import('/src/campaign.ts');
+  };
+  const mulberry = (a) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  V.gauss = () => { const u = Math.random() || 1e-9, v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+
+  /** load a campaign operation; o.live = which enemy timers keep running */
+  V.load = (nodeId, o = {}) => {
+    Math.random = mulberry((o.seed || 1) * 2654435761);
+    const S = window.siege, g = S.game;
+    const lvl = V.camp.NODE_BY_ID[nodeId].level();
+    S.level = lvl;
+    g.stats = Object.assign(V.prog.baseStats(), { reload: 1 }, o.stats || {});
+    g.load(lvl);
+    g.stats.maxSpeed = (o.stats && o.stats.maxSpeed) || (g.level.gunCap || 36) + 4;
+    const inv = {};
+    for (const a of V.cfg.SHOP_AMMO()) inv[a.id] = 999;
+    V.hud.startBattle(inv, 0, 999999);
+    S.mode = 'map'; // park the page's frame loop: the lab steps the battle itself
+    g.wind = 0;
+    g.reload = 0;
+    g.cannonHp = 1e6; // the lab never loses its gun
+    V.g = g;
+    V.live = o.live || {};
+    V.off();
+    V.start = g.blocks.filter((b) => !b.mat.indestructible);
+    V.hp0 = V.hpOf(V.start);
+    V.obj = V.start.filter((b) => b.target && g.level.objectives.includes(b.target));
+    V.cas0 = g.garrison.casualties;
+    V.hidden0 = g.garrison.rooms.list.filter((r) => r.hidden).length;
+    return g;
+  };
+  V.hpOf = (bs) => bs.reduce((s, b) => s + (b.dead ? 0 : Math.max(0, b.hp)), 0);
+  V.off = () => {
+    const g = V.g, L = V.live;
+    if (!L.art) g.artT = 999;
+    if (!L.bar) g.barT = 999;
+    g.repT = g.rebT = 999;
+    if (!L.air) g.air.spawnT = 999;
+    g.motor && (g.motor.spawnT = 999);
+  };
+  V.step = (secs, each) => {
+    const g = V.g, n = Math.round(secs * 60);
+    for (let i = 0; i < n; i++) { V.off(); g.update(1 / 60); if (each && each(i)) return i + 1; }
+    return n;
+  };
+  /** step until the player's ordnance, teams and chain blasts are all spent (plus a settle), capped */
+  V.settle = (max = 25, tail = 1) => {
+    const g = V.g;
+    let quiet = 0, t = 0;
+    for (; t < max * 60; t++) {
+      V.off(); g.update(1 / 60);
+      const busy = g.projectiles.some((p) => !p.enemy && !p.dead) || g.planes.length || g.saboteurs.length || g.pending.length || g.drones.length;
+      quiet = busy ? 0 : quiet + 1;
+      if (quiet > tail * 60) break;
+    }
+    return t / 60;
+  };
+  V.metrics = () => {
+    const g = V.g;
+    const objFrac = V.obj.reduce((s, b) => s + (b.dead ? 1 : 1 - Math.max(0, b.hp) / b.maxHp), 0);
+    return {
+      hp: V.hp0 - V.hpOf(V.start),
+      objFrac,
+      objKills: V.obj.filter((b) => b.dead).length,
+      objTotal: V.obj.length,
+      garrison: g.garrison.casualties - V.cas0,
+      uncovered: V.hidden0 - g.garrison.rooms.list.filter((r) => r.hidden).length,
+      won: V.obj.every((b) => b.dead),
+    };
+  };
+
+  // ── ballistics ──
+  const G = 9.81;
+  V.muzzleAt = (a) => { const bp = V.g.barrel.position; return { x: bp.x + Math.cos(a) * 2.5, y: bp.y + Math.sin(a) * 2.5 }; };
+  /** height of the shell at x for elevation a and speed s (no wind) */
+  V.yAt = (a, s, x) => { const m = V.muzzleAt(a); const vx = Math.cos(a) * s; if (vx <= 1e-3) return NaN; const t = (x - m.x) / vx; if (t < 0) return NaN; return m.y + Math.sin(a) * s * t - 0.5 * G * t * t; };
+  /** every elevation that puts a shell of speed s through (tx, ty): flat and lofted roots */
+  V.roots = (s, tx, ty) => {
+    const g = V.g, lo = g.stats.minAngle, hi = g.stats.maxAngle;
+    const out = [];
+    let pa = null, pf = null;
+    for (let d = lo; d <= hi; d += 0.5) {
+      const a = (d * Math.PI) / 180, f = V.yAt(a, s, tx) - ty;
+      if (pf !== null && !isNaN(f) && !isNaN(pf) && Math.sign(f) !== Math.sign(pf)) {
+        let a0 = pa, a1 = a, f0 = pf;
+        for (let k = 0; k < 30; k++) { const am = (a0 + a1) / 2, fm = V.yAt(am, s, tx) - ty; if (Math.sign(fm) === Math.sign(f0)) { a0 = am; f0 = fm; } else a1 = am; }
+        out.push((a0 + a1) / 2);
+      }
+      pa = a; pf = f;
+    }
+    return out;
+  };
+  V.blockAt = (x, y) => {
+    let found = null;
+    V.g.world.intersectionsWithPoint({ x, y }, (c) => { const o = V.g.owners.get(c.handle); if (o && o.t === 'block' && !o.b.dead) { found = o.b; return false; } return true; });
+    return found;
+  };
+  /** fly the path; first contact with a block or the ground. crossed: blocks passed through before x reaches tx */
+  V.trace = (a, s, tx, stopAtTarget) => {
+    const g = V.g, m = V.muzzleAt(a);
+    let x = m.x, y = m.y, vx = Math.cos(a) * s, vy = Math.sin(a) * s;
+    const dt = 1 / 240;
+    const crossed = [];
+    let first = null;
+    for (let i = 0; i < 240 * 8; i++) {
+      vy -= G * dt; x += vx * dt; y += vy * dt;
+      if (y <= g.groundY(x)) { if (!first) first = { x, y, b: null, t: i * dt }; break; }
+      const b = V.blockAt(x, y);
+      if (b) {
+        if (!first) first = { x, y, b, t: i * dt };
+        if (!stopAtTarget) break;
+        if (b === stopAtTarget) break;
+        if (!crossed.includes(b)) crossed.push(b);
+      }
+      if (x > tx + 30 || y < -30) break;
+    }
+    return { first, crossed };
+  };
+  const centre = (b) => { const t = b.body.translation(); return { x: t.x, y: t.y }; };
+  V.centre = centre;
+  /**
+   * The gunner: for the target block (or ground point), try flat and lofted arcs at several charges and
+   * pick the one whose first contact is the target (or nearest to it). Penetrators pick the arc that
+   * crosses the least armour on the way. Returns { a, s, t (flight time to first contact) }.
+   */
+  V.solve = (ammo, tgt, opt = {}) => {
+    const g = V.g;
+    const vmax = g.stats.maxSpeed * (ammo.speed || 1);
+    const pt = tgt.x !== undefined ? tgt : centre(tgt);
+    const blk = tgt.body ? tgt : null;
+    let best = null;
+    for (const f of [1, 0.92, 0.84, 0.76, 0.68, 0.6]) {
+      const s = vmax * f;
+      for (const a of V.roots(s, pt.x, pt.y)) {
+        let score;
+        const tr = V.trace(a, s, pt.x, ammo.mode === 'penetrator' ? blk : null);
+        if (!tr.first) continue;
+        if (ammo.mode === 'penetrator' && blk) {
+          // armour on the way: sum of hp / pierce of the blocks crossed before the target
+          score = tr.crossed.reduce((q, b) => q + b.hp / b.mat.pierce, 0) + (tr.first.b === blk || tr.crossed.length ? 0 : Math.hypot(tr.first.x - pt.x, tr.first.y - pt.y) * 100);
+        } else if (opt.ground) {
+          score = tr.first.b ? 50 + Math.hypot(tr.first.x - pt.x, tr.first.y - pt.y) : Math.abs(tr.first.x - pt.x);
+        } else {
+          score = tr.first.b === blk && blk ? 0 : Math.hypot(tr.first.x - pt.x, tr.first.y - pt.y);
+        }
+        score += f < 1 ? 0.02 * (1 - f) : 0; // prefer full charge on ties
+        if (opt.lofted) score += a < 0.7 ? 0.5 : 0;
+        if (!best || score < best.score) best = { a, s, score, t: tr.first.t, hitTarget: tr.first.b === blk && !!blk };
+      }
+    }
+    return best;
+  };
+  /** fire `ammo` at a target block or point with aiming error sigma (metres at the target) */
+  V.fireAt = (id, tgt, o = {}) => {
+    const g = V.g, ammo = V.cfg.AMMO_BY_ID[id];
+    const sol = V.solve(ammo, tgt, o);
+    if (!sol) return null;
+    const m = V.muzzleAt(sol.a), pt = tgt.x !== undefined ? tgt : centre(tgt);
+    const dist = Math.hypot(pt.x - m.x, pt.y - m.y);
+    const sigma = o.sigma ?? 0.35;
+    g.selected = id;
+    g.angle = sol.a + (V.gauss() * sigma) / Math.max(5, dist);
+    g.speed = sol.s;
+    if (id === 'delayed') g.fuseSetting = o.fuse ?? 1;
+    if (id === 'cluster') g.airburst = o.airburst ?? Math.max(0.2, sol.t - 0.3);
+    if (id === 'flak') g.flakFuse = o.flakFuse ?? sol.t + 0.3;
+    g.reload = 0;
+    const ok = g.fire();
+    g.airburst = 0;
+    return ok ? sol : null;
+  };
+
+  /** nearest live objective (or any live target of a kind) */
+  V.nextObjective = () => {
+    const g = V.g, cx = g.level.cannonX;
+    const live = V.obj.filter((b) => !b.dead);
+    live.sort((a, b) => Math.abs(centre(a).x - cx) - Math.abs(centre(b).x - cx));
+    return live[0] || null;
+  };
+  /**
+   * The drill shot a skilled gunner takes: the open patch of ground nearest short of the target that a
+   * shell can actually land on (first contact is that ground), searching back to the glacis.
+   */
+  V.drillShot = (b) => {
+    const g = V.g, a = V.cfg.AMMO_BY_ID.drill;
+    const t = centre(b);
+    const clear = (x) => { const gy = g.groundY(x); for (const dx of [-0.5, 0, 0.5]) for (const dy of [0.2, 1, 2, 3.5]) if (V.blockAt(x + dx, gy + dy)) return false; return true; };
+    for (let x = t.x - b.w / 2 - 1; x > g.level.cannonX + 15; x -= 0.5) {
+      if (!clear(x)) continue;
+      const pt = { x, y: g.groundY(x) + 0.02 };
+      const sol = V.solve(a, pt, { ground: true });
+      if (sol && sol.score < 0.6) return pt;
+    }
+    return null;
+  };
+
+  /**
+   * Structural trial: spend `budget` on round `id` against the level's objectives, re-aiming each round.
+   * Records what the spend removed after a common 20 s tail (fires burn, masonry settles).
+   */
+  V.structTrial = (o) => {
+    const g = V.load(o.level, { seed: o.seed, stats: o.stats });
+    const a = V.cfg.AMMO_BY_ID[o.id];
+    const n = Math.max(1, Math.round(o.budget / a.price));
+    let fired = 0, time = 0, hitTarget = 0;
+    const out = { burrow: 0, direct: 0, embed: 0, ricochet: 0, premature: 0, sabKilled: 0, bombs: 0 };
+    // instrument the round's behaviour
+    const pStop = g.penetratorStop.bind(g);
+    g.penetratorStop = (p, dir, b) => { if (p.ammo.id === o.id && p.ammo.fuse) out.embed++; return pStop(p, dir, b); };
+    const ric = g.ricochet.bind(g);
+    g.ricochet = (...r) => { out.ricochet++; return ric(...r); };
+    const toast = g.toast.bind(g);
+    g.toast = (t, tone) => { if (/burrowing/.test(t)) out.burrow++; if (/gunned down|caught in the blast/.test(t)) out.sabKilled++; return toast(t, tone); };
+    for (let i = 0; i < n; i++) {
+      const t = V.nextObjective();
+      if (!t) break;
+      if (a.mode === 'saboteur') { g.sabTarget = null; g.selected = 'saboteur'; g.reload = 0; g.fire(); }
+      else if (a.mode === 'airstrike') {
+        Object.assign(g.strike, { x: centre(t).x, dir: 1, alt: 24, dive: 0, spacing: 1.6, ordnance: 'he' });
+        g.selected = 'airstrike'; g.reload = 0; g.fire();
+      } else if (o.id === 'drill') {
+        const pt = V.drillShot(t);
+        const sol = pt && V.fireAt('drill', pt, { ground: true, sigma: 0.35 });
+        if (!sol) break;
+      } else {
+        let sol = V.fireAt(o.id, t, { sigma: 0.35 });
+        if (!sol) {
+          // out of reach (sticky charges are slow): hit the nearest block toward it that can be reached
+          const tc = centre(t);
+          const near = V.start.filter((b) => !b.dead).sort((p, q) => Math.hypot(centre(p).x - tc.x, centre(p).y - tc.y) - Math.hypot(centre(q).x - tc.x, centre(q).y - tc.y));
+          for (const b of near.slice(0, 60)) { const s2 = V.solve(a, b); if (s2 && s2.score < 0.5) { sol = V.fireAt(o.id, b, { sigma: 0.35 }); out.fallback = (out.fallback || 0) + 1; break; } }
+        }
+        if (!sol) break;
+        if (sol.hitTarget) hitTarget++;
+      }
+      fired++;
+      time += V.settle(o.id === 'saboteur' || o.id === 'airstrike' ? 30 : 12, 0.6);
+      if (V.obj.every((b) => b.dead)) break;
+    }
+    V.step(o.tail ?? 20);
+    const m = V.metrics();
+    g.penetratorStop = pStop; g.ricochet = ric; g.toast = toast;
+    return { ...m, fired, spent: fired * a.price, time, hitTarget, ...out };
+  };
+
+  /** drill behaviour probe: where do drills land, do they burrow, how far, what do they blow */
+  V.drillProbe = (o) => {
+    const g = V.g || V.load(o.level, { seed: o.seed });
+    V.load(o.level, { seed: o.seed });
+    const t = V.nextObjective();
+    const pt = V.drillShot(t);
+    if (!pt) return { aimX: NaN, land: null, burrowed: false, blew: null, target: centre(t).x };
+    V.fireAt('drill', pt, { ground: true, sigma: 0.35 });
+    const p = V.g.projectiles.find((q) => q.ammo.id === 'drill');
+    let land = null, blew = null, burrowed = false;
+    const ex = V.g.explode.bind(V.g);
+    V.g.explode = (x, y, r, d, op) => { if (!blew) blew = { x, y, r, d }; return ex(x, y, r, d, op); };
+    V.step(12, () => { if (p.burrow && !land) { land = p.x; burrowed = true; } return p.dead; });
+    V.g.explode = ex;
+    return { aimX: pt.x, land, burrowed, blew, target: centre(t).x };
+  };
+
+  /** infantry: a file of four men walking in; one round at them; kills */
+  V.infantryTrial = (o) => {
+    const g = V.load(o.level, { seed: o.seed });
+    const cx = g.level.cannonX;
+    for (let i = 0; i < 4; i++) g.spawnSoldier(cx + 34 + i * 2.2, Math.random() < (o.shields ?? 0));
+    for (const s of g.soldiers) s.stopX = cx + 14;
+    V.step(1.5);
+    const live = g.soldiers.filter((s) => !s.dead);
+    const mid = (live[0].x + live[live.length - 1].x) / 2;
+    // lead: they walk 1.6 m/s toward the gun
+    const a = V.cfg.AMMO_BY_ID[o.id];
+    let tx = mid;
+    for (let k = 0; k < 3; k++) {
+      const sol = V.solve(a, { x: tx, y: g.groundY(tx) + (o.id === 'canister' || o.id === 'shell' ? 0.9 : 0.15) });
+      tx = mid - 1.6 * (sol ? sol.t : 0.8);
+    }
+    const aimY = g.groundY(tx) + (o.id === 'canister' || o.id === 'shell' ? 0.9 : 0.15);
+    V.fireAt(o.id, { x: tx, y: aimY }, { sigma: 0.35, ground: o.id !== 'canister' && o.id !== 'shell' });
+    V.settle(6, 0.5);
+    return { kills: g.soldiers.filter((s) => s.dead).length, n: 4, shields: g.soldiers.filter((s) => s.shield > 0 || s.rig.shieldDropped).length };
+  };
+
+  /** aircraft: launch one unit from a mast, fire up to 8 rounds with lead until it is down */
+  V.airTrial = (o) => {
+    const g = V.load(o.level, { seed: o.seed, });
+    const mast = g.blocks.find((b) => b.target === 'mast' && !b.dead);
+    g.air.launch(o.kind, mast);
+    const u = g.air.units[0];
+    V.step(o.kind === 'gyro' ? 3 : 6);
+    const a = V.cfg.AMMO_BY_ID[o.id];
+    let shots = 0;
+    for (; shots < 8 && !u.down; shots++) {
+      // lead the target by the flight time (iterate)
+      let px = u.x, py = u.y, sol = null;
+      for (let k = 0; k < 4; k++) {
+        sol = V.solve(a, { x: px, y: py });
+        if (!sol) break;
+        px = u.x + u.vx * sol.t; py = u.y + u.vy * sol.t;
+      }
+      if (!sol) break;
+      V.fireAt(o.id, { x: px, y: py }, { sigma: 0.6, flakFuse: sol.t + 0.4, airburst: Math.max(0.2, sol.t - 0.25) });
+      V.step(1.0);
+      if (u.down) { shots++; break; }
+    }
+    V.step(1);
+    return { down: u.down, shots: u.down ? shots : 8 };
+  };
+
+  /** counter-battery: 90 s of live enemy artillery; smoke every 15 s, or nothing */
+  V.smokeTrial = (o) => {
+    const g = V.load(o.level, { seed: o.seed });
+    V.live = { art: true };
+    g.artT = 4;
+    const hp0 = g.cannonHp;
+    let smokes = 0;
+    for (let t = 0; t < 90; t += 0.5) {
+      if (o.smoke && t >= (o.lead ?? 0) && smokes * 15 <= t - (o.lead ?? 0) && g.enemyBlind <= 0.5) {
+        const pt = { x: g.level.cannonX + 25, y: g.groundY(g.level.cannonX + 25) };
+        V.fireAt('smoke', pt, { ground: true });
+        smokes++;
+      }
+      V.step(0.5);
+    }
+    return { dmg: hp0 - g.cannonHp, shots: g.artilleryShots, smokes };
+  };
+
+  /** drone: one scout drone over the fortress centre (or o.x); rooms uncovered */
+  V.droneTrial = (o) => {
+    const g = V.load(o.level, { seed: o.seed, stats: o.stats });
+    const rooms = g.garrison.rooms.list;
+    const hid = rooms.filter((r) => r.hidden);
+    const objHid = hid.filter((r) => r.target && g.level.objectives.includes(r.target.target));
+    const fb = g.fortressBounds;
+    g.droneTarget = { x: o.x ?? (fb.x0 + fb.x1) / 2, y: fb.y1 + 6 };
+    g.selected = 'drone'; g.reload = 0; g.fire();
+    V.settle(20, 0.2);
+    const still = rooms.filter((r) => r.hidden);
+    return { hidden: hid.length, found: hid.length - still.length, objHidden: objHid.length, objFound: objHid.filter((r) => !r.hidden).length, rooms: rooms.length, x0: fb.x0, x1: fb.x1 };
+  };
+
+  /** how many HE rounds (aimed at the room centre) break open hidden room k */
+  V.breachTrial = (o) => {
+    const g = V.load(o.level, { seed: o.seed });
+    const hid = g.garrison.rooms.list.filter((r) => r.hidden);
+    const r = hid[o.k % hid.length];
+    if (!r) return null;
+    const pt = { x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2 };
+    let n = 0;
+    for (; n < 8 && r.hidden; n++) { V.fireAt(o.id || 'he', pt, { sigma: 0.35 }); V.settle(8, 0.5); }
+    return { rounds: r.hidden ? 9 : n, obj: !!(r.target && g.level.objectives.includes(r.target.target)), hidden: hid.length };
+  };
+
+  /** penetrator behaviour on a thick lab bunker: where does it stop, what dies */
+  V.penLab = (o) => {
+    const S = window.siege;
+    Math.random = mulberry(o.seed || 7);
+    const W = o.wall;
+    const blocks = [
+      { x: 30, y: 0, w: W, h: 3.2, mat: o.mat || 'concrete' },
+      { x: 30 + W, y: 0, w: 2.4, h: 1.4, mat: 'wood', target: 'command' },
+      { x: 32.4 + W, y: 0, w: 1, h: 3.2, mat: o.mat || 'concrete' },
+      { x: 30, y: 3.2, w: W + 3.4, h: 1, mat: o.mat || 'concrete' },
+    ];
+    const lvl = { id: 'lab', name: 'Lab', brief: '', intel: [], budget: 1, wind: [0, 0], parTime: 60, ground: [[-80, 0], [400, 0]], cannonX: 0,
+      blocks: [...blocks, { x: 390, y: 0, w: 1, h: 1, mat: 'rock', target: 'command' }], houses: [], objectives: ['command'], stars: [1, 2, 3], collateralMult: 1 };
+    S.level = lvl;
+    const g = S.game;
+    g.stats = Object.assign(V.prog.baseStats(), o.stats || {});
+    g.load(lvl);
+    const inv = {}; for (const a of V.cfg.SHOP_AMMO()) inv[a.id] = 99;
+    V.hud.startBattle(inv, 0, 999999); S.mode = 'map'; g.wind = 0;
+    V.g = g; V.live = {}; V.off();
+    const a = V.cfg.AMMO_BY_ID[o.id];
+    let blew = null;
+    const ex = g.explode.bind(g);
+    g.explode = (x, y, r, d, op) => { if (!blew) blew = { x, y }; return ex(x, y, r, d, op); };
+    const sp = 30 * (a.speed || 1);
+    g.spawnProjectile(a, 26, 1.0, sp, 0, false);
+    V.step(3);
+    g.explode = ex;
+    const b = g.blocks;
+    return { wallDead: b[0].dead, wallFrac: b[0].dead ? 1 : 1 - b[0].hp / b[0].maxHp, tgtDead: b[1].dead, tgtFrac: b[1].dead ? 1 : 1 - b[1].hp / b[1].maxHp, blewX: blew && +blew.x.toFixed(2), wallHp: Math.round(b[0].maxHp) };
+  };
+}
+
+// ───────────────────────── runner ─────────────────────────
+const SECTIONS = (process.argv[2] && process.argv[2] !== 'all' ? process.argv[2] : 'struct,infantry,air,smoke,drone,pen').split(',');
+const TRIALS = +(process.argv[3] || 3);
+const BASE = process.env.BASE || 'http://127.0.0.1:5193';
+
+const STRUCT_ROUNDS_ALL = ['shell', 'he', 'heavy', 'ap', 'incendiary', 'bunker', 'cluster', 'delayed', 'sticky', 'drill', 'saboteur', 'airstrike', 'canister', 'flak'];
+const STRUCT_ROUNDS = process.env.ONLY ? process.env.ONLY.split(',') : STRUCT_ROUNDS_ALL;
+const STRUCT_LEVELS_ALL = [
+  ['millford', 'early timber stockade'],
+  ['redhill', 'mid stone castle (Kurogane)'],
+  ['greywater', 'concrete/steel/earth battery'],
+  ['kestrel', 'grand castle, hidden rooms'],
+];
+const STRUCT_LEVELS = process.env.LEVELS ? STRUCT_LEVELS_ALL.filter(([l]) => process.env.LEVELS.split(',').includes(l)) : STRUCT_LEVELS_ALL;
+
+async function pool(n) {
+  const browser = await chromium.launch();
+  const pages = [];
+  for (let i = 0; i < n; i++) {
+    const ctx = await browser.newContext({ viewport: { width: 640, height: 400 } });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
+    await page.goto(BASE + '/?dev');
+    await page.waitForFunction(() => window.siege && window.siege.game, null, { timeout: 120000 });
+    await page.evaluate(`(${installValue.toString()})()`);
+    await page.evaluate(() => window.__val.init());
+    pages.push(page);
+  }
+  return { browser, pages };
+}
+
+async function runAll(pages, jobs) {
+  const out = new Array(jobs.length);
+  let next = 0, done = 0;
+  await Promise.all(pages.map(async (page) => {
+    while (next < jobs.length) {
+      const i = next++;
+      const j = jobs[i];
+      try { out[i] = { ...j, r: await page.evaluate(([fn, arg]) => window.__val[fn](arg), [j.fn, j.arg]) }; }
+      catch (e) { out[i] = { ...j, r: null, err: String(e.message || e).split('\n')[0] }; console.log('ERR', j.fn, JSON.stringify(j.arg), out[i].err); }
+      if (++done % 20 === 0) process.stderr.write(`  ${done}/${jobs.length}\n`);
+    }
+  }));
+  return out;
+}
+
+const mean = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2));
+
+(async () => {
+  const t0 = Date.now();
+  const { browser, pages } = await pool(+(process.env.PAGES || 3));
+  const cfg = await pages[0].evaluate(() => window.__val.cfg.SHOP_AMMO().map((a) => ({ id: a.id, price: a.price })));
+  const price = Object.fromEntries(cfg.map((a) => [a.id, a.price]));
+  const report = { price };
+  console.log('prices:', JSON.stringify(price));
+
+  if (SECTIONS.includes('struct')) {
+    const jobs = [];
+    for (const [lv] of STRUCT_LEVELS) for (const id of STRUCT_ROUNDS) for (let s = 1; s <= TRIALS; s++) jobs.push({ fn: 'structTrial', arg: { level: lv, id, seed: s, budget: 540 }, lv, id });
+    const res = await runAll(pages, jobs);
+    report.struct = {};
+    for (const [lv, desc] of STRUCT_LEVELS) {
+      console.log(`\n## Structure: ${lv} (${desc}), ~540 cr per trial, ${TRIALS} trials, aimed at the nearest live objective`);
+      const rows = {};
+      for (const id of STRUCT_ROUNDS) {
+        const rs = res.filter((x) => x.lv === lv && x.id === id && x.r).map((x) => x.r);
+        if (!rs.length) continue;
+        const per = (k) => mean(rs.map((r) => (r[k] / Math.max(1, r.spent)) * 100));
+        const row = {
+          price: price[id], fired: mean(rs.map((r) => r.fired)), hp: per('hp'), obj: per('objFrac') * 100, kills: per('objKills') * 10, gar: per('garrison'), rooms: per('uncovered'),
+          hit: mean(rs.map((r) => r.hitTarget / Math.max(1, r.fired))), won: rs.filter((r) => r.won).length,
+          notes: `won ${rs.filter((r) => r.won).length}/${rs.length}` + (id === 'bunker' ? ` embed ${mean(rs.map((r) => r.embed)).toFixed(1)}` : '') + (mean(rs.map((r) => r.ricochet)) ? ` ricochets ${mean(rs.map((r) => r.ricochet)).toFixed(1)}` : '') + (mean(rs.map((r) => r.fallback || 0)) ? ` out-of-reach ${mean(rs.map((r) => r.fallback || 0)).toFixed(1)}` : '') + (id === 'drill' ? ` burrowed ${mean(rs.map((r) => r.burrow)).toFixed(1)}/${mean(rs.map((r) => r.fired)).toFixed(1)}` : ''),
+        };
+        rows[id] = row;
+      }
+      // ratios to the better baseline (round shot or HE); "score" charges each round 3 pts per credit plus 1.6 s of reload at 60 pts/s
+      const sc = (id, v) => (v * price[id] / 100) / (3 * price[id] + 96);
+      const bObj = Math.max(rows.shell?.obj ?? 0, rows.he?.obj ?? 0), bHp = Math.max(rows.shell?.hp ?? 0, rows.he?.hp ?? 0);
+      const bSc = Math.max(rows.shell ? sc('shell', rows.shell.obj) : 0, rows.he ? sc('he', rows.he.obj) : 0);
+      console.log('| round | price | fired | HP removed /100cr | obj HP% /100cr | obj kills /1000cr | garrison /100cr | rooms opened /100cr | HP vs base | obj vs base | obj/score-cost vs base | hit 1st | notes |');
+      console.log('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+      for (const [id, row] of Object.entries(rows)) {
+        row.hpVs = bHp ? row.hp / bHp : 0; row.objVs = bObj ? row.obj / bObj : 0; row.scVs = bSc ? sc(id, row.obj) / bSc : 0;
+        console.log(`| ${id} | ${row.price} | ${row.fired.toFixed(1)} | ${f1(row.hp)} | ${f1(row.obj)} | ${f1(row.kills)} | ${f1(row.gar)} | ${f1(row.rooms)} | ${row.hpVs.toFixed(2)} | ${row.objVs.toFixed(2)} | ${row.scVs.toFixed(2)} | ${(row.hit * 100).toFixed(0)}% | ${row.notes} |`);
+      }
+      report.struct[lv] = rows;
+    }
+  }
+
+  if (SECTIONS.includes('pen')) {
+    console.log('\n## Penetrators on a lab casemate (wall W m thick, 3.2 m high, gun room behind), flat shot at 30 m/s × round speed');
+    console.log('| round | wall | wall HP | wall destroyed | wall dmg | target inside | burst x (wall face at 30) |');
+    console.log('|---|---|---|---|---|---|---|');
+    const jobs = [];
+    for (const id of ['he', 'ap', 'bunker', 'heavy']) for (const [mat, W] of [['concrete', 1], ['concrete', 2], ['concrete', 3], ['stone', 2], ['earth', 3]]) jobs.push({ fn: 'penLab', arg: { id, wall: W, mat, seed: 3 }, id, W, mat });
+    const res = await runAll(pages, jobs);
+    report.pen = res.map((x) => ({ id: x.id, mat: x.mat, W: x.W, ...x.r }));
+    for (const x of res) if (x.r) console.log(`| ${x.id} | ${x.W} m ${x.mat} | ${x.r.wallHp} | ${x.r.wallDead} | ${(x.r.wallFrac * 100).toFixed(0)}% | ${x.r.tgtDead ? 'destroyed' : (x.r.tgtFrac * 100).toFixed(0) + '%'} | ${x.r.blewX} |`);
+    const dj = [];
+    for (const [lv] of STRUCT_LEVELS) for (let s = 1; s <= TRIALS; s++) dj.push({ fn: 'drillProbe', arg: { level: lv, seed: s }, lv });
+    const dr = await runAll(pages, dj);
+    console.log('\n## Drill shots on campaign levels (aimed at open ground just short of the objective)');
+    console.log('| level | aim x | landed (burrowed) | blew at | objective x |');
+    console.log('|---|---|---|---|---|');
+    report.drill = dr.map((x) => ({ lv: x.lv, ...x.r }));
+    for (const x of dr) if (x.r) console.log(`| ${x.lv} | ${x.r.aimX.toFixed(1)} | ${x.r.burrowed ? x.r.land.toFixed(1) : 'no (hit a block)'} | ${x.r.blew ? x.r.blew.x.toFixed(1) + ',' + x.r.blew.y.toFixed(1) + ' r' + x.r.blew.r : '-'} | ${x.r.target.toFixed(1)} |`);
+  }
+
+  if (SECTIONS.includes('infantry')) {
+    const jobs = [];
+    const lvls = [['redhill', 0], ['greywater', 0.25]];
+    for (const [lv, sh] of lvls) for (const id of ['canister', 'shell', 'he', 'cluster', 'flak', 'incendiary']) for (let s = 1; s <= TRIALS * 3; s++) jobs.push({ fn: 'infantryTrial', arg: { level: lv, id, seed: s, shields: sh }, lv, id });
+    const res = await runAll(pages, jobs);
+    report.infantry = {};
+    console.log('\n## Infantry: a file of 4 men walking in; one aimed round; kills');
+    console.log('| level | round | price | kills/round | kills per 100 cr |');
+    console.log('|---|---|---|---|---|');
+    for (const [lv] of lvls) {
+      report.infantry[lv] = {};
+      for (const id of ['canister', 'shell', 'he', 'cluster', 'flak', 'incendiary']) {
+        const rs = res.filter((x) => x.lv === lv && x.id === id && x.r).map((x) => x.r);
+        const k = mean(rs.map((r) => r.kills));
+        report.infantry[lv][id] = { kills: k, per100: (k / price[id]) * 100 };
+        console.log(`| ${lv} | ${id} | ${price[id]} | ${k.toFixed(2)} | ${((k / price[id]) * 100).toFixed(2)} |`);
+      }
+    }
+  }
+
+  if (SECTIONS.includes('air')) {
+    const jobs = [];
+    const ids = ['flak', 'he', 'shell', 'canister', 'cluster'];
+    for (const kind of ['gyro', 'airship']) for (const id of ids) for (let s = 1; s <= TRIALS * 2; s++) jobs.push({ fn: 'airTrial', arg: { level: 'thronefall', kind, id, seed: s }, kind, id });
+    const res = await runAll(pages, jobs);
+    report.air = {};
+    console.log('\n## Aircraft (Zoo Flak Tower mast): rounds until one aircraft is down (8 max, led aim, 0.6 m error)');
+    console.log('| aircraft | round | price | downed | mean rounds | kills per 1000 cr |');
+    console.log('|---|---|---|---|---|---|');
+    for (const kind of ['gyro', 'airship']) {
+      report.air[kind] = {};
+      for (const id of ids) {
+        const rs = res.filter((x) => x.kind === kind && x.id === id && x.r).map((x) => x.r);
+        const downs = rs.filter((r) => r.down).length;
+        const shots = rs.reduce((s, r) => s + r.shots, 0);
+        const per = (downs / Math.max(1, shots * price[id])) * 1000;
+        report.air[kind][id] = { downs, n: rs.length, shots: shots / rs.length, per1000: per };
+        console.log(`| ${kind} | ${id} | ${price[id]} | ${downs}/${rs.length} | ${(shots / rs.length).toFixed(1)} | ${per.toFixed(2)} |`);
+      }
+    }
+  }
+
+  if (SECTIONS.includes('smoke')) {
+    const jobs = [];
+    for (const lv of ['bastion', 'greywater']) for (const smoke of [false, true]) for (let s = 1; s <= TRIALS; s++) jobs.push({ fn: 'smokeTrial', arg: { level: lv, smoke, seed: s }, lv, smoke });
+    const res = await runAll(pages, jobs);
+    report.smoke = {};
+    console.log('\n## Smoke: 90 s under live counter-battery fire (no return fire)');
+    console.log('| level | smoke | smoke rounds | enemy shots | gun damage |');
+    console.log('|---|---|---|---|---|');
+    for (const lv of ['bastion', 'greywater']) {
+      report.smoke[lv] = {};
+      for (const smoke of [false, true]) {
+        const rs = res.filter((x) => x.lv === lv && x.smoke === smoke && x.r).map((x) => x.r);
+        const row = { smokes: mean(rs.map((r) => r.smokes)), shots: mean(rs.map((r) => r.shots)), dmg: mean(rs.map((r) => r.dmg)) };
+        report.smoke[lv][smoke ? 'smoke' : 'none'] = row;
+        console.log(`| ${lv} | ${smoke} | ${row.smokes.toFixed(1)} | ${row.shots.toFixed(1)} | ${row.dmg.toFixed(1)} |`);
+      }
+    }
+  }
+
+  if (SECTIONS.includes('drone')) {
+    const lvls = ['redhill', 'thronefall', 'kestrel', 'blackcitadel'];
+    const jobs = [];
+    for (const lv of lvls) {
+      jobs.push({ fn: 'droneTrial', arg: { level: lv, seed: 1 }, lv, kind: 'drone' });
+      jobs.push({ fn: 'droneTrial', arg: { level: lv, seed: 1, stats: { droneTime: 8, droneStealth: true } }, lv, kind: 'drone8' });
+      for (let k = 0; k < 6; k++) jobs.push({ fn: 'breachTrial', arg: { level: lv, seed: 1 + k, k: k * 3 + 1 }, lv, kind: 'breach' });
+    }
+    const res = await runAll(pages, jobs);
+    report.drone = {};
+    console.log('\n## Drone vs blasting: hidden rooms');
+    console.log('| level | hidden rooms | hidden objective rooms | 1 drone opens | (long-endurance) | objective rooms opened by 1 drone | HE rounds to breach one hidden room |');
+    console.log('|---|---|---|---|---|---|---|');
+    for (const lv of lvls) {
+      const d = res.find((x) => x.lv === lv && x.kind === 'drone')?.r;
+      const d8 = res.find((x) => x.lv === lv && x.kind === 'drone8')?.r;
+      const br = res.filter((x) => x.lv === lv && x.kind === 'breach' && x.r).map((x) => x.r);
+      const rounds = mean(br.map((b) => b.rounds));
+      report.drone[lv] = { d, d8, breach: rounds };
+      if (d) console.log(`| ${lv} | ${d.hidden} | ${d.objHidden} | ${d.found} | ${d8 ? d8.found : '-'} | ${d.objFound}/${d.objHidden} | ${rounds.toFixed(2)} |`);
+    }
+  }
+
+  if (process.env.VALUE_JSON) require('fs').writeFileSync(process.env.VALUE_JSON, JSON.stringify(report, null, 1));
+  console.log(`\n(done in ${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+  await browser.close();
+})();
