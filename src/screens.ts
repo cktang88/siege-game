@@ -1,6 +1,6 @@
 import { AMMO_BY_ID, MATERIALS, SHOP_AMMO, type AmmoId } from './config';
 import { CAMPAIGN, NODE_BY_ID, devCatalog, generateCastle, nodeState } from './campaign';
-import { startBattle, targetName } from './hud';
+import { clearLabels, hideTooltip, startBattle, targetName } from './hud';
 import type { LevelDef } from './levels';
 import { BRANCHES, TECH, TECH_BY_ID, availableAmmo, canRefund, canResearch, computeStats, dependents, hasTech, missionReward, refund, research, salvageReward, writeSave, type Branch, type Reward } from './progress';
 import { $, S, icon } from './state';
@@ -9,7 +9,14 @@ import { settingsSheets, wireSettings } from './settingsui';
 
 const screen = () => $('#screen');
 const totalStars = () => Object.values(S.save.stars).reduce((a, b) => a + b, 0);
-const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
+/** off the battlefield: the HUD, the target labels of the last battle and the block inspector go */
+function offField() {
+  $('#hud').classList.add('hidden');
+  clearLabels();
+  hideTooltip();
+}
 
 function topbar(active: 'map' | 'tech' | 'armory' | 'settings' | 'picker') {
   return `<div class="topbar">
@@ -45,8 +52,7 @@ function setBattleView(level: LevelDef) {
 // ───────────────────────── Operations map ─────────────────────────
 export function showMap() {
   S.mode = 'map';
-  $('#hud').classList.add('hidden');
-  $('#labels').innerHTML = '';
+  offField();
   const stars = S.save.stars;
   const dev = S.save.dev;
   const lines = CAMPAIGN.flatMap((n) => n.from.map((f) => {
@@ -128,7 +134,7 @@ const techIcon = (n: { id: string; branch: Branch; unlocks?: AmmoId[] }) => {
 export function showTech() {
   const prevScroll = S.mode === 'tech' ? screen().querySelector('.techscreen')?.scrollTop ?? 0 : 0;
   S.mode = 'tech';
-  $('#hud').classList.add('hidden');
+  offField();
   const branches = Object.keys(BRANCHES) as Branch[];
   const col = (b: Branch) => {
     const nodes = TECH.filter((t) => t.branch === b);
@@ -192,7 +198,7 @@ const cartCost = () => (Object.keys(S.cart) as AmmoId[]).reduce((s, k) => s + (S
 export function showArmory(level: LevelDef, keepCart = false) {
   S.mode = 'armory';
   setBattleView(level);
-  $('#hud').classList.add('hidden');
+  offField();
   S.survey = false;
   if (!keepCart) S.cart = {};
   // a kept cart (retry) may hold rounds whose research was refunded, or cost more than the budget now allows
@@ -403,7 +409,7 @@ export function showResult(win: boolean, reason: string) {
 export function showSettings() {
   const prevScroll = S.mode === 'settings' ? screen().querySelector('.settingsscreen')?.scrollTop ?? 0 : 0;
   S.mode = 'settings';
-  $('#hud').classList.add('hidden');
+  offField();
   screen().innerHTML = `<div class="settingsscreen">${topbar('settings')}
     <div class="setbar"><span class="stencil">Standing orders</span><span class="mono">Changes take effect at once and are kept in this browser.</span></div>
     ${settingsSheets(false)}
@@ -420,7 +426,7 @@ const gen = { kind: 'fort' as 'fort' | 'grand', seed: 1234, difficulty: 3, theme
 export function showPicker() {
   if (!S.save.dev) { showMap(); return; }
   S.mode = 'picker';
-  $('#hud').classList.add('hidden');
+  offField();
   const scroll = screen().querySelector('.picker .castles')?.scrollTop ?? 0;
   const groups = devCatalog();
   const lv = picked ?? S.level;
