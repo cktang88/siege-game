@@ -200,7 +200,9 @@ export function showArmory(level: LevelDef, keepCart = false) {
   setBattleView(level);
   offField();
   S.survey = false;
-  if (!keepCart) S.cart = {};
+  // the cart stays while you browse (map, research, survey) and come back to the same operation
+  if (!keepCart && S.cartFor !== level.id) S.cart = {};
+  S.cartFor = level.id;
   // a kept cart (retry) may hold rounds whose research was refunded, or cost more than the budget now allows
   const owned = new Set(availableAmmo(S.save));
   for (const id of Object.keys(S.cart) as AmmoId[]) if (!owned.has(id)) delete S.cart[id];
