@@ -237,7 +237,7 @@ export class Crew {
     const p = sc?.plan;
     e.path = [];
     let tgt: { scaf: boolean; x: number; h: number };
-    if (to === 'pile' || to === 'foot') tgt = { scaf: false, x: p!.pileX + (to === 'foot' ? (p!.pileX < p!.ladderX ? 0.55 : -0.55) : 0) + (Math.random() - 0.5) * 0.3, h: 0 };
+    if (to === 'pile' || to === 'foot') tgt = { scaf: false, x: p!.pileX + (to === 'foot' ? (p!.pileX < p!.ladderX ? 0.55 : -0.55) : 0) + (Math.random() - 0.5) * (to === 'foot' ? 0.9 : 0.3), h: 0 };
     else if ('station' in to) { const st = p!.stations[to.station]; tgt = { scaf: true, x: st.spots[to.spot].x, h: st.h }; }
     else tgt = { scaf: false, x: to.x, h: 0 };
     // off the scaffold first, by its ladder
@@ -272,6 +272,12 @@ export class Crew {
         return;
       }
       if (e.station < 0) this.assign(e);
+      if (e.station === -2) {
+        // no room at the face: he mixes mortar and stacks material at the foot
+        if (atFoot) { e.mode = 'build'; e.path = []; e.goal = 'none'; e.t = 3 + Math.random() * 2; e.face = sc.wx(sc.plan.pileX) < e.s.x ? -1 : 1; }
+        else this.go(e, 'foot', 'foot');
+        return;
+      }
       if (!e.carrying) {
         const atPile = e.on !== 'scaf' && Math.abs(e.s.x - sc.wx(sc.plan.pileX)) < 0.45;
         if (atPile) { e.mode = 'pick'; e.t = 0.7; e.path = []; e.face = sc.wx(sc.plan.pileX) < e.s.x ? -1 : 1; }
@@ -291,7 +297,7 @@ export class Crew {
     for (let sp = 0; sp < 3; sp++) for (let i = 0; i < st.length; i++) {
       if (sp < st[i].spots.length && !used.has(`${i}|${sp}`)) { e.station = i; e.spot = sp; return; }
     }
-    e.station = 0; e.spot = st[0].spots.length - 1;
+    e.station = -2; e.spot = -1;
   }
 
   private arrive(e: Eng) {
@@ -503,7 +509,11 @@ export class Crew {
         if (e.t <= 0) { e.carrying = true; e.mode = 'idle'; e.t = 0; this.rethink(e); }
       } else if (e.mode === 'build') {
         const want = this.scaf && this.scaf.standing && (this.scaf.state !== 'up' || !this.job);
-        if (!want) this.rethink(e);
+        // a labourer at the mortar tub looks for a free place at the face now and then
+        if (!want && e.station === -2 && this.scaf && this.scaf.standing && this.job) {
+          e.t -= dt;
+          if (e.t <= 0) { e.t = 3; e.station = -1; this.assign(e); if (e.station !== -2) this.rethink(e); }
+        } else if (!want) this.rethink(e);
       } else {
         e.t -= dt;
         if (e.t <= 0) { e.t = 0.6; this.rethink(e); }

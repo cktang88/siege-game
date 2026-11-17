@@ -486,7 +486,7 @@ export function planScaffold(g: Game, b: Block, era: Era): ScaffoldPlan {
     // the man stands ~0.5 m off the face at hand height (a hammer blow reaches it), mates further out
     const stations: Station[] = st.map((h) => {
       const wall = faceX(partial, base + h + 1.1);
-      return { h, spots: [{ x: wall + side * 0.48, face: -side }, { x: wall + side * 1.12, face: -side }, { x: wall + side * 0.8, face: -side }] };
+      return { h, spots: [{ x: wall + side * 0.48, face: -side }, { x: wall + side * 1.12, face: -side }] };
     });
     const outer = side < 0 ? x0 : x1;
     const ladderX = outer - side * 0.05;
@@ -502,6 +502,6 @@ export function planScaffold(g: Game, b: Block, era: Era): ScaffoldPlan {
     for (let i = 0; i < n; i++) { const x = t.x + (i % 2 ? 1 : -1) * (0.35 + Math.floor(i / 2) * 0.45) * Math.max(0.8, Math.min(1, b.w / 1.4)); out.push({ x, face: x < t.x ? 1 : -1 }); }
     return out;
   };
-  const stations: Station[] = st.map((h) => ({ h, spots: spots(3) }));
+  const stations: Station[] = st.map((h) => ({ h, spots: spots(b.w > 2.4 ? 3 : 2) }));
   return { layout: 'front', side: 0, x0, x1, base, height, stations, ladderX: x0 - 0.2, pileX: x0 - 0.95, wall: 1, faces: [] };
 }
