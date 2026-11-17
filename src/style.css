@@ -350,3 +350,105 @@ button { font: inherit; color: inherit; }
 #aimtip i { color: #9fb0c8; font-style: normal; margin-left: 4px; }
 #aimtip .bar { display: block; height: 3px; margin-top: 3px; background: rgba(255, 255, 255, 0.12); }
 #aimtip .bar span { display: block; height: 100%; background: linear-gradient(90deg, #c9a24a, #ff5a1f); }
+
+/* ── UI scale (settings): the plates and screens zoom; world-anchored labels and floaters do not ── */
+#screen > *, #hud-left, #hud-right, #rack, #fcp, #minimap, #coach, #toasts, #help, #devpanel, #pause .pausebox, #tooltip, #aimtip { zoom: var(--ui-zoom, 1); }
+
+/* ── settings ─────────────────────────────────────────── */
+.settingsscreen { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 0%, #2a3038, #121418 70%); overflow: auto; }
+.setbar { margin: 70px 16px 8px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.setbar .stencil { font-size: 26px; }
+.setbar .mono { color: var(--bone-dim); font-size: 12px; }
+.sheets { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 10px; margin: 0 16px 16px; align-items: start; }
+.sheet-s { padding: 12px 18px 12px 14px; }
+.sheet-s header { display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 6px; margin-bottom: 4px; }
+.sheet-s header .stencil { font-size: 21px; }
+.sheet-s header small { font: 11px var(--mono); color: var(--bone-dim); text-transform: uppercase; letter-spacing: 0.14em; }
+.sheet-s.dev { border-left: 4px solid var(--signal); }
+.srow { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 14px; align-items: center; padding: 7px 0; border-bottom: 1px dashed rgba(255, 255, 255, 0.06); }
+.srow:last-of-type { border-bottom: 0; }
+.srow .sl b { display: block; font: 700 15px/1.1 var(--ui); letter-spacing: 0.05em; text-transform: uppercase; }
+.srow .sl small { display: block; font: 11.5px/1.35 var(--mono); color: var(--bone-dim); margin-top: 2px; }
+.srow .sc { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.srow .sc input[type=range] { flex: 1; min-width: 0; accent-color: var(--signal); }
+.srow .sc .readout { min-width: 66px; text-align: right; font-size: 13px; }
+.srow .sc .seg { flex: 1; }
+.srow.dim { opacity: 0.4; }
+.srow.foot { grid-template-columns: 1fr; justify-items: end; }
+.snote { font: 11.5px/1.45 var(--mono); color: var(--bone-dim); margin: 6px 0 2px; }
+.snote b { color: var(--amber); }
+.switch { min-width: 96px; background: var(--gun-2); border: 0; color: var(--bone-dim); font: 700 12px var(--ui); letter-spacing: 0.12em; text-transform: uppercase; padding: 7px 10px 6px; cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px)); }
+.switch::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 7px; background: #555; vertical-align: 1px; }
+.switch.on { background: rgba(255, 90, 31, 0.2); color: var(--amber); box-shadow: inset 0 0 0 1px rgba(255, 90, 31, 0.55); }
+.switch.on::before { background: var(--signal); box-shadow: 0 0 6px var(--signal); }
+.btn.danger { background: #7a2a1e; color: var(--bone); }
+.btn.danger.armed, .btn.armed { background: var(--bad); color: #1a1206; animation: critpulse 0.9s ease-in-out infinite; }
+
+/* ── pause menu ─────────────────────────────────────────── */
+#pause { pointer-events: auto; z-index: 30; background: rgba(8, 9, 11, 0.6); }
+.pausebox { width: 340px; padding: 18px 22px 20px; text-align: center; }
+.pausebox h2 { margin: 6px 0 2px; font-size: 28px; }
+.pausebox .mono { color: var(--bone-dim); font-size: 12px; margin: 0 0 14px; }
+.pbtns { display: grid; gap: 8px; }
+.pbtns .btn { width: 100%; font-size: 19px; }
+.pbtns .btn i { font: 11px var(--mono); opacity: 0.6; margin-left: 6px; font-style: normal; }
+.pausebox.wide { width: min(980px, calc(100vw - 40px)); max-height: calc(100vh - 60px); text-align: left; display: flex; flex-direction: column; padding: 14px 14px 10px; }
+.pausebox .phead { display: flex; justify-content: space-between; align-items: center; margin: 0 4px 8px; }
+.pausebox .phead .stencil { font-size: 24px; }
+.pscroll { overflow: auto; min-height: 0; }
+.pscroll .sheets { margin: 0; }
+.pscroll .sheet-s { background: rgba(0, 0, 0, 0.28); clip-path: none; }
+.pscroll .sheet-s::after { display: none; }
+.hbtns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+.hbtns #withdraw { margin: 0; }
+#menu { background: transparent; border: 0; box-shadow: inset 0 0 0 1px rgba(226, 220, 203, 0.22); color: var(--bone-dim); font: 700 10px var(--ui); letter-spacing: 0.12em; text-transform: uppercase; padding: 3px 6px 2px; cursor: pointer; }
+#menu:hover { color: var(--bone); box-shadow: inset 0 0 0 1px rgba(226, 220, 203, 0.5); }
+
+/* ── dev sandbox ─────────────────────────────────────────── */
+.devchk { font-size: 12px; display: block; margin-bottom: 8px; }
+.qty.inf b { font-size: 22px; color: var(--amber); }
+.qty.inf .label { margin-left: 6px; color: #e98a74; }
+.devtag { font: 700 10px var(--ui); letter-spacing: 0.14em; color: #9a2a1a; border: 1px solid currentColor; padding: 1px 4px; margin-left: 6px; }
+#devpanel { position: absolute; right: 12px; top: 186px; width: 260px; padding: 9px 12px 10px; border-left: 3px solid var(--signal); }
+#devpanel .head { display: flex; justify-content: space-between; align-items: center; }
+#devpanel .head .stencil { font-size: 15px; color: var(--amber); }
+#devpanel .fold { background: var(--gun-2); border: 0; color: var(--bone); width: 22px; height: 20px; cursor: pointer; font: 700 13px var(--mono); margin-right: 14px; }
+#devpanel.folded .body { display: none; }
+#devpanel .drow { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-top: 6px; }
+#devpanel .drow .seg { flex: 1; }
+#devpanel .drow .btn { flex: 1; font-size: 11px; padding: 6px 6px 5px; }
+#devpanel .spawns { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: 6px; }
+#devpanel .spawns button { display: flex; justify-content: space-between; align-items: baseline; background: rgba(0, 0, 0, 0.35); border: 0; border-left: 3px solid var(--bad); color: var(--bone); padding: 6px 7px 5px; cursor: pointer; text-align: left; }
+#devpanel .spawns button:hover { background: rgba(226, 80, 58, 0.22); }
+#devpanel .spawns button:active { transform: translateY(1px); }
+#devpanel .spawns b { font: 700 12px var(--ui); letter-spacing: 0.06em; text-transform: uppercase; }
+#devpanel .spawns span { font: 700 12px var(--mono); color: var(--amber); }
+#devpanel .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+#devpanel .toggles .switch { min-width: 0; font-size: 10.5px; padding: 6px 6px 5px; text-align: left; }
+#devpanel .foot { font-size: 10.5px; color: var(--bone-dim); margin-top: 6px; }
+
+/* ── dev castle picker ─────────────────────────────────────────── */
+.picker { position: absolute; inset: 0; pointer-events: none; }
+.picker > * { pointer-events: auto; }
+.picker .castles { position: absolute; left: 16px; top: 66px; bottom: 16px; width: 470px; padding: 12px 14px; overflow: auto; }
+.picker .phead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.picker .phead .stencil { font-size: 22px; }
+.pgroup { margin-top: 10px; }
+.pgroup > .label i { font: 10.5px var(--mono); letter-spacing: 0; text-transform: none; opacity: 0.8; margin-left: 4px; font-style: normal; }
+.pgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: 5px; }
+.castle { text-align: left; background: rgba(0, 0, 0, 0.32); border: 0; border-left: 3px solid var(--gun-3); color: var(--bone); padding: 6px 8px 5px; cursor: pointer; min-width: 0; }
+.castle b { display: block; font: 700 13px/1.1 var(--ui); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.castle span { font: 10.5px var(--mono); color: var(--bone-dim); }
+.castle:hover { background: rgba(255, 90, 31, 0.14); }
+.castle.on { border-left-color: var(--signal); background: rgba(255, 90, 31, 0.22); }
+.pickcard { position: absolute; right: 16px; bottom: 16px; width: 330px; padding: 18px 20px; }
+.pickcard h2 { margin: 4px 0 4px; font: 800 26px/1 var(--stencil); text-transform: uppercase; letter-spacing: 0.04em; }
+.pickcard p { font-size: 12px; margin: 0 0 12px; }
+.genform { display: grid; grid-template-columns: 78px 1fr; gap: 6px 10px; align-items: center; margin-top: 8px; font: 12px var(--mono); }
+.pickcard .seg button { background: rgba(44, 39, 33, 0.12); color: var(--paper-ink); font-size: 11px; }
+.pickcard .seg button.on { background: var(--signal); color: #1a1206; }
+.gin { display: flex; gap: 6px; align-items: center; }
+.gin input { width: 92px; height: 28px; font: 700 14px var(--mono); background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(44, 39, 33, 0.5); color: var(--paper-ink); padding: 0 6px; }
+.gin i { font-style: normal; opacity: 0.7; }
+@media (max-width: 900px) { .picker .castles { right: 16px; width: auto; bottom: 330px; } }

@@ -143,6 +143,12 @@ export function loadSave(): Save {
   try { dev = sessionStorage.getItem(DEV_KEY) === '1'; } catch { /* storage unavailable */ }
   return { funds: s.funds ?? 300, tech: s.tech ?? ['ord_he'], stars: s.stars ?? {}, best: s.best ?? {}, salvage: s.salvage ?? {}, dev };
 }
+/** wipe campaign progress (stars, records, funds, research); the session's dev flag stays as it is */
+export function resetSave(s: Save) {
+  Object.assign(s, { funds: 300, tech: ['ord_he'], stars: {}, best: {}, salvage: {} });
+  writeSave(s);
+}
+
 export function writeSave(s: Save) {
   const { dev, ...persist } = s;
   try { localStorage.setItem(KEY, JSON.stringify(persist)); } catch { /* storage unavailable */ }

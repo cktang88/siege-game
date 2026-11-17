@@ -136,6 +136,10 @@ const RICOCHET: Partial<Record<MatId, number>> = { steel: 0.56, concrete: 0.42, 
 /** projectile colliders: member of group 2, interact with everything except group 2 */
 const PROJ_GROUPS = (0x0002 << 16) | 0xfffd;
 
+export type DevUnit = 'infantry' | 'shield' | 'car' | 'tank' | 'gyro' | 'airship';
+/** most of each unit family the dev panel will keep alive at once (frame time, not physics safety) */
+export const DEV_CAP = { infantry: 300, vehicle: 80, air: 80 };
+
 export class Game {
   world!: RAPIER.World;
   eq!: RAPIER.EventQueue;
@@ -225,6 +229,12 @@ export class Game {
   mastSprites = new Map<Block, THREE.Mesh>();
   backdrops: { mesh: THREE.Mesh; deps: Block[]; home: V2[]; fade: number }[] = [];
   backdropT = 0;
+  /**
+   * Dev sandbox switches (dev mode only; see src/devpanel.ts). `unlimited`: rounds never run out (set per
+   * battle by the dev armory); `freeze`: the enemy's own timers stop (counter-battery, reinforcements,
+   * engineers, air raids, motor pool); `god`: the gun takes no damage; `instantReload`: no reload wait.
+   */
+  dev = { unlimited: false, freeze: false, god: false, instantReload: false };
 
   constructor(r: Renderer) {
     this.r = r;
@@ -458,8 +468,9 @@ export class Game {
   }
 
   // ───────────────────────── Battle control ─────────────────────────
-  start(inventory: Partial<Record<AmmoId, number>>, spent: number, budget = this.level.budget) {
+  start(inventory: Partial<Record<AmmoId, number>>, spent: number, budget = this.level.budget, unlimited = false) {
     this.inventory = { ...inventory };
+    this.dev.unlimited = unlimited;
     this.cannonHp = this.stats.cannonHp;
     this.speed = Math.min(this.speed, this.stats.maxSpeed);
     const fb = this.fortressBounds;
@@ -520,7 +531,7 @@ export class Game {
       this.r.shake = Math.max(this.r.shake, 0.5);
       audio.play('cannon', m.x, a.mode === 'pellets' ? 0.8 : 1, a.id === 'heavy' ? 0.85 : 1);
     }
-    this.inventory[this.selected] = (this.inventory[this.selected] ?? 0) - 1;
+    if (!this.dev.unlimited) this.inventory[this.selected] = (this.inventory[this.selected] ?? 0) - 1;
     this.reload = this.stats.reload;
     this.events.push({ type: 'fired' });
     if ((this.inventory[this.selected] ?? 0) <= 0) {
@@ -1060,7 +1071,7 @@ export class Game {
   }
 
   damageCannon(d: number) {
-    if (d <= 0 || this.ended || this.winT >= 0) return;
+    if (d <= 0 || this.ended || this.winT >= 0 || this.dev.god) return;
     this.cannonHp = Math.max(0, this.cannonHp - d);
     this.gunFlash = 1;
     this.events.push({ type: 'gunhit', dmg: d });
@@ -1416,7 +1427,7 @@ export class Game {
   update(dt: number) {
     this.time += dt;
     if (this.running && !this.ended) this.battleTime += dt;
-    this.reload = Math.max(0, this.reload - dt);
+    this.reload = this.dev.instantReload ? 0 : Math.max(0, this.reload - dt);
     this.enemyBlind = Math.max(0, this.enemyBlind - dt);
 
     // capture pre-step velocities of projectiles
@@ -1735,6 +1746,57 @@ export class Game {
     rig.update(0, x, s.y, 'idle');
     this.root.add(rig.group);
     this.soldiers.push(s);
+  }
+
+  // ───────────────────────── Dev sandbox spawns ─────────────────────────
+  /**
+   * Put `n` enemy units on the field (dev panel). Infantry and vehicles enter at the foot of the fortress
+   * and advance on the gun; aircraft appear over the castle at cruise height. These are sprites, not
+   * physics bodies; only their shells and bombs are. DEV_CAP bounds how many of each family can be alive
+   * at once, a frame-time guard so a held button can't bury the page in rigs and enemy shells.
+   */
+  devSpawn(kind: DevUnit, n: number) {
+    const fb = this.fortressBounds;
+    const front = fb.x0 - 1;
+    const valley0 = this.level.cannonX + 14;
+    let made = 0;
+    for (let i = 0; i < n; i++) {
+      if (kind === 'infantry' || kind === 'shield') {
+        if (this.soldiers.filter((s) => !s.dead).length >= DEV_CAP.infantry) break;
+        this.spawnSoldier(Math.max(valley0, front - (i % 12) * 1.4 - Math.random() * 0.8), kind === 'shield');
+      } else if (kind === 'car' || kind === 'tank') {
+        if (this.motor.alive.length >= DEV_CAP.vehicle) break;
+        const len = kind === 'tank' ? 4.8 : 4.1; // hull lengths from the sprites' aspect
+        const queued = this.motor.alive.length;
+        // queue nose to tail out of the fortress; once the valley is full, anywhere along it
+        let x = fb.x0 - 2 - len / 2 - queued * (len + 1.4);
+        if (x < valley0 + len) x = valley0 + len + Math.random() * Math.max(1, fb.x0 - valley0 - 2 * len);
+        this.motor.launch(kind, null, x);
+      } else {
+        if (this.air.units.filter((u) => !u.down).length >= DEV_CAP.air) break;
+        const alt = kind === 'airship' ? 21 : 13;
+        const x = fb.x0 + 4 + i * (kind === 'airship' ? 10 : 3.5);
+        this.air.launch(kind, null, { x, y: this.groundY(x) + alt + (Math.random() - 0.5) * 3 });
+      }
+      made++;
+    }
+    return made;
+  }
+
+  /** remove every enemy unit from the field (dev panel): infantry fall, vehicles and aircraft are simply taken off */
+  devClearField() {
+    for (const s of this.soldiers) this.killSoldier(s);
+    for (const u of this.motor.units) { u.mesh.parent?.remove(u.mesh); u.bar.parent?.remove(u.bar); }
+    this.motor.units = [];
+    for (const u of this.air.units) { u.mesh.parent?.remove(u.mesh); u.dead = true; }
+    this.air.units = [];
+  }
+
+  /** open every concealed room (dev panel) */
+  devRevealRooms() {
+    let n = 0;
+    for (const r of this.garrison.rooms.list) if (r.hidden) { this.garrison.rooms.uncover(r, 'breach'); n++; }
+    return n;
   }
 
   updateSoldiers(dt: number) {
@@ -2060,7 +2122,7 @@ export class Game {
           gun.rotation.z = -ang + g.body.rotation();
         }
       }
-      this.artT -= dt;
+      if (!this.dev.freeze) this.artT -= dt;
       if (this.artT <= 0) {
         if (this.enemyBlind > 0) {
           // smoke hides the fall of shot: once it clears the gunners have to re-bracket
@@ -2101,7 +2163,7 @@ export class Game {
     // reinforcements
     const bar = this.liveTargets('barracks');
     if (bar.length) {
-      this.barT -= dt;
+      if (!this.dev.freeze) this.barT -= dt;
       if (this.barT <= 0) {
         this.barT = 16;
         // at most 9 infantry in the field, however many barracks there are
@@ -2120,7 +2182,7 @@ export class Game {
     }
     // engineers: one crew, one block at a time, working from the bottom of the work up. They patch
     // cracked blocks still standing in place; anything shattered, burning or knocked loose is beyond them.
-    if (this.liveTargets('workshop').length) this.updateEngineers(dt);
+    if (this.liveTargets('workshop').length && !this.dev.freeze) this.updateEngineers(dt);
     else this.repairing = null;
   }
 

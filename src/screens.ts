@@ -1,20 +1,23 @@
 import { AMMO_BY_ID, MATERIALS, SHOP_AMMO, type AmmoId } from './config';
-import { CAMPAIGN, NODE_BY_ID, devCastles, nodeState } from './campaign';
+import { CAMPAIGN, NODE_BY_ID, devCatalog, generateCastle, nodeState } from './campaign';
 import { startBattle, targetName } from './hud';
 import type { LevelDef } from './levels';
 import { BRANCHES, TECH, TECH_BY_ID, availableAmmo, canRefund, canResearch, computeStats, dependents, hasTech, missionReward, refund, research, salvageReward, writeSave, type Branch, type Reward } from './progress';
 import { $, S, icon } from './state';
 import { audio } from './audio';
+import { settingsSheets, wireSettings } from './settingsui';
 
 const screen = () => $('#screen');
 const totalStars = () => Object.values(S.save.stars).reduce((a, b) => a + b, 0);
 const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 
-function topbar(active: 'map' | 'tech' | 'armory') {
+function topbar(active: 'map' | 'tech' | 'armory' | 'settings' | 'picker') {
   return `<div class="topbar">
     <div class="plate title">Siege</div>
     <button class="btn ${active === 'map' ? '' : 'steel'}" data-go="map">Operations</button>
     <button class="btn ${active === 'tech' ? '' : 'steel'}" data-go="tech">Research</button>
+    ${S.save.dev ? `<button class="btn ${active === 'picker' ? '' : 'steel'}" data-go="picker" title="Dev: pick any castle, or generate one">Castles</button>` : ''}
+    <button class="btn ${active === 'settings' ? '' : 'steel'}" data-go="settings">Settings</button>
     <div class="spacer"></div>
     <div class="plate chip stars"><span class="label">Stars</span><b>★ ${totalStars()}</b></div>
     <div class="plate chip funds"><span class="label">War funds</span><b>${S.save.funds.toLocaleString()}</b></div>
@@ -27,7 +30,9 @@ function wireTopbar(rerender: () => void) {
     const g = b.dataset.go;
     if (g === 'map') showMap();
     else if (g === 'tech') showTech();
-    else if (g === 'dev') { S.save.dev = !S.save.dev; writeSave(S.save); rerender(); }
+    else if (g === 'settings') showSettings();
+    else if (g === 'picker') showPicker();
+    else if (g === 'dev') { S.save.dev = !S.save.dev; writeSave(S.save); if (!S.save.dev && S.mode === 'picker') showMap(); else rerender(); }
   }));
 }
 
@@ -98,17 +103,12 @@ function renderDossier() {
     </div>`;
   html += st === 'locked' || st === 'gated' ? `<p><b>${reason}</b></p>` : `<button class="btn" id="plan" style="width:100%">Plan the assault</button>`;
   if (S.save.dev) {
-    html += `<div class="label" style="margin-top:16px">Dev · every castle</div><div class="devlist">${devCastles().map((l, i) => `<button data-i="${i}">${esc(l.name)} <span style="opacity:.6">(${l.blocks.length} blocks)</span></button>`).join('')}</div>`;
+    html += `<div class="label" style="margin-top:16px">Dev · sandbox</div><p style="margin-top:3px">Every munition unlimited, no budget, nothing saved. Any castle, generated ones included, is in the castle picker.</p><button class="btn ghost small" id="topicker" style="width:100%">Open the castle picker</button>`;
   }
   const d = $('#dossier');
   d.innerHTML = html;
   d.querySelector('#plan')?.addEventListener('click', () => { S.nodeId = n.id; showArmory(lvl); });
-  d.querySelectorAll<HTMLElement>('.devlist button').forEach((b) => b.addEventListener('click', () => {
-    const l = devCastles()[+b.dataset.i!];
-    const node = CAMPAIGN.find((c) => c.level().id === l.id);
-    S.nodeId = node ? node.id : null;
-    showArmory(l);
-  }));
+  d.querySelector('#topicker')?.addEventListener('click', showPicker);
   // preview the castle behind the map
   setBattleView(lvl);
 }
@@ -185,6 +185,8 @@ export function showTech() {
 // ───────────────────────── Armory ─────────────────────────
 const price = (id: AmmoId) => Math.round(AMMO_BY_ID[id].price * (computeStats(S.save).priceMult[id] ?? 1));
 const budget = () => (S.devBudget && S.save.dev ? 99999 : Math.round(S.level.budget * computeStats(S.save).budgetMult));
+/** dev sandbox rack: every munition, unlimited, nothing bought */
+const sandbox = () => S.save.dev && S.devSandbox;
 const cartCost = () => (Object.keys(S.cart) as AmmoId[]).reduce((s, k) => s + (S.cart[k] ?? 0) * price(k), 0);
 
 export function showArmory(level: LevelDef, keepCart = false) {
@@ -237,16 +239,19 @@ function renderArmory() {
       <h2>${esc(lvl.name)}</h2>
       <p>${esc(lvl.brief)}</p>
       <ul style="font:13px/1.45 var(--mono);padding-left:16px">${lvl.intel.map((i) => `<li>${esc(i)}</li>`).join('')}<li>Forecast: ${windTxt}</li></ul>
-      <div class="label" style="margin-top:14px">Funds remaining</div>
+      ${sandbox() ? `<div class="label" style="margin-top:14px">Dev sandbox</div>
+      <div class="budget">∞</div>
+      <p style="font-size:12px;margin:4px 0 14px">Every munition, researched or not, unlimited and free. Nothing from this battle is scored into the campaign.</p>` : `<div class="label" style="margin-top:14px">Funds remaining</div>
       <div class="budget">$${left.toLocaleString()}</div>
-      <p style="font-size:12px;margin:4px 0 14px">Unspent funds and unfired rounds count toward your score.</p>
-      ${S.save.dev ? `<label class="mono" style="font-size:12px;display:block;margin-bottom:10px"><input type="checkbox" id="devb" ${S.devBudget ? 'checked' : ''}> Dev: unlimited budget</label>` : ''}
+      <p style="font-size:12px;margin:4px 0 14px">Unspent funds and unfired rounds count toward your score.</p>`}
+      ${S.save.dev ? `<label class="mono devchk"><input type="checkbox" id="devsand" ${S.devSandbox ? 'checked' : ''}> Dev: sandbox rack (every round ∞)</label>` : ''}
+      ${S.save.dev && !S.devSandbox ? `<label class="mono devchk"><input type="checkbox" id="devb" ${S.devBudget ? 'checked' : ''}> Dev: unlimited budget</label>` : ''}
       <div class="row-btns" style="justify-content:flex-start">
-        <button class="btn" id="deploy" ${cartCost() === 0 ? 'disabled title="Buy at least one round first"' : ''}>Deploy</button>
+        <button class="btn" id="deploy" ${cartCost() === 0 && !sandbox() ? 'disabled title="Buy at least one round first"' : ''}>Deploy</button>
         <button class="btn ghost" id="survey">Survey</button>
         <button class="btn ghost" id="back">Back</button>
       </div>
-      ${cartCost() === 0 ? '<p class="mono nudge">Buy rounds with <b>+</b> on the munitions rack, then deploy.</p>' : ''}
+      ${cartCost() === 0 && !sandbox() ? '<p class="mono nudge">Buy rounds with <b>+</b> on the munitions rack, then deploy.</p>' : ''}
     </div>
     <div class="plate rack">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="stencil" style="font-size:22px">Munitions rack</span><span class="label">Muzzle velocity cap ${st.maxSpeed} m/s · reload ${st.reload}s</span></div>
@@ -254,6 +259,15 @@ function renderArmory() {
         const has = owned.has(a.id);
         const n = S.cart[a.id] ?? 0;
         const p = price(a.id);
+        if (sandbox()) {
+          return `<div class="munition has">
+          <img src="${icon(a.id)}" alt="">
+          <div class="nm">${a.name}<span>free</span></div>
+          <div class="d">${a.desc}</div>
+          <div class="qty inf"><b>∞</b>${has ? '' : '<span class="label">unresearched</span>'}</div>
+          <div class="gb"><span class="g">+ ${a.good}</span> &nbsp; <span class="b">− ${a.bad}</span></div>
+        </div>`;
+        }
         if (!has) {
           const t = lockedBy(a.id);
           return `<div class="munition locked"><img src="${icon(a.id)}" alt=""><div class="nm">${a.name}</div><div class="d">Requires research: ${t ? t.name : '?'} (${t ? BRANCHES[t.branch].name : ''})</div><div></div></div>`;
@@ -291,7 +305,11 @@ function renderArmory() {
     b.addEventListener('click', (e) => { if (e.detail === 0) stepCart(id, d, 1); });
   });
   $('#devb')?.addEventListener('change', (e) => { S.devBudget = (e.target as HTMLInputElement).checked; renderArmory(); });
-  $('#deploy').addEventListener('click', () => startBattle(S.cart, cartCost(), budget()));
+  $('#devsand')?.addEventListener('change', (e) => { S.devSandbox = (e.target as HTMLInputElement).checked; renderArmory(); });
+  $('#deploy').addEventListener('click', () => {
+    if (sandbox()) startBattle(Object.fromEntries(SHOP_AMMO().map((a) => [a.id, 1])), 0, 0, true);
+    else startBattle(S.cart, cartCost(), budget());
+  });
   $('#back').addEventListener('click', showMap);
   $('#survey').addEventListener('click', () => {
     S.survey = true;
@@ -312,7 +330,9 @@ export function showResult(win: boolean, reason: string) {
   let record = false;
   let opened: string[] = [];
   const id = S.nodeId;
-  if (id && !S.save.dev) {
+  // a battle begun in dev mode never touches the save, even if dev mode was switched off during it
+  const dev = S.save.dev || S.devBattle;
+  if (id && !dev) {
     const prev = S.save.stars[id] ?? 0;
     const prevBest = S.save.best[id] ?? 0;
     if (win) {
@@ -337,7 +357,7 @@ export function showResult(win: boolean, reason: string) {
     ['Base', sc.parts.base], ['Time vs. par', sc.parts.time], ['Budget discipline', sc.parts.budget],
     ['Secondary targets', sc.parts.optional], ['Garrison casualties', sc.parts.garrison], ['Gun condition', sc.parts.cannon], ['Collateral', sc.parts.collateral],
   ];
-  const payNote = S.save.dev ? 'Dev mode: nothing is saved and no war funds are paid.'
+  const payNote = dev ? 'Dev battle: no score, stars or war funds go into the campaign.'
     : !id ? '' : earned ? ''
     : win ? 'No new stars or record: replays pay only for improvements.'
     : (S.save.stars[id] ?? 0) > 0 ? 'Failed replays pay nothing.' : 'No salvage: knock out more objectives than last time to earn some.';
@@ -357,7 +377,7 @@ export function showResult(win: boolean, reason: string) {
     if (earned) audio.play('coins', undefined, 1, 1, 400 + stars * 330);
     screen().innerHTML = `<div class="modalwrap"><div class="paper aar">
       <div class="stamp ${win ? 'ok' : ''}">${win ? 'Accomplished' : 'Failed'}</div>
-      <div class="label">After-action report</div>
+      <div class="label">After-action report${dev ? ' <span class="devtag">dev · not scored</span>' : ''}</div>
       <h2>${esc(g.level.name)}</h2>
       <p class="mono" style="font-size:13px">${esc(why)}</p>
       ${win ? `<div class="stars">${[0, 1, 2].map((i) => `<span class="${i < stars ? '' : 'off'}">★</span>`).join('')}</div>` : ''}
@@ -377,6 +397,86 @@ export function showResult(win: boolean, reason: string) {
     $('#retry').addEventListener('click', () => showArmory(S.level, true));
     $('#research').addEventListener('click', showTech);
   }, 900);
+}
+
+// ───────────────────────── Settings ─────────────────────────
+export function showSettings() {
+  const prevScroll = S.mode === 'settings' ? screen().querySelector('.settingsscreen')?.scrollTop ?? 0 : 0;
+  S.mode = 'settings';
+  $('#hud').classList.add('hidden');
+  screen().innerHTML = `<div class="settingsscreen">${topbar('settings')}
+    <div class="setbar"><span class="stencil">Standing orders</span><span class="mono">Changes take effect at once and are kept in this browser.</span></div>
+    ${settingsSheets(false)}
+  </div>`;
+  screen().querySelector('.settingsscreen')!.scrollTop = prevScroll;
+  wireTopbar(showSettings);
+  wireSettings(screen().querySelector('.settingsscreen')!, showSettings);
+}
+
+// ───────────────────────── Dev: castle picker ─────────────────────────
+let picked: LevelDef | null = null;
+const gen = { kind: 'fort' as 'fort' | 'grand', seed: 1234, difficulty: 3, theme: 'stone' as 'timber' | 'stone' | 'concrete' | 'mixed' };
+
+export function showPicker() {
+  if (!S.save.dev) { showMap(); return; }
+  S.mode = 'picker';
+  $('#hud').classList.add('hidden');
+  const scroll = screen().querySelector('.picker .castles')?.scrollTop ?? 0;
+  const groups = devCatalog();
+  const lv = picked ?? S.level;
+  const cell = (l: LevelDef) => `<button class="castle ${lv && lv.id === l.id ? 'on' : ''}" data-id="${esc(l.id)}">
+      <b>${esc(l.name)}</b><span>${l.blocks.length} blocks${l.rooms?.length ? ` · ${l.rooms.length} rooms` : ''}${l.difficulty ? ` · d${l.difficulty}` : ''}</span></button>`;
+  const themes = gen.kind === 'grand' ? ['stone', 'concrete', 'mixed'] : ['timber', 'stone', 'concrete', 'mixed'];
+  if (!themes.includes(gen.theme)) gen.theme = 'stone';
+  const dMin = gen.kind === 'grand' ? 5 : 1, dMax = gen.kind === 'grand' ? 8 : 5;
+  gen.difficulty = Math.max(dMin, Math.min(dMax, gen.difficulty));
+  screen().innerHTML = `<div class="picker">${topbar('picker')}
+    <div class="plate castles">
+      <div class="phead"><span class="stencil">Castle picker</span><span class="label">dev · any castle, any time</span></div>
+      ${groups.map((g) => `<div class="pgroup"><div class="label">${g.title} <i>${g.levels.length} · ${g.note}</i></div><div class="pgrid">${g.levels.map(cell).join('')}</div></div>`).join('')}
+    </div>
+    <div class="paper pickcard">
+      <div class="label">Selected</div>
+      <h2>${esc(lv.name)}</h2>
+      <p class="mono">${lv.blocks.length} blocks · ${lv.rooms?.length ?? 0} rooms · objectives: ${lv.objectives.map((o) => targetName(o)).join(', ')}${lv.difficulty ? ` · difficulty ${lv.difficulty}` : ''}</p>
+      <button class="btn" id="pk-go" style="width:100%">Plan the assault</button>
+      <div class="label" style="margin-top:16px">Random generated</div>
+      <div class="genform">
+        <span>Generator</span><div class="seg pseg"><button data-gk="fort" class="${gen.kind === 'fort' ? 'on' : ''}">Fortress</button><button data-gk="grand" class="${gen.kind === 'grand' ? 'on' : ''}">Grand</button></div>
+        <span>Theme</span><div class="seg pseg">${themes.map((t) => `<button data-gt="${t}" class="${gen.theme === t ? 'on' : ''}">${t}</button>`).join('')}</div>
+        <span>Seed</span><div class="gin"><input id="pk-seed" type="number" min="1" step="1" value="${gen.seed}"><button class="btn ghost small" id="pk-roll" title="Random seed">Roll</button></div>
+        <span>Difficulty</span><div class="gin"><input id="pk-diff" type="number" min="${dMin}" max="${dMax}" step="1" value="${gen.difficulty}"><i>${dMin}–${dMax}</i></div>
+      </div>
+      <button class="btn steel" id="pk-gen" style="width:100%;margin-top:10px">Generate</button>
+    </div>
+  </div>`;
+  screen().querySelector('.picker .castles')!.scrollTop = scroll;
+  wireTopbar(showPicker);
+  const all = groups.flatMap((g) => g.levels);
+  screen().querySelectorAll<HTMLElement>('.castle').forEach((b) => b.addEventListener('click', () => {
+    picked = all.find((l) => l.id === b.dataset.id) ?? null;
+    if (picked) setBattleView(picked);
+    showPicker();
+  }));
+  const readForm = () => {
+    gen.seed = Math.max(1, Math.floor(+$<HTMLInputElement>('#pk-seed').value || 1));
+    gen.difficulty = Math.round(+$<HTMLInputElement>('#pk-diff').value || dMin);
+  };
+  screen().querySelectorAll<HTMLElement>('[data-gk]').forEach((b) => b.addEventListener('click', () => { readForm(); gen.kind = b.dataset.gk as 'fort' | 'grand'; gen.difficulty = gen.kind === 'grand' ? 6 : 3; showPicker(); }));
+  screen().querySelectorAll<HTMLElement>('[data-gt]').forEach((b) => b.addEventListener('click', () => { readForm(); gen.theme = b.dataset.gt as 'stone'; showPicker(); }));
+  $('#pk-roll').addEventListener('click', () => { readForm(); gen.seed = 1 + Math.floor(Math.random() * 99999); showPicker(); });
+  $('#pk-gen').addEventListener('click', () => {
+    readForm();
+    picked = generateCastle(gen.kind, gen.seed, gen.difficulty, gen.theme);
+    setBattleView(picked);
+    showPicker();
+  });
+  $('#pk-go').addEventListener('click', () => {
+    const node = CAMPAIGN.find((c) => c.level().id === lv.id);
+    S.nodeId = node ? node.id : null;
+    showArmory(lv);
+  });
+  if (S.level !== lv) setBattleView(lv);
 }
 
 /** block inspector text */

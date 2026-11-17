@@ -103,7 +103,8 @@ export class MotorPool {
   }
 
   // ───────────────────────── spawning & driving ─────────────────────────
-  launch(kind: VehicleKind, from: Block) {
+  /** roll a vehicle out of `from` (a motor pool), or onto the field at `atX` (dev sandbox) */
+  launch(kind: VehicleKind, from: Block | null, atX?: number) {
     const g = this.g, sp = SPEC[kind];
     const tex = textures[sp.sprite];
     const aspect = tex ? (tex.image as HTMLImageElement).width / (tex.image as HTMLImageElement).height : kind === 'car' ? 2.15 : 2.58;
@@ -118,8 +119,7 @@ export class MotorPool {
     back.renderOrder = 30; fill.renderOrder = 31;
     bar.add(back, fill);
     g.root.add(bar);
-    const t = from.body.translation();
-    const x = Math.min(t.x, g.fortressBounds.x0 - 2) - len / 2;
+    const x = from ? Math.min(from.body.translation().x, g.fortressBounds.x0 - 2) - len / 2 : atX ?? g.fortressBounds.x0 - 2 - len / 2;
     const u: Vehicle = {
       kind, spec: sp, mesh, bar, len, poly: sp.hull.map(([a, b]) => [(a - 0.5) * len, b * sp.h]),
       x, y: g.groundY(x), rot: 0, hp: sp.hp, stopX: this.haltX(kind, len, x),
@@ -127,6 +127,7 @@ export class MotorPool {
     };
     this.units.push(u);
     this.place(u);
+    if (!from) return;
     g.toast(kind === 'tank' ? 'Enemy tank rolling out of the motor pool!' : 'Armoured car inbound!', 'bad');
     this.once(`intro-${kind}`, kind === 'tank'
       ? 'Tanks: flat shots skip off the glacis. Plunge AP onto it, stick a charge on, or bomb it.'
@@ -175,7 +176,7 @@ export class MotorPool {
     const g = this.g;
     const depots = this.depots();
     const d = g.level.difficulty ?? 4;
-    if (active && depots.length) {
+    if (active && depots.length && !g.dev.freeze) {
       this.spawnT -= dt;
       if (this.spawnT <= 0) {
         const cap = d >= 7 ? 3 : 2;

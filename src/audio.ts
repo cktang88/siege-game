@@ -50,6 +50,8 @@ export type SoundId = keyof typeof SOUNDS;
 const GAP_MS: Partial<Record<SoundId, number>> = { fire: 90, rifle: 40, thud: 50, crumble: 70, splinter: 60, clang: 80, blastSmall: 30, click: 20, shovel: 300 };
 const VARY: Partial<Record<SoundId, number>> = { rifle: 0.12, thud: 0.15, crumble: 0.12, splinter: 0.15, clang: 0.05, blastSmall: 0.1, blast: 0.06, fire: 0.25 };
 const CAP = 56;
+/** music bus gain at full music volume (the default 0.6 gives the original 0.32) */
+const MUSIC_LEVEL = 0.53;
 
 class AudioEngine {
   ctx: AudioContext | null = null;
@@ -60,12 +62,21 @@ class AudioEngine {
   voices = 0;
   last = new Map<string, number>();
   muted = false;
+  /** bus levels (0..1) from the settings; the music bus sits under the effects at full volume */
+  vol = { master: 0.8, music: 0.6, sfx: 1 };
   /** listener: camera centre x and half the view width, for pan and falloff */
   lx = 0;
   half = 30;
 
-  constructor() {
-    try { this.muted = localStorage.getItem('siege-muted') === '1'; } catch { /* storage unavailable */ }
+  /** apply volumes and mute (src/settings.ts owns and stores them) */
+  setVolumes(master: number, music: number, sfx: number, muted: boolean) {
+    this.vol = { master, music, sfx };
+    this.muted = muted;
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.master.gain.setTargetAtTime(muted ? 0 : master, t, 0.05);
+    this.music.gain.setTargetAtTime(music * MUSIC_LEVEL, t, 0.05);
+    this.sfx.gain.setTargetAtTime(sfx, t, 0.05);
   }
 
   /** browsers start audio suspended until a gesture */
@@ -76,24 +87,17 @@ class AudioEngine {
     const ctx = new Ctx();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : 0.8;
+    this.master.gain.value = this.muted ? 0 : this.vol.master;
     const glue = ctx.createDynamicsCompressor();
     glue.threshold.value = -16; glue.knee.value = 10; glue.ratio.value = 4; glue.attack.value = 0.003; glue.release.value = 0.15;
     const limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -4; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.001; limiter.release.value = 0.06;
     this.master.connect(glue).connect(limiter).connect(ctx.destination);
-    this.sfx = ctx.createGain(); this.sfx.gain.value = 1; this.sfx.connect(this.master);
-    this.music = ctx.createGain(); this.music.gain.value = 0.32; this.music.connect(this.master);
+    this.sfx = ctx.createGain(); this.sfx.gain.value = this.vol.sfx; this.sfx.connect(this.master);
+    this.music = ctx.createGain(); this.music.gain.value = this.vol.music * MUSIC_LEVEL; this.music.connect(this.master);
     this.noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  }
-
-  toggleMute() {
-    this.muted = !this.muted;
-    try { localStorage.setItem('siege-muted', this.muted ? '1' : '0'); } catch { /* storage unavailable */ }
-    if (this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.8, this.ctx.currentTime, 0.05);
-    return this.muted;
   }
 
   private voice(l: Layer, out: AudioNode, k: number, t: number) {

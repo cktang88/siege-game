@@ -66,8 +66,11 @@ export class FxPool {
   private evict = 0;
   /** big "fire" puffs (muzzle blasts, burning wrecks) go to the flame field instead of stacking additively */
   overflow?: FxPool;
+  /** effective cap (effects quality): at most `max`, the size the instance buffers were made for */
+  limit: number;
 
   constructor(public max: number, public mode: PoolMode, public material: THREE.ShaderMaterial, private windDefault = 0) {
+    this.limit = max;
     this.geo = quad();
     this.iPos = new Float32Array(max * 4);
     this.iVel = new Float32Array(max * 2);
@@ -88,7 +91,7 @@ export class FxPool {
 
   /** emission throttle for continuous sources: 1 while there is room, falling to 0.15 as the pool fills,
    *  so a castle-wide blaze thins its emitters instead of evicting smoke before it can form a plume */
-  get room() { return Math.min(1, Math.max(0.15, (1 - this.parts.length / this.max) / 0.4)); }
+  get room() { return Math.min(1, Math.max(0.15, (1 - this.parts.length / this.limit) / 0.4)); }
 
   spawn(p: SpawnArg) {
     if (this.overflow && (p.kind ?? 0) === 0 && (p.size0 ?? 1) >= 0.5) { this.overflow.spawn(p); return; }
@@ -97,7 +100,7 @@ export class FxPool {
       vx: 0, vy: 0, size0: 1, size1: 1, c0: [1, 1, 1], c1: [1, 1, 1], a0: 1, a1: 0, drag: 0, grav: 0, ...p,
       life: -(p.delay ?? 0), max, seed: p.seed ?? Math.random(),
     } as Particle;
-    if (this.parts.length >= this.max) this.parts[this.evict++ % this.max] = np;
+    if (this.parts.length >= this.limit) this.parts[this.evict++ % this.parts.length] = np;
     else this.parts.push(np);
   }
 
@@ -338,6 +341,9 @@ export class FireFX {
   smokeQuad: THREE.Mesh;
   private shared = { uTime: { value: 0 }, uWind: { value: 0 } };
   private clear = new THREE.Color(0, 0, 0);
+  /** fire and smoke field resolution relative to the drawing buffer (effects quality) */
+  fieldScale = 0.5;
+  private size = { w: 4, h: 4 };
 
   constructor() {
     const rtOpts = { type: THREE.HalfFloatType, depthBuffer: false, stencilBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
@@ -369,10 +375,18 @@ export class FireFX {
 
   resize(w: number, h: number) {
     // half resolution: the fields are soft anyway, and the composites threshold them with screen-space AA
-    const fw = Math.max(4, Math.round(w / 2)), fh = Math.max(4, Math.round(h / 2));
+    this.size = { w, h };
+    const fw = Math.max(4, Math.round(w * this.fieldScale)), fh = Math.max(4, Math.round(h * this.fieldScale));
     this.heatRT.setSize(fw, fh);
     this.smokeRT.setSize(fw, fh);
     ((this.smokeQuad.material as THREE.ShaderMaterial).uniforms.uTexel.value as THREE.Vector2).set(1 / fw, 1 / fh);
+  }
+
+  /** effects quality: particle caps (fraction of each pool) and field resolution */
+  setQuality(poolFrac: number, fieldScale: number) {
+    for (const p of [this.smoke, this.flame, this.sparks]) p.limit = Math.max(64, Math.round(p.max * poolFrac));
+    this.fieldScale = fieldScale;
+    this.resize(this.size.w, this.size.h);
   }
 
   set wind(v: number) { this.smoke.wind = v; this.flame.wind = v; this.sparks.wind = v; this.shared.uWind.value = v; }

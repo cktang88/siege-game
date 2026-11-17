@@ -1,6 +1,9 @@
 import { AMMO, AMMO_BY_ID, PHYS, TARGETS, type AmmoId, type TargetKind } from './config';
 import type { Block } from './game';
 import { blockTip } from './screens';
+import { SET } from './settings';
+import { settingsSheets, wireSettings } from './settingsui';
+import { buildDevPanel, updateDevPanel } from './devpanel';
 import { $, S, icon } from './state';
 
 /** short names for target kinds (TARGETS[].desc is a sentence for some kinds) */
@@ -14,10 +17,14 @@ const fmtTime = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60
 const labels = new Map<Block, HTMLElement>();
 let fcpFor: AmmoId | null = null;
 
-export function startBattle(cart: Partial<Record<AmmoId, number>>, spent: number, budget: number) {
+/** `unlimited`: the dev sandbox rack (rounds never run out) */
+export function startBattle(cart: Partial<Record<AmmoId, number>>, spent: number, budget: number, unlimited = false) {
   S.mode = 'battle';
   $('#screen').innerHTML = '';
-  S.game.start(cart, spent, budget);
+  S.devBattle = S.save.dev;
+  S.paused = false;
+  S.mouseAim = SET.mouseAim;
+  S.game.start(cart, spent, budget, unlimited && S.save.dev);
   buildHud();
 }
 
@@ -25,7 +32,7 @@ export function buildHud() {
   const hud = $('#hud');
   hud.classList.remove('hidden');
   hud.innerHTML = `
-    <div id="hud-left" class="plate"><div id="lvl-name"></div><div id="timer"></div><ul id="objectives"></ul><button id="withdraw" title="Abandon the attack and go to the after-action report (Esc)">Withdraw</button></div>
+    <div id="hud-left" class="plate"><div id="lvl-name"></div><div id="timer"></div><ul id="objectives"></ul><div class="hbtns"><button id="menu" title="Pause: resume, settings or withdraw (Esc)">Menu</button><button id="withdraw" title="Abandon the attack and go to the after-action report">Withdraw</button></div></div>
     <div id="hud-right" class="plate">
       <div class="row"><span class="label">Wind</span><span class="windvane"><svg viewBox="0 0 38 14"><path id="windarrow" d="M2 7 H30 M24 2 L32 7 L24 12" stroke="#ffb347" stroke-width="2.4" fill="none"/></svg><span id="wind" class="readout"></span></span></div>
       <div class="row"><span class="label">Gun</span><div class="meter" id="hp"></div><span id="hpnum" class="readout"></span></div>
@@ -39,9 +46,11 @@ export function buildHud() {
     <div id="toasts"></div>
     <div id="dmgflash"></div>
     <div id="floaters"></div>
-    <div id="help">mouse aims · distance from gun = velocity · shift holds velocity · wheel trims · click fires · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute</div>`;
+    <div id="help" class="${SET.helpLine ? '' : 'hidden'}">${helpText()}</div>`;
   $('#lvl-name').textContent = S.game.level.name;
   $('#withdraw').addEventListener('click', requestWithdraw);
+  $('#menu').addEventListener('click', () => togglePause(true));
+  buildDevPanel();
   // a new commander (no stars yet) gets the controls spelled out until the first shot
   if (!S.save.dev && !Object.values(S.save.stars).some((n) => n > 0)) {
     const c = document.createElement('div');
@@ -92,6 +101,54 @@ export function requestWithdraw() {
   setTimeout(() => { if (performance.now() >= withdrawArmed) { btn.classList.remove('armed'); btn.textContent = 'Withdraw'; } }, 3050);
 }
 
+export function helpText() {
+  const aim = SET.aimDistance ? 'mouse aims · distance from gun = velocity · shift holds velocity · wheel trims' : 'mouse sets elevation · wheel sets velocity';
+  return `${aim} · click fires · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute · Esc menu${S.save.dev ? ' · ` dev panel' : ''}`;
+}
+
+// ───────────────────────── pause menu ─────────────────────────
+/** Esc (or the Menu button) halts the battle behind a small menu: resume, settings, withdraw */
+export function togglePause(on = !S.paused) {
+  const g = S.game;
+  if (on && (S.mode !== 'battle' || g.ended)) return;
+  S.paused = on;
+  document.querySelector('#pause')?.remove();
+  if (!on) return;
+  const el = document.createElement('div');
+  el.id = 'pause';
+  el.className = 'modalwrap';
+  $('#hud').appendChild(el);
+  const menu = () => {
+    el.innerHTML = `<div class="plate pausebox">
+      <div class="label">Battle halted${S.devBattle ? ' · dev' : ''}</div>
+      <h2 class="stencil">${g.level.name}</h2>
+      <p class="mono">T+${fmtTime(g.battleTime)} · gun ${Math.ceil(g.cannonHp)}/${g.stats.cannonHp}</p>
+      <div class="pbtns">
+        <button class="btn" data-p="resume">Resume <i>Esc</i></button>
+        <button class="btn steel" data-p="settings">Settings</button>
+        <button class="btn ghost" data-p="withdraw">Withdraw</button>
+      </div></div>`;
+    el.querySelector('[data-p="resume"]')!.addEventListener('click', () => togglePause(false));
+    el.querySelector('[data-p="settings"]')!.addEventListener('click', settings);
+    const w = el.querySelector<HTMLElement>('[data-p="withdraw"]')!;
+    w.addEventListener('click', () => {
+      if (w.classList.contains('armed')) { togglePause(false); g.end(false, 'You withdrew from the field.'); return; }
+      w.classList.add('armed');
+      w.textContent = 'Confirm withdraw';
+    });
+  };
+  const settings = () => {
+    el.innerHTML = `<div class="plate pausebox wide">
+      <div class="phead"><span class="stencil">Settings</span><button class="btn small" data-p="back">Back</button></div>
+      <div class="pscroll">${settingsSheets(true)}</div></div>`;
+    el.querySelector('[data-p="back"]')!.addEventListener('click', menu);
+    wireSettings(el.querySelector('.pscroll')!, settings);
+  };
+  // a click on the dim backdrop resumes
+  el.addEventListener('pointerdown', (e) => { if (e.target === el) togglePause(false); });
+  menu();
+}
+
 export function rackIds() { return Array.from(document.querySelectorAll<HTMLElement>('.slot')).map((el) => el.dataset.a as AmmoId); }
 
 export function updateObjectives() {
@@ -123,6 +180,7 @@ let shownSel: AmmoId | null = null;
 export function onFired() {
   const g = S.game;
   document.querySelector('#coach')?.remove();
+  if (g.dev.unlimited) return;
   const left = Object.values(g.inventory).reduce((s, n) => s + (n ?? 0), 0);
   const switched = !!shownSel && shownSel !== g.selected && (g.inventory[shownSel] ?? 0) <= 0;
   if (switched && left > 0) toast(`${AMMO_BY_ID[shownSel!].name} expended. ${AMMO_BY_ID[g.selected].name} loaded.`);
@@ -337,7 +395,7 @@ function updateFcp() {
     const left = g.inventory[g.selected] ?? 0;
     const txt = ability ? 'Scatter!' : g.ended ? 'Ceasefire' : left <= 0 ? 'None left' : g.reload > 0 ? `Reloading ${g.reload.toFixed(1)}s` : verb;
     if (fire.textContent !== txt) fire.textContent = txt;
-    fire.title = ability ? 'Burst the cluster shell in flight (Space)' : fire.disabled ? '' : `${verb} (Space) · ${left} left`;
+    fire.title = ability ? 'Burst the cluster shell in flight (Space)' : fire.disabled ? '' : `${verb} (Space) · ${g.dev.unlimited ? '∞' : left} left`;
   }
 }
 
@@ -391,7 +449,7 @@ export function updateHud() {
   document.querySelectorAll<HTMLElement>('.slot').forEach((el) => {
     const id = el.dataset.a as AmmoId;
     const n = g.inventory[id] ?? 0;
-    el.querySelector('.ct')!.textContent = String(n);
+    el.querySelector('.ct')!.textContent = g.dev.unlimited ? '∞' : String(n);
     el.classList.toggle('sel', g.selected === id);
     el.classList.toggle('empty', n <= 0);
     (el.querySelector('.reload') as HTMLElement).style.width = g.selected === id ? `${(g.reload / g.stats.reload) * 100}%` : '0';
@@ -399,6 +457,7 @@ export function updateHud() {
   shownSel = g.selected;
   updateFcp();
   drawMinimap();
+  updateDevPanel();
 }
 
 // ───────────────────────── minimap ─────────────────────────

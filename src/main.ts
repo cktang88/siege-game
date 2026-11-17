@@ -4,10 +4,12 @@ import * as THREE from 'three';
 import { audio } from './audio';
 import { AMMO_BY_ID, PHYS } from './config';
 import { Game } from './game';
-import { gunHit, hideTooltip, onFired, rackIds, requestWithdraw, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
+import { toggleDevPanel } from './devpanel';
+import { gunHit, helpText, hideTooltip, onFired, rackIds, toast, togglePause, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
 import { writeSave } from './progress';
 import { Renderer, loadTextures } from './render';
 import { showMap, showResult } from './screens';
+import { SET, onSettings, setSetting } from './settings';
 import { $, S } from './state';
 
 THREE.ColorManagement.enabled = false;
@@ -34,12 +36,13 @@ const typing = (t: EventTarget | null) => {
 /*
   Point the barrel at the cursor; how far the cursor is from the gun sets muzzle velocity. Distance is
   measured on screen, so it feels the same at any zoom: right by the gun is the slowest charge, about
-  60% of the screen width away is full charge for the loaded round. The wheel trims on top of that,
-  and holding Shift keeps the velocity while only the elevation follows the mouse.
+  60% of the screen width away (a setting) is full charge for the loaded round. The wheel trims on top of
+  that, and holding Shift keeps the velocity while only the elevation follows the mouse. With the
+  distance setting off, the mouse sets elevation only and the wheel, keys and dial set velocity.
 */
 let trim = 0;
 const NEAR_PX = 40;
-const fullPx = () => Math.max(320, S.renderer.width * 0.6);
+const fullPx = () => Math.max(NEAR_PX + 120, S.renderer.width * SET.chargeDist);
 function speedFor(px: number) {
   const g = S.game;
   if (g.time < 0.1) trim = 0; // a fresh battle starts untrimmed
@@ -58,7 +61,7 @@ function aimAtMouse(fromMove = false) {
   // behind the gun: pin to the nearest stop instead of flipping across the arc
   const deg = dx >= 0 ? (Math.atan2(dy, dx) * 180) / Math.PI : dy >= 0 ? 90 : -90;
   g.setAngleDeg(deg);
-  if (!(fromMove && shiftHeld)) {
+  if (SET.aimDistance && !(fromMove && shiftHeld)) {
     const s = S.renderer.worldToScreen(p.x, p.y);
     g.setSpeed(Math.min(g.maxSpeedFor, Math.max(PHYS.minSpeed, speedFor(Math.hypot(mouse.x - s.x, mouse.y - s.y)))));
   }
@@ -73,7 +76,7 @@ function showTip() {
   tip.style.display = 'block';
   tip.style.left = `${mouse.x + 18}px`; tip.style.top = `${mouse.y + 14}px`;
   const frac = (g.launchSpeed - PHYS.minSpeed) / Math.max(1, g.maxSpeedFor - PHYS.minSpeed);
-  tip.innerHTML = `<b>${g.launchSpeed.toFixed(1)}</b> m/s · <b>${((g.angle * 180) / Math.PI).toFixed(1)}</b>°${shiftHeld ? ' <i>held</i>' : ''}<span class="bar"><span style="width:${Math.round(frac * 100)}%"></span></span>`;
+  tip.innerHTML = `<b>${g.launchSpeed.toFixed(1)}</b> m/s · <b>${((g.angle * 180) / Math.PI).toFixed(1)}</b>°${shiftHeld && SET.aimDistance ? ' <i>held</i>' : ''}<span class="bar"><span style="width:${Math.round(frac * 100)}%"></span></span>`;
 }
 const hideTip = () => { tip.style.display = 'none'; };
 
@@ -82,7 +85,23 @@ const wake = () => { audio.unlock(); audio.startMusic(); };
 window.addEventListener('pointerdown', wake, { capture: true });
 window.addEventListener('keydown', wake, { capture: true });
 document.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('button, .node, .tnode')) audio.play('click'); });
-window.addEventListener('keydown', (e) => { if ((e.key === 'm' || e.key === 'M') && !typing(e.target) && !e.ctrlKey && !e.metaKey) audio.toggleMute(); });
+window.addEventListener('keydown', (e) => {
+  if ((e.key === 'm' || e.key === 'M') && !typing(e.target) && !e.ctrlKey && !e.metaKey) {
+    setSetting('muted', !SET.muted);
+    if (S.mode === 'battle') toast(SET.muted ? 'Sound muted (M)' : 'Sound on');
+  }
+});
+
+// settings apply live: sound buses, effects quality, shake, UI scale, help line
+onSettings((s, k) => {
+  audio.setVolumes(s.master, s.music, s.sfx, s.muted);
+  document.documentElement.style.setProperty('--ui-zoom', String(s.uiScale / 100));
+  const help = document.querySelector('#help');
+  if (help) { help.classList.toggle('hidden', !s.helpLine); help.textContent = helpText(); }
+  if (!S.renderer) return;
+  S.renderer.shakeScale = s.shake;
+  if (k === null || k === 'quality') S.renderer.setQuality(s.quality);
+});
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointerenter', () => { overField = true; });
@@ -137,7 +156,7 @@ canvas.addEventListener('wheel', (e) => {
     const notches = Math.max(-5, Math.min(5, -delta / (e.deltaMode === 1 ? 3 : 100)));
     const v = Math.min(g.maxSpeedFor, Math.round((g.launchSpeed + notches * step) * 10) / 10);
     // with mouse aim on, the wheel trims the distance-set velocity (and the trim sticks as the mouse moves)
-    if (mouseAiming()) trim = Math.max(-8, Math.min(8, trim + v - g.launchSpeed));
+    if (mouseAiming() && SET.aimDistance) trim = Math.max(-8, Math.min(8, trim + v - g.launchSpeed));
     g.setSpeed(v);
     if (mouseAiming()) showTip();
     return;
@@ -151,6 +170,10 @@ window.addEventListener('keydown', (e) => {
   if (S.mode !== 'battle' || typing(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
   const g = S.game;
   const k = keyName(e);
+  // Esc opens (and closes) the pause menu; while it is up the battle keys are off
+  if (k === 'Escape') { togglePause(); return; }
+  if (S.paused) return;
+  if (k === '`') { toggleDevPanel(); return; }
   // Space must not also "click" a focused HUD button
   if (k === ' ') { e.preventDefault(); if (!e.repeat && !g.triggerAbility()) g.fire(); return; }
   // arrows on a focused slider move the slider only
@@ -160,7 +183,6 @@ window.addEventListener('keydown', (e) => {
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= 9) { const ids = rackIds(); if (ids[n - 1]) g.selected = ids[n - 1]; }
   if (k === 'r') { g.zoom = 1; g.pan = 0; g.panY = 0; }
-  if (k === 'Escape') requestWithdraw();
   if (k === 't') { S.mouseAim = !S.mouseAim; toast(S.mouseAim ? 'Mouse aim on' : 'Mouse aim off: dials, keys and typed values only'); }
 });
 window.addEventListener('keyup', (e) => { keys.delete(keyName(e)); keys.delete(e.key); });
@@ -179,7 +201,7 @@ function handleKeys(dt: number) {
   if (keys.has('q')) zoomBy(Math.exp(-dt * 1.5));
   // WASD scrolls the camera (pan speed scales with how much is in view; Shift faster)
   const span = S.renderer.viewW;
-  const fast = keys.has('Shift') ? 2.2 : 1;
+  const fast = (keys.has('Shift') ? 2.2 : 1) * SET.panSpeed;
   if (keys.has('a')) g.pan -= span * 0.6 * dt * fast;
   if (keys.has('d')) g.pan += span * 0.6 * dt * fast;
   if (keys.has('w')) g.panY += S.renderer.viewH * 0.6 * dt * fast;
@@ -208,8 +230,9 @@ function frame(now: number) {
   const g = S.game;
   const live = S.mode === 'battle' || S.mode === 'result';
   if (live) {
-    if (S.mode === 'battle') handleKeys(dt);
-    acc += dt;
+    if (S.mode === 'battle' && !S.paused) handleKeys(dt);
+    // paused: nothing moves; dev slow motion steps the same fixed 1/60 s less often
+    if (!S.paused) acc += dt * (S.devBattle ? S.timeScale : 1);
     let steps = 0;
     while (acc >= 1 / 60 && steps < 4) { g.update(1 / 60); acc -= 1 / 60; steps++; }
     if (steps >= 4) acc = 0;
@@ -233,7 +256,7 @@ function frame(now: number) {
   g.frameCamera(false, dt);
   const a = AMMO_BY_ID[g.selected];
   if (S.mode === 'battle') {
-    g.updatePreview(a.mode !== 'airstrike' && a.mode !== 'drone' && a.mode !== 'saboteur' && (mouseAiming() || !g.focus));
+    g.updatePreview(SET.trajectory && a.mode !== 'airstrike' && a.mode !== 'drone' && a.mode !== 'saboteur' && (mouseAiming() || !g.focus));
     g.updateStrikePreview(a.mode === 'airstrike' && g.planes.length === 0);
     const tgt = a.mode === 'drone' ? g.droneTarget?.x : a.mode === 'saboteur' ? g.sabTarget : null;
     g.aimMarker.visible = tgt !== null && tgt !== undefined;
@@ -262,6 +285,9 @@ async function boot() {
   await Promise.all([RAPIER.init(), loadTextures()]);
   S.renderer = new Renderer(canvas, (x) => S.game?.groundY(x) ?? 0);
   S.renderer.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  S.renderer.shakeScale = SET.shake;
+  S.renderer.setQuality(SET.quality);
+  S.mouseAim = SET.mouseAim;
   S.game = new Game(S.renderer);
   // ?dev turns dev mode on for this browser session only; it is never written into the save
   if (new URLSearchParams(location.search).has('dev')) { S.save.dev = true; writeSave(S.save); }

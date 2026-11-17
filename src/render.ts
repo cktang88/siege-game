@@ -422,7 +422,10 @@ export class DebrisPool {
   private sc = new THREE.Vector3();
   private v2 = new THREE.Vector3();
   private evict = 0;
+  /** effective cap (effects quality) */
+  limit: number;
   constructor(public max: number, private groundY: (x: number) => number) {
+    this.limit = max;
     const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), mat, max);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -433,7 +436,7 @@ export class DebrisPool {
   }
   spawn(x: number, y: number, vx: number, vy: number, s: number, color: THREE.Color) {
     const c = { x, y, vx, vy, s, r: Math.random() * 6, vr: (Math.random() - 0.5) * 14, life: 4 + Math.random() * 3, color };
-    if (this.chunks.length >= this.max) this.chunks[this.evict++ % this.max] = c;
+    if (this.chunks.length >= this.limit) this.chunks[this.evict++ % this.chunks.length] = c;
     else this.chunks.push(c);
   }
   update(dt: number) {
@@ -535,12 +538,16 @@ export class Renderer {
   debris: DebrisPool;
   cx = 40; cy = 10; viewH = 40;
   shake = 0;
+  /** screen shake multiplier (settings) */
+  shakeScale = 1;
+  /** effects quality (settings) */
+  quality: 'low' | 'medium' | 'high' = 'high';
   flash = 0;
   width = 1; height = 1;
 
   constructor(canvas: HTMLCanvasElement, groundY: (x: number) => number) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(this.pixelRatio());
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -100, 100);
     this.camera.position.z = 50;
     this.bgMat = new THREE.ShaderMaterial({
@@ -567,6 +574,23 @@ export class Renderer {
     this.resize();
   }
 
+  private pixelRatio() { return Math.min(window.devicePixelRatio, this.quality === 'high' ? 2 : this.quality === 'medium' ? 1.5 : 1); }
+
+  /**
+   * Effects quality. High: full particle pools, bloom, up to 2x pixel ratio, half-resolution fire and smoke
+   * fields. Medium: 60% pools, bloom, up to 1.5x pixels. Low: 35% pools, no bloom, 1x pixels, third-resolution fields.
+   */
+  setQuality(q: 'low' | 'medium' | 'high') {
+    this.quality = q;
+    this.bloom.enabled = q !== 'low';
+    const frac = q === 'high' ? 1 : q === 'medium' ? 0.6 : 0.35;
+    this.fx.setQuality(frac, q === 'low' ? 1 / 3 : 0.5);
+    this.debris.limit = Math.max(80, Math.round(this.debris.max * frac));
+    this.renderer.setPixelRatio(this.pixelRatio());
+    this.composer.setPixelRatio(this.pixelRatio());
+    this.resize();
+  }
+
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.width = w; this.height = h;
@@ -589,7 +613,7 @@ export class Renderer {
   render(dt: number, time: number) {
     this.shake = Math.max(0, this.shake - dt * 2.5);
     this.flash = Math.max(0, this.flash - dt * 3);
-    const s = this.shake * this.shake * 0.8;
+    const s = this.shake * this.shake * 0.8 * this.shakeScale;
     const ox = (Math.random() - 0.5) * s, oy = (Math.random() - 0.5) * s;
     const hw = this.viewW / 2, hh = this.viewH / 2;
     const c = this.camera;

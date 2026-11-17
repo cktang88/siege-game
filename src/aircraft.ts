@@ -54,23 +54,24 @@ export class AirForce {
 
   masts(): Block[] { return this.g.liveTargets('mast'); }
 
-  launch(kind: Kind, from: Block) {
+  /** take off from a mooring mast, or appear in the air at `at` (dev sandbox) */
+  launch(kind: Kind, from: Block | null, at?: { x: number; y: number }) {
     const sp = SPEC[kind];
-    const t = from.body.translation();
+    const t = from ? from.body.translation() : at ?? { x: this.g.fortressBounds.x0, y: this.g.groundY(this.g.fortressBounds.x0) + sp.alt };
     const mesh = makeSprite(kind, sp.h, 13);
     this.g.root.add(mesh);
     const gy = this.g.groundY(t.x);
     this.units.push({
-      kind, mesh, x: t.x, y: t.y + from.h / 2 + 1, vx: -sp.speed, vy: 2, hp: sp.hp, maxHp: sp.hp, rx: sp.rx, ry: sp.ry,
+      kind, mesh, x: t.x, y: from ? t.y + from.h / 2 + 1 : t.y, vx: -sp.speed, vy: 2, hp: sp.hp, maxHp: sp.hp, rx: sp.rx, ry: sp.ry,
       cruise: gy + sp.alt + (Math.random() - 0.5) * 4, dir: -1, t: 0, attackT: 1, dropped: false, down: false, dead: false, phase: Math.random() * 6, flash: 0, aimX: 0,
     });
-    this.g.toast(kind === 'airship' ? 'Enemy airship launched!' : 'Gyrocopters inbound!', 'bad');
+    if (from) this.g.toast(kind === 'airship' ? 'Enemy airship launched!' : 'Gyrocopters inbound!', 'bad');
   }
 
   update(dt: number, active: boolean) {
     const g = this.g;
     const masts = this.masts();
-    if (active && masts.length) {
+    if (active && masts.length && !g.dev.freeze) {
       this.spawnT -= dt;
       if (this.spawnT <= 0) {
         // per-type caps (wingmen still on the mast count): at most 3 gyrocopters and 1 airship up.
