@@ -2223,7 +2223,8 @@ export class Game {
       b.uni.uDamage.value = Math.max(0, 1 - b.hp / b.maxHp);
       b.uni.uBurn.value = b.burnAmt;
       // live fire under the char: glowing cracks while alight, fading to cold char once out
-      b.uni.uAlight.value += ((b.burning > 0 ? Math.min(1, 0.4 + b.burning / 3) * Math.min(1, 0.3 + b.fireT / 3) : 0) - b.uni.uAlight.value) * 0.05;
+      const ua = b.uni.uAlight;
+      if (ua) ua.value += ((b.burning > 0 ? Math.min(1, 0.4 + b.burning / 3) * Math.min(1, 0.3 + b.fireT / 3) : 0) - ua.value) * 0.05;
       b.uni.uTime.value = this.time;
       b.uni.uHighlight.value = b.highlight;
       if (b.rebuilt < 1) { b.rebuilt = Math.min(1, b.rebuilt + 0.02); b.uni.uFade.value = b.rebuilt; }
