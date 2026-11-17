@@ -72,7 +72,7 @@ function installLab() {
   /** fire round shot square at block i (aimed at its centre) until it breaks; returns hits taken (99 = never) */
   L.hitsToBreak = (mat, speed, max) => {
     // a course block set in a wall: bedrock below, above and behind it, as masonry round it would be
-    L.setup([{ x: 30, y: 1, w: 1, h: 1, mat }, { x: 29, y: 0, w: 3, h: 1, mat: 'rock' }, { x: 29.9, y: 2, w: 1.2, h: 1, mat: 'rock' }, { x: 31.0, y: 1, w: 1, h: 1, mat: 'rock' }]);
+    L.setup([{ x: 30, y: 1, w: 1, h: 1, mat }, { x: 28, y: 0, w: 7, h: 1, mat: 'rock' }, { x: 31.0, y: 1, w: 3, h: 3, mat: 'rock' }, { x: 29.9, y: 2, w: 1.1, h: 0.6, mat: 'rock' }]);
     const b = L.b(0);
     let marks = 0;
     for (let k = 1; k <= max; k++) {
