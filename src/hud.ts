@@ -625,8 +625,10 @@ export function updateTooltip(mouse: { x: number; y: number }, hide: boolean) {
   if (walled) tip.innerHTML = blockTip(walled, false, 0, 0, undefined, false, false);
   else tip.innerHTML = blockTip(S.game.shownMat(b), known, b.hp, b.maxHp, b.target ? TARGETS[b.target].label : undefined, !!b.highlight, b.burning > 0);
   tip.classList.remove('hidden');
-  tip.style.left = `${Math.min(mouse.x + 16, window.innerWidth - tip.offsetWidth - 8)}px`;
-  tip.style.top = `${mouse.y + 18 + tip.offsetHeight > window.innerHeight - 8 ? mouse.y - tip.offsetHeight - 10 : mouse.y + 18}px`;
+  // (its size on screen includes the UI scale, which is a transform)
+  const r = tip.getBoundingClientRect();
+  tip.style.left = `${Math.max(4, Math.min(mouse.x + 16, window.innerWidth - r.width - 8))}px`;
+  tip.style.top = `${mouse.y + 18 + r.height > window.innerHeight - 8 ? Math.max(4, mouse.y - r.height - 10) : mouse.y + 18}px`;
 }
 
 export const MIN_SPEED = PHYS.minSpeed;
