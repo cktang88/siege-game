@@ -371,6 +371,8 @@ export function gunHit(dmg: number) {
 export function updateHud() {
   const g = S.game;
   $('#timer').textContent = `T+${fmtTime(g.battleTime)}  ·  par ${fmtTime(g.level.parTime)}`;
+  // past par the time bonus is gone: the clock turns red
+  $('#timer').classList.toggle('over', g.battleTime > g.level.parTime);
   const w = g.wind;
   $('#wind').textContent = g.stats.windReadout ? `${Math.abs(w).toFixed(1)} m/s` : Math.abs(w) < 1.5 ? 'light' : Math.abs(w) < 3 ? 'moderate' : 'strong';
   $('#windarrow').setAttribute('transform', w < 0 ? 'translate(38 0) scale(-1 1)' : '');
@@ -438,6 +440,13 @@ export function drawMinimap() {
   for (const u of g.air.units) { ctx.fillStyle = u.down ? '#777' : '#e2503a'; const w = u.kind === 'airship' ? 9 : 4; ctx.fillRect(X(u.x) - w / 2, Y(u.y) - 1.5, w, 3); }
   for (const s of g.soldiers) if (!s.dead) { ctx.fillStyle = s.shield > 0 ? '#9fb0c8' : '#c9d6a0'; ctx.fillRect(X(s.x), Y(s.y + 1.3), 1.5, 3); }
   for (const u of g.motor.units) { ctx.fillStyle = u.wreckT >= 0 ? '#5a5650' : '#e2503a'; const w = u.kind === 'tank' ? 7 : 5; ctx.fillRect(X(u.x) - w / 2, Y(u.y + 1.4), w, 4); }
+  for (const bl of g.blocks) {
+    if (bl.dead || !bl.target || !g.level.objectives.includes(bl.target)) continue;
+    const t = bl.body.translation();
+    const x = X(t.x), y = Math.max(6, Y(t.y + bl.h / 2) - 6);
+    ctx.fillStyle = TARGETS[bl.target].color; ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x + 4, y); ctx.lineTo(x, y + 4); ctx.lineTo(x - 4, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
   ctx.strokeStyle = 'rgba(255,179,71,0.9)'; ctx.lineWidth = 1.5;
   ctx.strokeRect(X(r.cx - r.viewW / 2), Y(r.cy + r.viewH / 2), r.viewW * sx, r.viewH * sy);
 }

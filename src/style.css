@@ -342,3 +342,4 @@ button { font: inherit; color: inherit; }
 #hud #coach { pointer-events: none; }
 .node:hover .pin { transform: rotate(45deg) scale(1.15); }
 .node:hover .nm { background: #fff6dc; box-shadow: 0 0 0 1px var(--paper-ink); }
+#timer.over { color: var(--bad); }

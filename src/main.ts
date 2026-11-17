@@ -212,6 +212,9 @@ function frame(now: number) {
   audio.lx = S.renderer.cx;
   audio.half = S.renderer.viewW / 2;
   audio.intensity = S.mode !== 'battle' ? 0 : g.soldiers.some((x) => !x.dead) || g.liveTargets('artillery').length ? 2 : 1;
+  // the field reads as a gun sight in battle, a hand while dragging the view
+  const cur = S.mode !== 'battle' ? '' : down?.dragged ? 'grabbing' : 'crosshair';
+  if (canvas.style.cursor !== cur) canvas.style.cursor = cur;
   S.renderer.render(dt, now / 1000);
   requestAnimationFrame(frame);
 }
