@@ -135,7 +135,10 @@ export function togglePause(on = !S.paused) {
     el.querySelector('[data-p="resume"]')!.addEventListener('click', () => togglePause(false));
     el.querySelector('[data-p="settings"]')!.addEventListener('click', settings);
     const w = el.querySelector<HTMLElement>('[data-p="withdraw"]')!;
+    // the objectives are down and the win is counting in: there is nothing left to abandon
+    if (g.winT >= 0) { w.setAttribute('disabled', ''); w.title = 'The objectives are taken'; }
     w.addEventListener('click', () => {
+      if (g.ended || g.winT >= 0) return;
       if (w.classList.contains('armed')) { togglePause(false); g.end(false, 'You withdrew from the field.'); return; }
       w.classList.add('armed');
       w.textContent = 'Confirm withdraw';
