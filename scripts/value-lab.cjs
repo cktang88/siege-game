@@ -38,6 +38,7 @@ function installValue() {
   V.load = (nodeId, o = {}) => {
     Math.random = mulberry((o.seed || 1) * 2654435761);
     const S = window.siege, g = S.game;
+    delete g.checkEnd; // undo a previous trial's override
     const lvl = V.camp.NODE_BY_ID[nodeId].level();
     S.level = lvl;
     g.stats = Object.assign(V.prog.baseStats(), { reload: 1 }, o.stats || {});
@@ -231,6 +232,7 @@ function installValue() {
    */
   V.structTrial = (o) => {
     const g = V.load(o.level, { seed: o.seed, stats: o.stats });
+    if (o.stop === false) g.checkEnd = () => {}; // equal spend: the battle never ends, keep firing
     const a = V.cfg.AMMO_BY_ID[o.id];
     const n = Math.max(1, Math.round(o.budget / a.price));
     let fired = 0, time = 0, hitTarget = 0;
@@ -243,7 +245,12 @@ function installValue() {
     const toast = g.toast.bind(g);
     g.toast = (t, tone) => { if (/burrowing/.test(t)) out.burrow++; if (/gunned down|caught in the blast/.test(t)) out.sabKilled++; return toast(t, tone); };
     for (let i = 0; i < n; i++) {
-      const t = V.nextObjective();
+      let t = V.nextObjective();
+      if (!t && o.stop === false) {
+        // objectives down: keep working on the structure where they stood (biggest live block nearest them)
+        const oc = V.obj.map((b) => b.def).reduce((q, d) => ({ x: q.x + (d.x + d.w / 2) / V.obj.length, y: q.y + (d.y + d.h / 2) / V.obj.length }), { x: 0, y: 0 });
+        t = V.start.filter((b) => !b.dead).sort((p, q) => (Math.hypot(centre(p).x - oc.x, centre(p).y - oc.y) - p.maxHp / 60) - (Math.hypot(centre(q).x - oc.x, centre(q).y - oc.y) - q.maxHp / 60))[0];
+      }
       if (!t) break;
       if (a.mode === 'saboteur') { g.sabTarget = null; g.selected = 'saboteur'; g.reload = 0; g.fire(); }
       else if (a.mode === 'airstrike') {
@@ -259,14 +266,16 @@ function installValue() {
           // out of reach (sticky charges are slow): hit the nearest block toward it that can be reached
           const tc = centre(t);
           const near = V.start.filter((b) => !b.dead).sort((p, q) => Math.hypot(centre(p).x - tc.x, centre(p).y - tc.y) - Math.hypot(centre(q).x - tc.x, centre(q).y - tc.y));
-          for (const b of near.slice(0, 60)) { const s2 = V.solve(a, b); if (s2 && s2.score < 0.5) { sol = V.fireAt(o.id, b, { sigma: 0.35 }); out.fallback = (out.fallback || 0) + 1; break; } }
+          let pick = null;
+          for (const b of near.slice(0, 60)) { const s2 = V.solve(a, b); if (s2 && (!pick || s2.score < pick.score)) pick = { b, score: s2.score }; if (s2 && s2.score < 0.5) break; }
+          if (pick) { sol = V.fireAt(o.id, pick.b, { sigma: 0.35 }); out.fallback = (out.fallback || 0) + 1; }
         }
         if (!sol) break;
         if (sol.hitTarget) hitTarget++;
       }
       fired++;
       time += V.settle(o.id === 'saboteur' || o.id === 'airstrike' ? 30 : 12, 0.6);
-      if (V.obj.every((b) => b.dead)) break;
+      if (o.stop !== false && V.obj.every((b) => b.dead)) break;
     }
     V.step(o.tail ?? 20);
     const m = V.metrics();
@@ -326,12 +335,15 @@ function installValue() {
       // lead the target by the flight time (iterate)
       let px = u.x, py = u.y, sol = null;
       for (let k = 0; k < 4; k++) {
-        sol = V.solve(a, { x: px, y: py });
+        const vmax = g.stats.maxSpeed * (a.speed || 1), rts = V.roots(vmax, px, py);
+        sol = rts.length ? { a: rts[0], s: vmax, t: (px - V.muzzleAt(rts[0]).x) / (Math.cos(rts[0]) * vmax) } : null;
         if (!sol) break;
         px = u.x + u.vx * sol.t; py = u.y + u.vy * sol.t;
       }
       if (!sol) break;
-      V.fireAt(o.id, { x: px, y: py }, { sigma: 0.6, flakFuse: sol.t + 0.4, airburst: Math.max(0.2, sol.t - 0.25) });
+      const m = V.muzzleAt(sol.a), dist = Math.hypot(px - m.x, py - m.y);
+      g.selected = o.id; g.angle = sol.a + (V.gauss() * 0.6) / Math.max(5, dist); g.speed = sol.s; g.flakFuse = sol.t + 0.4; g.airburst = o.id === 'cluster' ? Math.max(0.2, sol.t - 0.25) : 0; g.reload = 0;
+      g.fire(); g.airburst = 0;
       V.step(1.0);
       if (u.down) { shots++; break; }
     }
@@ -364,7 +376,9 @@ function installValue() {
     const hid = rooms.filter((r) => r.hidden);
     const objHid = hid.filter((r) => r.target && g.level.objectives.includes(r.target.target));
     const fb = g.fortressBounds;
-    g.droneTarget = { x: o.x ?? (fb.x0 + fb.x1) / 2, y: fb.y1 + 6 };
+    // default: where the game puts it (over the middle, 6 m above the highest block); o.fx/o.h: a chosen loiter point
+    const dx = o.fx !== undefined ? fb.x0 + (fb.x1 - fb.x0) * o.fx : (fb.x0 + fb.x1) / 2;
+    g.droneTarget = o.h !== undefined ? { x: dx, y: g.groundY(dx) + o.h } : { x: dx, y: fb.y1 + 6 };
     g.selected = 'drone'; g.reload = 0; g.fire();
     V.settle(20, 0.2);
     const still = rooms.filter((r) => r.hidden);
@@ -425,6 +439,7 @@ const STRUCT_ROUNDS_ALL = ['shell', 'he', 'heavy', 'ap', 'incendiary', 'bunker',
 const STRUCT_ROUNDS = process.env.ONLY ? process.env.ONLY.split(',') : STRUCT_ROUNDS_ALL;
 const STRUCT_LEVELS_ALL = [
   ['millford', 'early timber stockade'],
+  ['bastion', 'reactive-armour bastion'],
   ['redhill', 'mid stone castle (Kurogane)'],
   ['greywater', 'concrete/steel/earth battery'],
   ['kestrel', 'grand castle, hidden rooms'],
@@ -475,11 +490,14 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
 
   if (SECTIONS.includes('struct')) {
     const jobs = [];
-    for (const [lv] of STRUCT_LEVELS) for (const id of STRUCT_ROUNDS) for (let s = 1; s <= TRIALS; s++) jobs.push({ fn: 'structTrial', arg: { level: lv, id, seed: s, budget: 540 }, lv, id });
+    const stop = process.env.PROTO !== 'spend';
+    for (const [lv] of STRUCT_LEVELS) for (const id of STRUCT_ROUNDS) for (let s = 1; s <= TRIALS; s++) jobs.push({ fn: 'structTrial', arg: { level: lv, id, seed: s, budget: +(process.env.BUDGET || (stop ? 1400 : 520)), stop }, lv, id });
     const res = await runAll(pages, jobs);
     report.struct = {};
     for (const [lv, desc] of STRUCT_LEVELS) {
-      console.log(`\n## Structure: ${lv} (${desc}), ~540 cr per trial, ${TRIALS} trials, aimed at the nearest live objective`);
+      console.log(process.env.PROTO === 'spend'
+        ? `\n## Equal spend: ${lv} (${desc}), ${process.env.BUDGET || 520} cr per trial (keeps firing at the structure once the objectives are down), ${TRIALS} trials`
+        : `\n## To the win: ${lv} (${desc}), up to ${process.env.BUDGET || 1400} cr per trial (stops when every objective is down), ${TRIALS} trials, aimed at the nearest live objective`);
       const rows = {};
       for (const id of STRUCT_ROUNDS) {
         const rs = res.filter((x) => x.lv === lv && x.id === id && x.r).map((x) => x.r);
@@ -488,7 +506,8 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
         const row = {
           price: price[id], fired: mean(rs.map((r) => r.fired)), hp: per('hp'), obj: per('objFrac') * 100, kills: per('objKills') * 10, gar: per('garrison'), rooms: per('uncovered'),
           hit: mean(rs.map((r) => r.hitTarget / Math.max(1, r.fired))), won: rs.filter((r) => r.won).length,
-          notes: `won ${rs.filter((r) => r.won).length}/${rs.length}` + (id === 'bunker' ? ` embed ${mean(rs.map((r) => r.embed)).toFixed(1)}` : '') + (mean(rs.map((r) => r.ricochet)) ? ` ricochets ${mean(rs.map((r) => r.ricochet)).toFixed(1)}` : '') + (mean(rs.map((r) => r.fallback || 0)) ? ` out-of-reach ${mean(rs.map((r) => r.fallback || 0)).toFixed(1)}` : '') + (id === 'drill' ? ` burrowed ${mean(rs.map((r) => r.burrow)).toFixed(1)}/${mean(rs.map((r) => r.fired)).toFixed(1)}` : ''),
+          win: rs.filter((r) => r.won).length / rs.length, winCost: mean(rs.filter((r) => r.won).map((r) => r.spent)),
+          notes: `won ${rs.filter((r) => r.won).length}/${rs.length}` + (rs.some((r) => r.won) ? ` (${Math.round(mean(rs.filter((r) => r.won).map((r) => r.spent)))} cr)` : '') + (id === 'bunker' ? ` embed ${mean(rs.map((r) => r.embed)).toFixed(1)}` : '') + (mean(rs.map((r) => r.ricochet)) ? ` ricochets ${mean(rs.map((r) => r.ricochet)).toFixed(1)}` : '') + (mean(rs.map((r) => r.fallback || 0)) ? ` out-of-reach ${mean(rs.map((r) => r.fallback || 0)).toFixed(1)}` : '') + (id === 'drill' ? ` burrowed ${mean(rs.map((r) => r.burrow)).toFixed(1)}/${mean(rs.map((r) => r.fired)).toFixed(1)}` : ''),
         };
         rows[id] = row;
       }
@@ -591,21 +610,27 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
     const jobs = [];
     for (const lv of lvls) {
       jobs.push({ fn: 'droneTrial', arg: { level: lv, seed: 1 }, lv, kind: 'drone' });
-      jobs.push({ fn: 'droneTrial', arg: { level: lv, seed: 1, stats: { droneTime: 8, droneStealth: true } }, lv, kind: 'drone8' });
+      for (const fx of [0.2, 0.35, 0.5, 0.65, 0.8]) for (const h of [8, 13, 18]) {
+        jobs.push({ fn: 'droneTrial', arg: { level: lv, seed: 1, fx, h }, lv, kind: 'placed', fx, h });
+        jobs.push({ fn: 'droneTrial', arg: { level: lv, seed: 1, fx, h, stats: { droneTime: 8, droneStealth: true } }, lv, kind: 'placed8', fx, h });
+      }
       for (let k = 0; k < 6; k++) jobs.push({ fn: 'breachTrial', arg: { level: lv, seed: 1 + k, k: k * 3 + 1 }, lv, kind: 'breach' });
     }
     const res = await runAll(pages, jobs);
     report.drone = {};
     console.log('\n## Drone vs blasting: hidden rooms');
-    console.log('| level | hidden rooms | hidden objective rooms | 1 drone opens | (long-endurance) | objective rooms opened by 1 drone | HE rounds to breach one hidden room |');
-    console.log('|---|---|---|---|---|---|---|');
+    console.log('| level | hidden rooms | hidden objective rooms | 1 drone, default loiter point | 1 drone, best loiter point (x frac, height) | objective rooms opened (best) | placements opening ≥1 room | HE rounds to breach one hidden room |');
+    console.log('|---|---|---|---|---|---|---|---|');
     for (const lv of lvls) {
       const d = res.find((x) => x.lv === lv && x.kind === 'drone')?.r;
-      const d8 = res.find((x) => x.lv === lv && x.kind === 'drone8')?.r;
+      const pl = res.filter((x) => x.lv === lv && x.kind === 'placed' && x.r);
+      const best = pl.slice().sort((a, b) => b.r.found - a.r.found || b.r.objFound - a.r.objFound)[0];
+      const useful = pl.filter((x) => x.r.found > 0).length;
+      const meanFound = mean(pl.map((x) => x.r.found));
       const br = res.filter((x) => x.lv === lv && x.kind === 'breach' && x.r).map((x) => x.r);
       const rounds = mean(br.map((b) => b.rounds));
-      report.drone[lv] = { d, d8, breach: rounds };
-      if (d) console.log(`| ${lv} | ${d.hidden} | ${d.objHidden} | ${d.found} | ${d8 ? d8.found : '-'} | ${d.objFound}/${d.objHidden} | ${rounds.toFixed(2)} |`);
+      report.drone[lv] = { d, best: best && { fx: best.fx, h: best.h, ...best.r }, meanFound, useful, n: pl.length, breach: rounds };
+      if (d) console.log(`| ${lv} | ${d.hidden} | ${d.objHidden} | ${d.found} | ${best ? best.r.found + ' (' + best.fx + ', ' + best.h + ' m)' : '-'} | ${best ? best.r.objFound : '-'}/${d.objHidden} | ${useful}/${pl.length} (mean ${meanFound.toFixed(1)} rooms) | ${rounds.toFixed(2)} |`);
     }
   }
 
