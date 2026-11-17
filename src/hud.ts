@@ -39,7 +39,7 @@ export function buildHud() {
     <div id="toasts"></div>
     <div id="dmgflash"></div>
     <div id="floaters"></div>
-    <div id="help">mouse aims · click fires · wheel velocity (shift coarse) · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute</div>`;
+    <div id="help">mouse aims · distance from gun = velocity · shift holds velocity · wheel trims · click fires · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute</div>`;
   $('#lvl-name').textContent = S.game.level.name;
   $('#withdraw').addEventListener('click', requestWithdraw);
   // a new commander (no stars yet) gets the controls spelled out until the first shot
@@ -47,7 +47,7 @@ export function buildHud() {
     const c = document.createElement('div');
     c.id = 'coach';
     c.className = 'plate';
-    c.innerHTML = '<b>Point</b> at the field to aim · <b>click</b> to fire · <b>wheel</b> sets muzzle velocity · the dots trace the start of the arc, the dashed line your last shot';
+    c.innerHTML = '<b>Point</b> to aim: the further from the gun, the harder the charge · <b>click</b> to fire · <b>shift</b> holds velocity, <b>wheel</b> trims it · the dots trace the start of the arc, the dashed line your last shot';
     hud.appendChild(c);
   }
   $('#hp').innerHTML = '<i></i>'.repeat(12);
@@ -233,7 +233,7 @@ function buildFcp() {
       <div class="opts"><div class="opt"><span class="label">Plant at x</span>${numRow('px', 'm').replace('class="numrow"', 'class="numrow" style="grid-column: span 2;justify-content:flex-start"')}</div></div>
       <div class="firerow"><button class="btn firebtn" id="fire">Send team</button><button class="btn ghost small" id="clear-sab">First wall</button></div>`;
   } else {
-    html = html.replace('</div>', `<button class="aimtoggle ${S.mouseAim ? 'on' : ''}" id="aimtoggle" title="T: the barrel follows the mouse over the battlefield; the wheel sets muzzle velocity">Mouse aim ${S.mouseAim ? 'on' : 'off'}</button></div>`);
+    html = html.replace('</div>', `<button class="aimtoggle ${S.mouseAim ? 'on' : ''}" id="aimtoggle" title="T: the barrel follows the mouse over the battlefield and its distance from the gun sets muzzle velocity; Shift holds velocity, the wheel trims it">Mouse aim ${S.mouseAim ? 'on' : 'off'}</button></div>`);
     html += `<div class="dials"><div class="dial">${quadrantSvg(st.minAngle, st.maxAngle)}<div class="label">Elevation</div>${numRow('ang', '°')}</div>
       <div class="dial">${velocitySvg(st.maxSpeed, g.maxSpeedFor)}<div class="label">Muzzle velocity</div>${numRow('vel', 'm/s')}</div></div>
       <div class="opts">
