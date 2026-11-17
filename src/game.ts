@@ -732,6 +732,17 @@ export class Game {
   // ───────────────────────── Damage ─────────────────────────
   toast(text: string, tone: 'good' | 'bad' | 'info' = 'info') { this.events.push({ type: 'toast', text, tone }); }
 
+  /**
+    Objectives are the soft heart of a work (a map table, a powder store, a radio room), not its walls:
+    a real shell striking one squarely knocks it out. Glancing hits (ricochets go elsewhere), canister
+    pellets and spent rounds (under 9 m/s) do their ordinary damage.
+  */
+  objectiveHit(b: Block, p: Projectile, speed: number) {
+    if (!b.target || p.enemy || p.pellet || speed < 9) return 0;
+    if (p.ammo.id === 'smoke' || p.ammo.id === 'flak') return 0;
+    return b.maxHp * 1.05;
+  }
+
   damageBlock(b: Block, dmg: number, cause = '') {
     if (b.dead || b.mat.indestructible || dmg <= 0) return;
     b.hp -= dmg;
@@ -864,7 +875,9 @@ export class Game {
       // a tank blast spends itself mostly on air: the next tank along is holed and set alight, and cooks off on its own
       const bonus = opts.bonus?.[b.matId] ?? (opts.fuelChain && b.mat.volatile ? 0.5 : 1);
       // flak shells are thin-walled fragmentation rounds: little effect on masonry
-      const bd = dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1);
+      let bd = dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1);
+      // a shell bursting close to an objective (not behind a wall) takes half its strength: two near misses finish it
+      if (b.target && !opts.enemy && !opts.flak && !opts.smoke && dmg >= 20 && f > 0.25) bd = Math.max(bd, b.maxHp * (shielded ? 0.3 : 0.55));
       this.frac.hit(b, { kind: 'blast', x: qx, y: qy, dx: d > 0.01 ? (qx - x) / d : 0, dy: d > 0.01 ? (qy - y) / d : 1, e: bd, fire: !!opts.ignite, quiet: opts.source === 'shot' || opts.smoke });
       this.damageBlock(b, bd, opts.source);
       // the fireball does not lick round a wall: a firebrick (or other non-flammable) wall in the way keeps the flames off
@@ -1161,7 +1174,7 @@ export class Game {
       if (crit && cosI < crit && !['sticky', 'delayed', 'smoke'].includes(a.id) && !p.bomblet) {
         this.ricochet(t.x, t.y, block);
         const rd = a.kinetic * (speed / 30) ** 2 * block.mat.kinetic * cosI * 0.5;
-        this.frac.hit(block, { kind: 'shot', x: t.x, y: t.y, dx: v.x / speed, dy: v.y / speed, e: rd, ammo: a.id, r: a.radius * 0.6 });
+        this.frac.hit(block, { kind: 'glance', x: t.x, y: t.y, dx: v.x / speed, dy: v.y / speed, e: rd, ammo: a.id, r: a.radius, speed, cosI });
         this.damageBlock(block, rd);
         p.impacted = true;
         p.inert = 2;
@@ -1171,8 +1184,9 @@ export class Game {
     if (speed > 6 && !p.impacted) this.garrison.blast(t.x, t.y, 0.7);
     const kin = a.kinetic * (speed / 30) ** 2 * cosI;
     if (block && !p.impacted) {
-      if (speed > 1) this.frac.hit(block, { kind: 'shot', x: t.x, y: t.y, dx: v.x / speed, dy: v.y / speed, e: kin * block.mat.kinetic, ammo: a.id, r: p.bomblet ? 0.16 : a.radius });
-      this.damageBlock(block, kin * block.mat.kinetic);
+      const kd = Math.max(kin * block.mat.kinetic, this.objectiveHit(block, p, speed));
+      if (speed > 1) this.frac.hit(block, { kind: 'shot', x: t.x, y: t.y, dx: v.x / speed, dy: v.y / speed, e: kd, ammo: a.id, r: p.bomblet ? 0.16 : a.radius, speed, cosI });
+      this.damageBlock(block, kd);
     }
     if (house && !p.impacted) this.damageHouse(house, kin * 0.6);
 
@@ -1336,6 +1350,7 @@ export class Game {
           p.vx = rx * sp2; p.vy = ry * sp2;
           p.pen *= 0.55;
           p.x += hit.normal.x * 0.05; p.y += hit.normal.y * 0.05;
+          this.frac.hit(b, { kind: 'glance', x: p.x, y: p.y, dx: dir.x, dy: dir.y, e: p.pen * b.mat.pierce * cosI * 0.3, ammo: a.id, r: a.radius, cosI });
           this.damageBlock(b, p.pen * b.mat.pierce * cosI * 0.3);
           this.ricochet(p.x, p.y, b);
           remaining *= 0.5;
@@ -1357,8 +1372,9 @@ export class Game {
           p.x += dir.x * 0.01; p.y += dir.y * 0.01;
           continue;
         }
-        this.frac.hit(b, { kind: 'apStop', x: p.x, y: p.y, dx: dir.x, dy: dir.y, e: p.pen * b.mat.pierce * cosI, ammo: a.id });
-        this.damageBlock(b, p.pen * b.mat.pierce * cosI);
+        const sd = Math.max(p.pen * b.mat.pierce * cosI, this.objectiveHit(b, p, Math.hypot(p.vx, p.vy)));
+        this.frac.hit(b, { kind: 'apStop', x: p.x, y: p.y, dx: dir.x, dy: dir.y, e: sd, ammo: a.id, cosI });
+        this.damageBlock(b, sd);
         if (b.matId === 'steel' && a.id === 'ap') this.toast('Armor plate stopped the AP round.', 'info');
         // never hand a destroyed block (its Rapier body is freed) to the embed code
         this.penetratorStop(p, dir, b.dead ? undefined : b);

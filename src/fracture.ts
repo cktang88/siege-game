@@ -34,7 +34,7 @@ import { audio } from './audio';
 type P = [number, number];
 type V2 = { x: number; y: number };
 
-export type HitKind = 'shot' | 'blast' | 'ap' | 'apStop' | 'pellet' | 'charge' | 'impact';
+export type HitKind = 'shot' | 'glance' | 'blast' | 'ap' | 'apStop' | 'pellet' | 'charge' | 'impact';
 export interface Hit {
   kind: HitKind;
   /** world point of the hit (surface point for blasts) */
@@ -52,6 +52,9 @@ export interface Hit {
   fire?: boolean;
   /** a solid shot's own little blast: counts toward the hit, leaves no soot */
   quiet?: boolean;
+  /** impact speed (m/s) and cos(obliquity) of the blow: slow or oblique rounds scuff, square fast ones break */
+  speed?: number;
+  cosI?: number;
 }
 
 interface FracState { off: P; full: P; marks: Mark[]; gen: number; rubble: number; fade: number }
@@ -312,20 +315,28 @@ export class Fracture {
       return false;
     }
     const k = dom.kind;
+    // a glancing round only scores the face; a spent one (under ~9 m/s) only scuffs it
+    if (k === 'glance' || k === 'pellet') return false;
+    if (dom.speed !== undefined && dom.speed < 9 && k === 'shot') return false;
+    // objectives never split while they stand: they die whole (and a dead one may burst, counted destroyed)
+    if (b.target) return false;
+    // accumulated damage: hit after hit, a block gives way well before its last HP goes
+    const D = 1 - b.hp / b.maxHp;
+    const worn = (lim: number) => D >= lim && f >= 0.08;
     if (cls === 'brittle') {
-      if (k === 'shot' && f >= 0.33 && area >= 0.3 && minDim >= 0.3) return this.crack(b, dom, f >= 0.65 && area >= 1.1 ? 3 : 2);
+      if (k === 'shot' && area >= 0.3 && minDim >= 0.3 && (f >= 0.5 || worn(0.8))) return this.crack(b, dom, f >= 0.75 && area >= 1.1 ? 3 : 2);
       if (k === 'impact' && f >= 0.45 && area >= 0.4 && s.gen < 2) return this.crack(b, dom, 2);
-      if (k === 'apStop' && f >= 0.4 && area >= 0.4) return this.crack(b, dom, 2);
-      if (k === 'blast' && !dom.fire && f >= 0.3 && area >= 0.4) return this.shatter(b, dom, 3 + Math.min(3, Math.floor(f * 4)));
+      if (k === 'apStop' && (dom.cosI ?? 1) >= 0.5 && (f >= 0.4 || worn(0.75)) && area >= 0.4) return this.crack(b, dom, 2);
+      if (k === 'blast' && !dom.fire && (f >= 0.3 || worn(0.8)) && area >= 0.4) return this.shatter(b, dom, 3 + Math.min(3, Math.floor(f * 4)));
       if (k === 'charge' && f >= 0.2 && area >= 0.3) return this.shatter(b, dom, 4 + Math.min(2, Math.floor(f * 3)));
     } else if (cls === 'timber') {
-      if ((k === 'shot' || k === 'blast' || k === 'charge' || (k === 'impact' && s.gen < 2)) && !dom.fire && f >= 0.4 && minDim >= 0.25 && area >= 0.25)
+      if ((k === 'shot' || k === 'blast' || k === 'charge' || (k === 'impact' && s.gen < 2)) && !dom.fire && (f >= 0.4 || worn(0.6)) && minDim >= 0.25 && area >= 0.25)
         return this.splinter(b, dom, f >= 0.7 && minDim >= 0.45 ? 3 : 2);
     } else if (cls === 'steel') {
       // plate tears only under a buried charge (bunker buster, AP bomb, drill)
       if (k === 'charge' && f >= 0.25 && area >= 0.3 && b.matId === 'steel') return this.crack(b, dom, 2);
     } else if (cls === 'earth') {
-      if (k !== 'pellet' && k !== 'impact' && f >= 0.15) return this.erode(b, dom, f);
+      if (k !== 'impact' && f >= 0.15) return this.erode(b, dom, f);
     }
     return false;
   }
@@ -345,7 +356,7 @@ export class Fracture {
     const [px, py] = world ? this.toPattern(b, x, y) : [x, y];
     // a fresh hit on (nearly) the same spot deepens the old mark instead of taking a slot
     for (const m of s.marks) {
-      if (m.type === type && type !== MarkType.BORE && type !== MarkType.BORE_END && Math.hypot(m.x - px, m.y - py) < Math.max(m.r, r) * 0.7) {
+      if (m.type === type && type !== MarkType.BORE && type !== MarkType.BORE_END && type !== MarkType.GOUGE && Math.hypot(m.x - px, m.y - py) < Math.max(m.r, r) * 0.7) {
         m.r = Math.min(Math.max(m.r, r) * 1.12, Math.max(m.r, r) + 0.08, 1.2);
         this.dirty.add(b);
         return;
@@ -361,10 +372,10 @@ export class Fracture {
   private trimMarks(ms: Mark[]) {
     while (ms.length > MAX_MARKS) {
       const i = ms.findIndex((m) => m.type !== MarkType.BORE_END);
-      ms.splice(i, ms[i].type === MarkType.BORE ? 2 : 1);
+      ms.splice(i, ms[i].type === MarkType.BORE || ms[i].type === MarkType.GOUGE ? 2 : 1);
     }
     // a bore start must be followed by its end
-    if (ms.length && ms[ms.length - 1].type === MarkType.BORE) ms.pop();
+    if (ms.length && (ms[ms.length - 1].type === MarkType.BORE || ms[ms.length - 1].type === MarkType.GOUGE)) ms.pop();
   }
 
   private markHit(b: Block, h: Hit) {
@@ -377,9 +388,17 @@ export class Fracture {
         if (h.quiet) return;
         const base = (h.r ?? 0.24) * 0.6;
         const r = Math.min(0.5, base + 0.32 * Math.sqrt(fh));
-        this.addMark(b, h.x, h.y, steel ? r * 0.85 : r, steel ? MarkType.DENT : MarkType.CRATER);
+        const cos = h.cosI ?? 1;
+        // an oblique blow drags a gouge along the face before the pit; a square one just pits it
+        if (cos < 0.75) this.addGouge(b, h, r * 0.7, 0.25 + (1 - cos) * 0.9);
+        if (h.speed !== undefined && h.speed < 9) { this.addMark(b, h.x, h.y, r * 0.55, MarkType.POCK); break; }
+        this.addMark(b, h.x, h.y, (steel ? r * 0.85 : r) * (0.6 + 0.4 * cos), steel ? MarkType.DENT : MarkType.CRATER);
         break;
       }
+      case 'glance':
+        // a ricochet: a scraped streak along the face, nothing more
+        this.addGouge(b, h, Math.min(0.2, (h.r ?? 0.2) * 0.7), 0.4 + 0.5 * (1 - (h.cosI ?? 0.5)));
+        break;
       case 'blast': {
         if (h.quiet || fh < 0.04) return;
         const r = Math.min(h.fire ? 1.2 : 1.0, (h.fire ? 0.45 : 0.25) + 0.9 * fh);
@@ -388,6 +407,7 @@ export class Fracture {
         break;
       }
       case 'apStop':
+        if ((h.cosI ?? 1) < 0.5) { this.addGouge(b, h, 0.1, 0.35); this.addMark(b, h.x, h.y, 0.1, steel ? MarkType.DENT : MarkType.CRATER); break; }
         if (steel) { this.addMark(b, h.x, h.y, 0.17, MarkType.DENT); this.addMark(b, h.x, h.y, 0.06, MarkType.HOLE); }
         else this.addMark(b, h.x, h.y, 0.15, MarkType.HOLE);
         break;
@@ -407,6 +427,26 @@ export class Fracture {
       case 'impact':
         break;
     }
+  }
+
+  /** a gouge: a streak along the face in the direction of travel, ending at the hit */
+  private addGouge(b: Block, h: Hit, r: number, len: number) {
+    const s = this.state(b);
+    // run the streak along the surface: travel direction minus its normal part is unknown here, so
+    // project onto the face nearest the hit (block axes)
+    const rot = b.body.rotation();
+    const ax = { x: Math.cos(rot), y: Math.sin(rot) }, ay = { x: -Math.sin(rot), y: Math.cos(rot) };
+    const [px, py] = this.toPattern(b, h.x, h.y);
+    const fx = Math.min(px - s.off[0], s.off[0] + b.w - px), fy = Math.min(py - s.off[1], s.off[1] + b.h - py);
+    const along = fx < fy ? ay : ax; // nearest face is a side (x) → streak runs along y
+    const d = h.dx * along.x + h.dy * along.y;
+    const sg = d >= 0 ? 1 : -1;
+    const x0 = h.x - along.x * sg * len, y0 = h.y - along.y * sg * len;
+    const a = this.toPattern(b, x0, y0);
+    s.marks.push({ x: a[0], y: a[1], r, type: MarkType.GOUGE, seed: Math.random() }, { x: px, y: py, r, type: MarkType.BORE_END, seed: 0 });
+    this.trimMarks(s.marks);
+    this.dirty.add(b);
+    this.stats.marks++;
   }
 
   private addBore(b: Block, x0: number, y0: number, x1: number, y1: number, r: number) {
@@ -543,8 +583,11 @@ export class Fracture {
   private burst(b: Block, s: Snap, hs: Hit[]): boolean {
     let sum = 0, dom = hs[0];
     for (const h of hs) { sum += h.e; if (h.e > dom.e) dom = h; }
-    if (dom.kind === 'ap' || dom.kind === 'pellet' || dom.kind === 'impact' || dom.fire) return false;
-    if (sum < b.maxHp * 0.5) return false;
+    // a block finished off by shot, shell or charge breaks up; one that burns, is holed out by AP, or
+    // is worn away by canister or a fall just goes
+    if (dom.kind === 'ap' || dom.kind === 'pellet' || dom.kind === 'impact' || dom.kind === 'glance' || dom.fire || dom.quiet && hs.length === 1) return false;
+    if (dom.speed !== undefined && dom.speed < 9) return false;
+    if (sum < b.maxHp * 0.12) return false;
     const poly = localPoly(b);
     const c = Math.cos(-s.rot), sn = Math.sin(-s.rot);
     const lx = dom.x - s.t.x, ly = dom.y - s.t.y;
@@ -576,9 +619,8 @@ export class Fracture {
     const items = polys.map((p) => simplify(p)).filter((p) => p.length >= 3).map((p) => ({ p, a: Math.abs(polyArea(p)) })).filter((q) => q.a > 1e-4);
     if (!items.length || A <= 0) return 0;
     items.sort((x, y) => y.a - x.a);
-    const heirFrac = items[0].a / A;
-    // an objective only splits when its largest piece keeps a good share of it (it carries the target on)
-    if (b.target && !opts.dead && heirFrac < 0.4) return 0;
+    // an objective never splits while it stands (it dies whole and is counted destroyed)
+    if (b.target && !opts.dead) return 0;
     if (!opts.dead && items.length < 2 && !opts.keepHp) return 0;
     const snap: Snap = opts.snap ?? (() => {
       const t = b.body.translation(), v = b.body.linvel();
@@ -642,7 +684,8 @@ export class Fracture {
       const off: P = [parent.off[0] + bb.x0 + b.w / 2, parent.off[1] + bb.y0 + b.h / 2];
       const marks = parent.marks.filter((m) => m.x > off[0] - m.r && m.x < off[0] + bb.w + m.r && m.y > off[1] - m.r && m.y < off[1] + bb.h + m.r);
       // a bore keeps both ends or neither
-      const kept = marks.filter((m, j) => (m.type === MarkType.BORE ? marks[j + 1]?.type === MarkType.BORE_END : m.type === MarkType.BORE_END ? marks[j - 1]?.type === MarkType.BORE : true));
+      const pair = (t?: number) => t === MarkType.BORE || t === MarkType.GOUGE;
+      const kept = marks.filter((m, j) => (pair(m.type) ? marks[j + 1]?.type === MarkType.BORE_END : m.type === MarkType.BORE_END ? pair(marks[j - 1]?.type) : true));
       if (tier === 'fx') { this.spawnFx(b, rel, bb.w, bb.h, wc, snap.rot, vx, vy, snap.av + (Math.random() - 0.5) * 6, off, parent, kept, shown.color, shown.kind); return; }
       const def: BlockDef = { x: wc.x - bb.w / 2, y: wc.y - bb.h / 2, w: bb.w, h: bb.h, mat: b.def.mat, poly: rel };
       if (b.def.disguise) def.disguise = b.def.disguise;
@@ -676,7 +719,6 @@ export class Fracture {
       this.stats.splits++;
       const h = heir ?? pieces[0] ?? null;
       if (h) b.heir = h;
-      if (h && b.target) this.passTarget(b, h);
       if (pieces.length) this.relink(b, pieces.filter((q) => !this.isRubble(q)), h, snap.t);
       audio.play(b.matId === 'wood' || b.matId === 'crate' ? 'splinter' : b.matId === 'steel' ? 'clang' : 'crumble', snap.t.x, 0.45);
     }
@@ -693,19 +735,6 @@ export class Fracture {
     g.root.remove(b.mesh);
     b.mesh.geometry.dispose();
     (b.mesh.material as THREE.Material).dispose();
-  }
-
-  private passTarget(b: Block, h: Block) {
-    const g = this.g;
-    h.target = b.target;
-    h.uni.uTarget.value = b.uni.uTarget.value;
-    (h.uni.uTargetColor.value as THREE.Color).copy(b.uni.uTargetColor.value as THREE.Color);
-    const gun = g.enemyGuns.get(b);
-    if (gun) { g.enemyGuns.delete(b); g.enemyGuns.set(h, gun); }
-    const el = g.gunElev.get(b);
-    if (el !== undefined) { g.gunElev.delete(b); g.gunElev.set(h, el); }
-    const mast = g.mastSprites.get(b);
-    if (mast) { g.mastSprites.delete(b); g.mastSprites.set(h, mast); }
   }
 
   /** rooms, the garrison's floors, backdrops and stuck charges follow the pieces */

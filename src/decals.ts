@@ -8,7 +8,8 @@ import * as THREE from 'three';
   and type + seed (type in the integer part, a 0..1 seed in the fraction).
 
   A bore (an armour-piercing round's channel through the block) takes two slots: BORE at the entry
-  holds the width, BORE_END holds the exit point.
+  holds the width, BORE_END holds the exit point. A gouge (a glancing or oblique round's scrape along
+  the face) is a pair the same way: GOUGE at the start, BORE_END at the hit.
 
   Cracks radiate from marks on brittle materials and reach further as the block loses HP (uDamage);
   timber cracks run along the grain; steel does not crack, it dents.
@@ -16,7 +17,7 @@ import * as THREE from 'three';
 
 export const MAX_MARKS = 10;
 
-export const MarkType = { CRATER: 1, SCORCH: 2, HOLE: 3, DENT: 4, POCK: 5, BORE: 6, BORE_END: 7 } as const;
+export const MarkType = { CRATER: 1, SCORCH: 2, HOLE: 3, DENT: 4, POCK: 5, BORE: 6, BORE_END: 7, GOUGE: 8 } as const;
 export type MarkType = (typeof MarkType)[keyof typeof MarkType];
 
 export interface Mark { x: number; y: number; r: number; type: MarkType; seed: number }
@@ -104,6 +105,13 @@ vec3 blockMarks(vec3 col, vec2 p, float px, bool horiz){
       else if (sd2 < w) col *= 0.6;
       col *= 1.0 - 0.6 * (1.0 - smoothstep(0.0, px * 1.4, abs(sd2 - w * 0.55)));
       crackReach = max(crackReach, 0.7 * (1.0 - smoothstep(w, w * (2.2 + 4.0 * uDamage), sd2)));
+    } else if (t > 7.5 && t < 8.5) {      // gouge: a glancing round's scrape along the face (to the next slot), tapering in
+      vec2 b = (i + 1 < MAXM) ? uMarks[i + 1].xy : m.xy;
+      vec2 ab = b - m.xy; float tt = clamp(dot(p - m.xy, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+      float sd2 = length(p - m.xy - ab * tt);
+      float w = r * (0.35 + 0.65 * tt) * (0.8 + 0.4 * vnoise(p * 14.0 + sd));
+      if (sd2 < w) col = mix(col * 1.3 + 0.04, col * 0.55, smoothstep(w * 0.3, w, sd2));
+      col *= 1.0 - 0.45 * (1.0 - smoothstep(0.0, px * 1.3, abs(sd2 - w))) * step(0.02, tt);
     }
   }
   // cracks: a web (along the grain for timber) that spreads from the impacts as HP drops; blocks
