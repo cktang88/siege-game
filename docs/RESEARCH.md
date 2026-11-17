@@ -199,3 +199,73 @@ Applied here (`src/fx.ts`, the burn/char block of `blockFrag` in `src/render.ts`
   composite quads. Continuous emitters throttle as a pool passes 60% full, so 128 burning blocks still form plumes
   instead of evicting smoke before it rises. Heat haze was left out: it needs a scene copy and a distortion pass for
   little gain at gameplay zoom.
+
+## Siege repair & scaffolding (engineers)
+
+Replaces the old "blocks heal with blue sparkles" repair. Goal: a repair should read as a building job, done by
+people who are physically at the wall, standing on a scaffold that was put up for the job.
+
+**Medieval timber scaffolding (putlog scaffold).** Masonry castles were built and mended from scaffolds of round poles
+lashed together with rope: vertical *standards*, horizontal *ledgers* lashed to them, and *putlogs* laid across the
+ledgers with their inner end resting in a *putlog hole* left in the wall (or cantilevered straight out of the wall).
+Platforms of planks or woven hurdles sat on the putlogs; access was by ladder or, at Coucy, by cantilevered ramps.
+The holes are still visible at Beaumaris, Cardiff, Aigues-Mortes and in church towers such as Great Burstead; at the
+end of a job the outer holes were filled or the putlogs sawn off flush. Heavy stone went up by treadwheel crane, which
+stood on the ground or the finished floors rather than on the light scaffold; mortar and small stone went up in a
+*hod* (until the 16th c. a wicker basket) carried on the shoulder. Guédelon's experimental-archaeology castle still
+rises this way, with putlog scaffolds braced diagonally and railed.
+- [Putlog hole (Wikipedia)](https://en.wikipedia.org/wiki/Putlog_hole); 1911 Britannica "Scaffold" (ledgers lashed
+  to standards, putlogs from ledger into the wall); [Treadwheel crane](https://en.wikipedia.org/wiki/Treadwheel_crane)
+  (cranes not placed on the scaffolding); [Brick hod](https://en.wikipedia.org/wiki/Brick_hod);
+  [Guédelon interview](https://castlesandfamilies.com/france/chateau-de-guedelon) (putlog scaffold, extra braces,
+  rails); [Berkshire Archaeology, How to build a castle](https://www.berksarch.co.uk/index.php/how-to-build-a-castle/).
+
+**Early-modern sappers and pioneers.** Field repairs in a siege were earth and wicker: *gabions* (open wicker
+cylinders stood on end, staked and filled with earth; carried empty, nested, in the train), *fascines* (bundles of
+brushwood, a longer kind "used to raise batteries and repair breaches", Britannica 1778) and, from the 18th c.,
+sandbags. Pioneers worked with pick, axe and shovel; at Sevastopol Totleben's engineers rebuilt the bombarded
+batteries every night. The game keeps the timber scaffold for the medieval era: a wall patch is mason's work.
+- [Gabion (Wikipedia)](https://en.wikipedia.org/wiki/Gabion); [early Britannica, fascine](https://jimclifford.ca/early_encyclopedia_britannica/articles/1778/eb_2nd_1778_005160.html);
+  [Military engineering](https://en.wikipedia.org/wiki/Military_engineering);
+  [Siege of Sevastopol, Russian defence](https://victorianweb.org/history/crimea/russev.html).
+
+**20th-century engineers: steel tube scaffolding, shoring, formwork.** The steel coupler (Palmer-Jones "Scaffixer",
+c. 1907–10, publicised on Buckingham Palace in 1913; "Universal Coupler" 1919) let standardised steel tube replace
+lashed poles; SGB sold the first frame system in 1944. Parts: standards on base plates, ledgers, transoms/putlogs,
+boards (225 mm wide), toe boards and double guard rails at the working lift, diagonal facade braces. Typical figures:
+48.3 mm tube, 2 m lifts, 1.8–2.1 m bays, a four-board platform ~0.87 m deep. Bomb-damaged walls were held with timber
+raking shores (rakers at 40–75°, 3–4.5 m centres) and flying shores between party walls before repair; in 1944 over
+2,500 soldiers were repairing bomb-damaged houses in London. Bunkers were cast in timber formwork round steel mesh
+(Organisation Todt photos of the Atlantic Wall).
+- [Scaffolding (Wikipedia)](https://en.wikipedia.org/wiki/Scaffolding) (history, components, dimensions);
+  [Shoring, Designing Buildings](https://www.designingbuildings.co.uk/wiki/Shoring);
+  [BRE 1946, shoring of damaged buildings](https://bregroup.com/store/bookshop/shoring-and-other-precautions-against-the-collapse-of-damaged-buildings-and-adjacent-property);
+  [Hansard 1944, house repairs service workers](https://api.parliament.uk/historic-hansard/written-answers/1944/oct/10/house-repairs-service-workers);
+  [Atlantic Wall construction photos](https://www.picture-alliance.com/en/webseries/sz-photo-german-coastal-fortifications-in-france-atlantic-wall-1940-1944-w471614).
+
+**Reference images** (looked at, not copied into the repo; Wikimedia Commons file names):
+`Fotothek_df_tg_0003033_Mechanik_^_Hebezeug_^_Winde_^_Seil.jpg` (putlog scaffold, 1612),
+`Echafaud.donjon.Coucy.2.png` (cantilevered putlogs, Coucy), `Mendel_II_054_r.jpg` (plasterer on putlogs),
+`Putlog_Hole_in_Reading_Abbey_Walls.jpg`, `Putlock_Construction,_St_Mary_Magdalene_Great_Burstead.jpg`,
+`Treadmillcrane.jpg` (13th-c. drawing), `Tretkran_(Bruegel).jpg`, `Squirrelcage.jpg` (Guédelon),
+`Deva_Citadel_2011_-_Wall_Section_Under_Restoration-1.jpg` (pole scaffold on a citadel wall),
+`Sixteenth_Century_Cannon2.jpg` (gabions), `Buckingham_palace1913.jpg` (early tube scaffold), `Coupler_1.jpg`,
+`Scaff_t_02.png` and `Scaff_wp_01.png` (dimension and platform-protection diagrams), `Rietdekken_-_Beilen_-_20521600_-_RCE.jpg`
+(putlog and standard, 1944). All at `https://commons.wikimedia.org/wiki/File:<name>`.
+
+**Applied here** (`src/engineers.ts`, `src/scaffold.ts`):
+- Era picks the scaffold. Medieval: pale timber standards with a slight lean, ledgers lashed on with dark rope wraps,
+  putlogs running from the ledger into the wall face, plank platform, diagonal brace, a ladder lashed at one end and a
+  small hoist (gin pole with pulley and rope) on top of tall scaffolds. Modern: grey 48 mm steel tube standards on
+  base plates, ledgers every lift with couplers drawn as dark clamps, a boarded working lift with a toe board and
+  double guard rail, facade brace, steel ladder.
+- The scaffold goes up member by member (standards, then ledgers lift by lift, then boards and rails) before work
+  starts, stands while the job lasts and is struck member by member afterwards. It is a visual, not a physics body;
+  it rides the block it serves, is blown down by blasts, fast rounds or falling masonry (members fly and tumble), and
+  a timber scaffold burns with fire beside it.
+- 2–4 engineers walk from the workshop (down the garrison ladders where the workshop's room has a way down, then
+  along the ground), climb the scaffold ladder, and work only when they stand at the block: hammer/maul swings
+  (medieval) or hammer and trowel (modern), with mortar dust puffs, chips and, on steel only, hammer sparks. A hod
+  carrier shuttles material up the ladder. More hands are faster with diminishing returns. They die like infantry
+  (blasts, shot, canister, crush, falls) and flee fire; the workshop slowly sends replacements, and once it is
+  destroyed the crew packs up and repairs stop for good.
