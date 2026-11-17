@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier2d-compat';
 import * as THREE from 'three';
 import { AMMO_BY_ID, PHYS } from './config';
 import type { Block, BlastOpts, Game, Projectile } from './game';
-import { makeSprite, textures } from './render';
+import { dropObject, makeSprite, textures } from './render';
 import { audio } from './audio';
 
 /*
@@ -244,7 +244,7 @@ export class MotorPool {
     }
     this.stuck = this.stuck.filter((s) => !s.p.dead);
     this.units = this.units.filter((u) => {
-      if (u.wreckT > 40) { u.mesh.parent?.remove(u.mesh); u.bar.parent?.remove(u.bar); return false; }
+      if (u.wreckT > 40) { dropObject(u.mesh); dropObject(u.bar); return false; }
       return true;
     });
   }

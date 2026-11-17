@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier2d-compat';
 import * as THREE from 'three';
 import { AMMO_BY_ID, MATERIALS, PHYS, TARGETS, type AmmoDef, type AmmoId, type MatId, type MaterialDef, type TargetKind } from './config';
 import type { BlockDef, HouseDef, LevelDef } from './levels';
-import { Renderer, blockGeometry, makeBlockMaterial, makeGround, makeSprite } from './render';
+import { Renderer, blockGeometry, disposeTree, dropObject, makeBlockMaterial, makeGround, makeSprite } from './render';
 import { fxBurning, fxExplosion, fxSmokeCloud } from './fx';
 import { baseStats, type Stats } from './progress';
 import { SoldierRig } from './soldier';
@@ -361,6 +361,8 @@ export class Game {
   }
 
   dispose() {
+    // free every geometry and material the last battle left on the GPU (blocks, sprites, rigs, markers, HUD bars)
+    disposeTree(this.root);
     for (const b of this.blocks) b.mesh.geometry.dispose();
     this.root.clear();
     this.r.world.remove(this.root);
@@ -373,7 +375,7 @@ export class Game {
     this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
     this.pending = []; this.embers = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.gunElev.clear(); this.events = [];
     if (this.world) { this.world.free(); this.eq.free(); }
-    this.r.smoke.parts.length = 0; this.r.fire.parts.length = 0; this.r.flame.parts.length = 0; this.r.debris.chunks.length = 0;
+    this.r.smoke.parts.length = 0; this.r.fire.parts.length = 0; this.r.flame.parts.length = 0; this.r.debris.chunks.length = 0; this.r.lights.lights.length = 0;
   }
 
   /**
@@ -586,6 +588,7 @@ export class Game {
         [new THREE.CircleGeometry(r, 18), new THREE.MeshBasicMaterial({ color: new THREE.Color(...a.color) })],
         [new THREE.CircleGeometry(r * 0.4, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color(...a.color).multiplyScalar(1.8) })],
       ];
+      for (const [geo, mat] of look) { geo.userData.shared = true; mat.userData.shared = true; }
       this.shellLooks.set(key, look);
     }
     const [outline, core, hl] = look.map(([geo, mat]) => new THREE.Mesh(geo, mat));
@@ -618,7 +621,7 @@ export class Game {
     if (p.dead) return;
     p.dead = true;
     if (p.body) { this.owners.delete(p.collider!.handle); this.world.removeRigidBody(p.body); p.body = undefined; }
-    this.root.remove(p.mesh);
+    dropObject(p.mesh);
     if (p.path && !p.enemy && p.path.length > 2) this.setGhost(p.path);
   }
 
@@ -802,11 +805,11 @@ export class Game {
     const v = b.body.linvel();
     this.owners.delete(b.collider.handle);
     this.world.removeRigidBody(b.body);
-    this.root.remove(b.mesh);
+    dropObject(b.mesh);
     const gun = this.enemyGuns.get(b);
-    if (gun) { this.root.remove(gun); this.enemyGuns.delete(b); }
+    if (gun) { dropObject(gun); this.enemyGuns.delete(b); }
     const mast = this.mastSprites.get(b);
-    if (mast) { this.root.remove(mast); this.mastSprites.delete(b); }
+    if (mast) { dropObject(mast); this.mastSprites.delete(b); }
     audio.play(b.matId === 'wood' || b.matId === 'crate' ? 'splinter' : b.matId === 'steel' || b.matId === 'reactive' ? 'clang' : 'crumble', t.x, 0.7);
     // debris
     const c = new THREE.Color(...MATERIALS[this.shownMat(b)].color);
@@ -1151,7 +1154,7 @@ export class Game {
   killSaboteur(s: Saboteur, msg: string) {
     if (s.dead) return;
     s.dead = true;
-    this.root.remove(s.mesh);
+    dropObject(s.mesh);
     this.toast(msg, 'bad');
   }
 
@@ -1554,7 +1557,7 @@ export class Game {
       const s = 0.8 + Math.min(1.6, k * 0.4) + Math.sin(this.time * 14) * 0.08;
       m.mesh.scale.set(s, s * 0.35, 1);
       (m.mesh.material as THREE.MeshBasicMaterial).opacity = 0.5 + 0.5 * Math.abs(Math.sin(this.time * (k < 1 ? 16 : 7)));
-      if (m.t < -0.4) this.root.remove(m.mesh);
+      if (m.t < -0.4) dropObject(m.mesh);
     }
     this.incoming = this.incoming.filter((m) => m.t >= -0.4);
   }
@@ -1821,9 +1824,9 @@ export class Game {
   /** remove every enemy unit from the field (dev panel): infantry fall, vehicles and aircraft are simply taken off */
   devClearField() {
     for (const s of this.soldiers) this.killSoldier(s);
-    for (const u of this.motor.units) { u.mesh.parent?.remove(u.mesh); u.bar.parent?.remove(u.bar); }
+    for (const u of this.motor.units) { dropObject(u.mesh); dropObject(u.bar); }
     this.motor.units = [];
-    for (const u of this.air.units) { u.mesh.parent?.remove(u.mesh); u.dead = true; }
+    for (const u of this.air.units) { dropObject(u.mesh); u.dead = true; }
     this.air.units = [];
   }
 
@@ -1869,7 +1872,7 @@ export class Game {
       }
     }
     const before = this.soldiers.length;
-    this.soldiers = this.soldiers.filter((s) => { if (s.dead && s.deadT > 3.7) { this.root.remove(s.rig.group); return false; } return true; });
+    this.soldiers = this.soldiers.filter((s) => { if (s.dead && s.deadT > 3.7) { dropObject(s.rig.group); return false; } return true; });
     void before;
   }
 
@@ -1960,7 +1963,7 @@ export class Game {
         }
       }
       pl.mesh.position.set(pl.x, pl.y, 14);
-      if (pl.dead) this.root.remove(pl.mesh);
+      if (pl.dead) dropObject(pl.mesh);
     }
     this.planes = this.planes.filter((p) => !p.dead);
     if (!this.planes.length) this.airMarker = null;
@@ -1994,7 +1997,7 @@ export class Game {
       // its cameras see into walled-up rooms below and around it (src/rooms.ts)
       if (d.state === 'out' || d.state === 'hover') this.garrison.rooms.scan(d.x, d.y, d.state === 'hover' ? 16 : 9);
       d.mesh.position.set(d.x, d.y + Math.sin(this.time * 9) * 0.05, 14);
-      if (d.dead) this.root.remove(d.mesh);
+      if (d.dead) dropObject(d.mesh);
     }
     this.drones = this.drones.filter((d) => !d.dead);
   }
@@ -2060,11 +2063,11 @@ export class Game {
           s.state = 'back'; s.dir = -1;
           this.toast('Charge planted!', 'good');
         }
-        if (s.state === 'run' && s.x > this.level.cannonX + 200) { s.dead = true; this.root.remove(s.mesh); }
+        if (s.state === 'run' && s.x > this.level.cannonX + 200) { s.dead = true; dropObject(s.mesh); }
       } else {
         s.x -= 5.5 * dt;
         s.y = this.groundY(s.x);
-        if (s.x < this.level.cannonX - 5) { s.dead = true; this.root.remove(s.mesh); }
+        if (s.x < this.level.cannonX - 5) { s.dead = true; dropObject(s.mesh); }
       }
       s.mesh.scale.x = s.dir;
       s.mesh.position.set(s.x, s.y + 0.62 + Math.abs(Math.sin(s.phase)) * 0.08, 7.5);

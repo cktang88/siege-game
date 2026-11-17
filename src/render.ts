@@ -467,6 +467,29 @@ export class DebrisPool {
   }
 }
 
+/**
+ * Free the GPU side of an object tree that is leaving the scene for good: every geometry and material in it,
+ * except those flagged `userData.shared` (cached looks reused by other objects). Textures are never freed here
+ * (sprite sheets and canvas textures are shared). Without this, every removed sprite, rig, block and marker
+ * kept its buffers on the GPU until the page closed.
+ */
+export function disposeTree(o: THREE.Object3D) {
+  o.traverse((c) => {
+    const m = c as THREE.Mesh;
+    if (!m.geometry) return;
+    if (!m.geometry.userData.shared) m.geometry.dispose();
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    for (const mt of mats) if (mt && !mt.userData.shared) mt.dispose();
+    if ((c as THREE.InstancedMesh).isInstancedMesh) (c as THREE.InstancedMesh).dispose();
+  });
+}
+
+/** take an object out of the scene for good and free what it alone uses */
+export function dropObject(o: THREE.Object3D) {
+  o.parent?.remove(o);
+  disposeTree(o);
+}
+
 // ───────────────────────── Sprites ─────────────────────────
 export const textures: Record<string, THREE.Texture> = {};
 export async function loadTextures() {
