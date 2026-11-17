@@ -542,7 +542,7 @@ export function clearLabels() { labels.forEach((el) => el.remove()); labels.clea
 const hits = new Map<Block, { hp: number; el: HTMLElement | null; t: number; v: number }>();
 function targetFloater(x: number, y: number, text: string, color: string, big = false) {
   const box = document.querySelector<HTMLElement>('#floaters');
-  if (!box || x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return null;
+  if (!box || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return null;
   const el = document.createElement('div');
   el.className = `floater tgt ${big ? 'big' : ''}`;
   el.style.color = color;
