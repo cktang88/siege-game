@@ -7,7 +7,7 @@
 
     npx vite --port 5193 --host 127.0.0.1 --strictPort &      # then:
     BASE=http://127.0.0.1:5193 NODE_PATH=$(npm root -g) node scripts/value-lab.cjs [sections] [trials]
-      sections: comma list of struct,infantry,air,smoke,drone,pen (default: all)
+      sections: comma list of struct,niche,infantry,air,smoke,drone,pen (default: all)
       trials:   seeds per cell (default 3)
     VALUE_JSON=out.json also writes the raw rows.
 
@@ -285,11 +285,11 @@ function installValue() {
 
   /** drill behaviour probe: where do drills land, do they burrow, how far, what do they blow */
   V.drillProbe = (o) => {
-    const g = V.g || V.load(o.level, { seed: o.seed });
     V.load(o.level, { seed: o.seed });
     const t = V.nextObjective();
+    const tx = centre(t).x; // read before firing: a destroyed block's body is freed
     const pt = V.drillShot(t);
-    if (!pt) return { aimX: NaN, land: null, burrowed: false, blew: null, target: centre(t).x };
+    if (!pt) return { aimX: NaN, land: null, burrowed: false, blew: null, target: tx };
     V.fireAt('drill', pt, { ground: true, sigma: 0.35 });
     const p = V.g.projectiles.find((q) => q.ammo.id === 'drill');
     let land = null, blew = null, burrowed = false;
@@ -297,7 +297,7 @@ function installValue() {
     V.g.explode = (x, y, r, d, op) => { if (!blew) blew = { x, y, r, d }; return ex(x, y, r, d, op); };
     V.step(12, () => { if (p.burrow && !land) { land = p.x; burrowed = true; } return p.dead; });
     V.g.explode = ex;
-    return { aimX: pt.x, land, burrowed, blew, target: centre(t).x };
+    return { aimX: pt.x, land, burrowed, blew, target: tx, killed: t.dead };
   };
 
   /** infantry: a file of four men walking in; one round at them; kills */
@@ -378,7 +378,7 @@ function installValue() {
     const fb = g.fortressBounds;
     // default: where the game puts it (over the middle, 6 m above the highest block); o.fx/o.h: a chosen loiter point
     const dx = o.fx !== undefined ? fb.x0 + (fb.x1 - fb.x0) * o.fx : (fb.x0 + fb.x1) / 2;
-    g.droneTarget = o.h !== undefined ? { x: dx, y: g.groundY(dx) + o.h } : { x: dx, y: fb.y1 + 6 };
+    g.droneTarget = o.h !== undefined ? { x: dx, y: g.groundY(dx) + o.h } : g.defaultLoiter ? g.defaultLoiter() : { x: dx, y: fb.y1 + 6 };
     g.selected = 'drone'; g.reload = 0; g.fire();
     V.settle(20, 0.2);
     const still = rooms.filter((r) => r.hidden);
@@ -396,6 +396,58 @@ function installValue() {
     for (; n < 8 && r.hidden; n++) { V.fireAt(o.id || 'he', pt, { sigma: 0.35 }); V.settle(8, 0.5); }
     return { rounds: r.hidden ? 9 : n, obj: !!(r.target && g.level.objectives.includes(r.target.target)), hidden: hid.length };
   };
+
+  /**
+   * Niche scenes on flat lab ground: fire one kind of round until the target in the scene is destroyed
+   * (8 rounds max). Shots are the textbook delivery for each round: flat at full charge for shells and
+   * penetrators, a lobbed burst over the top for cluster, a short landing for the drill, a run on foot for
+   * the saboteur, a bomb run for the air strike.
+   */
+  V.nicheLab = (o) => {
+    const S = window.siege;
+    Math.random = mulberry((o.seed || 7) * 7919);
+    const scenes = {
+      // a masonry blockhouse wearing a reactive skin, its command post inside
+      reactive: [{ x: 30, y: 0, w: 0.5, h: 3, mat: 'reactive' }, { x: 30.5, y: 0, w: 1, h: 3, mat: 'stone' }, { x: 31.5, y: 0, w: 1.4, h: 1.2, mat: 'wood', target: 'command' }, { x: 32.9, y: 0, w: 1, h: 3, mat: 'stone' }, { x: 30, y: 3, w: 3.9, h: 0.7, mat: 'stone' }],
+      // a gun pit behind two rammed-earth berms
+      earth: [{ x: 30, y: 0, w: 3, h: 2.2, mat: 'earth' }, { x: 33.5, y: 0, w: 3, h: 2.2, mat: 'earth' }, { x: 37, y: 0, w: 1.4, h: 1.2, mat: 'wood', target: 'artillery' }],
+      // a concrete casemate (2 m walls, 1 m roof)
+      casemate: [{ x: 30, y: 0, w: 2, h: 3.2, mat: 'concrete' }, { x: 32, y: 0, w: 1.6, h: 1.2, mat: 'wood', target: 'artillery' }, { x: 33.6, y: 0, w: 2, h: 3.2, mat: 'concrete' }, { x: 30, y: 3.2, w: 5.6, h: 1, mat: 'concrete' }],
+      // a timber blockhouse: the store inside sits behind a timber wall, under a timber roof
+      timber: [{ x: 30, y: 0, w: 0.6, h: 2.6, mat: 'wood' }, { x: 30.6, y: 0, w: 1.4, h: 1.2, mat: 'crate', target: 'ammo' }, { x: 32, y: 0, w: 0.6, h: 2.6, mat: 'wood' }, { x: 30, y: 2.6, w: 2.6, h: 0.5, mat: 'wood' }, { x: 33.5, y: 0, w: 2, h: 2, mat: 'wood' }, { x: 36, y: 0, w: 2, h: 2, mat: 'wood' }],
+      // a tall masonry tower with the post on its top floor
+      tower: [0, 1.5, 3, 4.5, 6].map((y) => ({ x: 30, y, w: 1.6, h: 1.5, mat: 'stone' })).concat([{ x: 30.2, y: 7.5, w: 1.2, h: 1, mat: 'wood', target: 'command' }]),
+    };
+    const blocks = scenes[o.scene];
+    const lvl = { id: 'lab', name: 'Lab', brief: '', intel: [], budget: 1, wind: [0, 0], parTime: 60, ground: [[-80, 0], [400, 0]], cannonX: 0,
+      blocks: [...blocks, { x: 390, y: 0, w: 1, h: 1, mat: 'rock', target: 'command' }], houses: [], objectives: ['command'], stars: [1, 2, 3], collateralMult: 1 };
+    S.level = lvl;
+    const g = S.game;
+    delete g.checkEnd;
+    g.stats = Object.assign(V.prog.baseStats(), o.stats || {});
+    g.load(lvl);
+    g.checkEnd = () => {};
+    const inv = {}; for (const a of V.cfg.SHOP_AMMO()) inv[a.id] = 99;
+    V.hud.startBattle(inv, 0, 999999); S.mode = 'map'; g.wind = 0; g.cannonHp = 1e6;
+    V.g = g; V.live = {}; V.off();
+    const tgt = g.blocks.find((b) => b.target && !b.mat.indestructible);
+    const tc = { x: tgt.def.x + tgt.def.w / 2, y: tgt.def.y + tgt.def.h / 2 };
+    const a = V.cfg.AMMO_BY_ID[o.id];
+    const hp0 = V.hpOf(g.blocks.filter((b) => !b.mat.indestructible));
+    let n = 0;
+    for (; n < 8 && !tgt.dead; n++) {
+      const j = () => V.gauss() * 0.15;
+      if (a.mode === 'saboteur') { g.sabTarget = null; g.selected = 'saboteur'; g.reload = 0; g.fire(); }
+      else if (a.mode === 'airstrike') { Object.assign(g.strike, { x: tc.x, dir: 1, alt: 24, dive: 0, spacing: 1.6, ordnance: 'he' }); g.selected = 'airstrike'; g.reload = 0; g.fire(); }
+      else if (o.id === 'drill') V.shoot('drill', 22, 3, 14, -4 + j());
+      else if (o.id === 'cluster') { const p = V.shoot('cluster', tc.x - 8, 12 + j(), 9, 0); V.step(0.3); if (!p.dead) g.splitCluster(p); }
+      else V.shoot(o.id, 26, Math.max(0.4, tc.y) + j(), 30 * (a.speed || 1), 0);
+      V.settle(25, 0.6);
+    }
+    V.step(o.id === 'incendiary' ? 15 : 2);
+    return { killed: tgt.dead, rounds: tgt.dead ? n : NaN, cost: tgt.dead ? n * a.price : NaN, hp: hp0 - V.hpOf(g.blocks.filter((b) => !b.mat.indestructible)) };
+  };
+  V.shoot = (id, x, y, vx, vy) => V.g.spawnProjectile(V.cfg.AMMO_BY_ID[id], x, y, vx, vy, false, {});
 
   /** penetrator behaviour on a thick lab bunker: where does it stop, what dies */
   V.penLab = (o) => {
@@ -431,7 +483,7 @@ function installValue() {
 }
 
 // ───────────────────────── runner ─────────────────────────
-const SECTIONS = (process.argv[2] && process.argv[2] !== 'all' ? process.argv[2] : 'struct,infantry,air,smoke,drone,pen').split(',');
+const SECTIONS = (process.argv[2] && process.argv[2] !== 'all' ? process.argv[2] : 'struct,niche,infantry,air,smoke,drone,pen').split(',');
 const TRIALS = +(process.argv[3] || 3);
 const BASE = process.env.BASE || 'http://127.0.0.1:5193';
 
@@ -538,15 +590,39 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
     for (const [lv] of STRUCT_LEVELS) for (let s = 1; s <= TRIALS; s++) dj.push({ fn: 'drillProbe', arg: { level: lv, seed: s }, lv });
     const dr = await runAll(pages, dj);
     console.log('\n## Drill shots on campaign levels (aimed at open ground just short of the objective)');
-    console.log('| level | aim x | landed (burrowed) | blew at | objective x |');
-    console.log('|---|---|---|---|---|');
+    console.log('| level | aim x | landed (burrowed) | blew at | objective x | objective destroyed |');
+    console.log('|---|---|---|---|---|---|');
     report.drill = dr.map((x) => ({ lv: x.lv, ...x.r }));
-    for (const x of dr) if (x.r) console.log(`| ${x.lv} | ${x.r.aimX.toFixed(1)} | ${x.r.burrowed ? x.r.land.toFixed(1) : 'no (hit a block)'} | ${x.r.blew ? x.r.blew.x.toFixed(1) + ',' + x.r.blew.y.toFixed(1) + ' r' + x.r.blew.r : '-'} | ${x.r.target.toFixed(1)} |`);
+    for (const x of dr) if (x.r) console.log(`| ${x.lv} | ${x.r.aimX.toFixed(1)} | ${x.r.burrowed ? x.r.land.toFixed(1) : 'no (hit a block)'} | ${x.r.blew ? x.r.blew.x.toFixed(1) + ',' + x.r.blew.y.toFixed(1) + ' r' + x.r.blew.r : '-'} | ${x.r.target.toFixed(1)} | ${!!x.r.killed} |`);
+  }
+
+  if (SECTIONS.includes('niche')) {
+    const scenes = ['reactive', 'earth', 'casemate', 'timber', 'tower'];
+    const ids = ['shell', 'he', 'heavy', 'ap', 'incendiary', 'bunker', 'cluster', 'delayed', 'sticky', 'drill', 'saboteur', 'airstrike'];
+    const jobs = [];
+    for (const scene of scenes) for (const id of ids) for (let s = 1; s <= TRIALS; s++) jobs.push({ fn: 'nicheLab', arg: { scene, id, seed: s }, scene, id });
+    const res = await runAll(pages, jobs);
+    report.niche = {};
+    console.log('\n## Niche scenes (lab): credits to destroy the target, mean of trials (× = not destroyed in 8 rounds)');
+    console.log('| round | price | ' + scenes.join(' | ') + ' |');
+    console.log('|---|---|' + scenes.map(() => '---').join('|') + '|');
+    for (const id of ids) {
+      const cells = scenes.map((scene) => {
+        const rs = res.filter((x) => x.scene === scene && x.id === id && x.r).map((x) => x.r);
+        const ok = rs.filter((r) => r.killed);
+        const c = ok.length ? mean(ok.map((r) => r.cost)) : NaN;
+        (report.niche[scene] ??= {})[id] = { cost: c, ok: ok.length, n: rs.length };
+        return ok.length ? `${Math.round(c)}${ok.length < rs.length ? ` (${ok.length}/${rs.length})` : ''}` : '×';
+      });
+      console.log(`| ${id} | ${price[id]} | ${cells.join(' | ')} |`);
+    }
+    const best = scenes.map((scene) => { const e = Object.entries(report.niche[scene]).filter(([, v]) => v.ok === v.n && v.n).sort((a, b) => a[1].cost - b[1].cost)[0]; return e ? `${scene}: ${e[0]}` : `${scene}: -`; });
+    console.log('cheapest sure kill: ' + best.join(', '));
   }
 
   if (SECTIONS.includes('infantry')) {
     const jobs = [];
-    const lvls = [['redhill', 0], ['greywater', 0.25]];
+    const lvls = [['redhill', 0], ['greywater', 0.25], ['blackcitadel', 0.55]];
     for (const [lv, sh] of lvls) for (const id of ['canister', 'shell', 'he', 'cluster', 'flak', 'incendiary']) for (let s = 1; s <= TRIALS * 3; s++) jobs.push({ fn: 'infantryTrial', arg: { level: lv, id, seed: s, shields: sh }, lv, id });
     const res = await runAll(pages, jobs);
     report.infantry = {};
