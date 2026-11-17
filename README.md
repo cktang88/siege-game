@@ -102,6 +102,8 @@ Castles stand on hills, 3.5–11 m above the plain depending on the operation (s
 
 `BASE=http://127.0.0.1:5173 node scripts/munition-lab.cjs [test or munition ids]` (Playwright, dev server running) sets up a small lab scenario for every munition and counter above, fires it, steps the simulation and prints a PASS/FAIL table of each claim with the measured numbers.
 
+`BASE=http://127.0.0.1:5173 node scripts/ui-flow.cjs [sections]` plays the campaign loop and the screens around it headless (research, armory, battle, rewards and salvage, star gates, corrupt saves, blocked storage, settings, dev mode, the castle picker, input, window sizes, listener and DOM leaks, audio) and checks the UI's invariants; with `SHOTS=dir` it also screenshots every screen at 1280×720, 1920×1080 and 900×600.
+
 ## The enemy fights back
 
 - **Mooring masts:** launch Storm Winds-style air raids: weaving gyrocopter gunships that strafe your gun, and armoured airships that bomb it. Shot-down aircraft fall burning and crash, onto the castle if they're over it. Answer them with **Flak Burst** shells (research *Proximity Fuzes*), which burst when an aircraft comes near or on a timer you set. Canister and other rounds hit them too.
