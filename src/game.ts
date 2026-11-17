@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { AMMO_BY_ID, MATERIALS, PHYS, TARGETS, type AmmoDef, type AmmoId, type MatId, type MaterialDef, type TargetKind } from './config';
 import type { BlockDef, HouseDef, LevelDef } from './levels';
 import { Renderer, blockGeometry, makeBlockMaterial, makeGround, makeSprite } from './render';
+import { fxBurning, fxExplosion, fxSmokeCloud } from './fx';
 import { baseStats, type Stats } from './progress';
 import { SoldierRig } from './soldier';
 import { audio } from './audio';
@@ -241,10 +242,11 @@ export class Game {
     this.eq = new RAPIER.EventQueue(true);
     this.r.world.add(this.root);
     this.wind = +(level.wind[0] + Math.random() * (level.wind[1] - level.wind[0])).toFixed(1);
+    this.r.wind = this.wind;
     this.cannonHp = 100;
     this.time = 0; this.battleTime = 0;
     this.ended = false; this.running = false; this.revealed = false;
-    this.artilleryShots = 0; this.bracket = 0; this.artT = 10; this.barT = 12; this.repT = 5; this.rebT = 14;
+    this.artilleryShots = 0; this.bracket = 0; this.artT = 10; this.barT = 12; this.repT = 5; this.rebT = 14; this.repairing = null; this.repairToast = false;
     this.collateral = 0; this.enemyBlind = 0; this.winT = -1; this.idleT = 0;
     this.targetsDestroyed = {}; this.targetsTotal = {}; this.shieldsSeen = false;
     this.lastPath = [];
@@ -734,13 +736,22 @@ export class Game {
 
   /**
     Objectives are the soft heart of a work (a map table, a powder store, a radio room), not its walls:
-    a real shell striking one squarely knocks it out. Glancing hits (ricochets go elsewhere), canister
-    pellets and spent rounds (under 9 m/s) do their ordinary damage.
+    a shell striking one squarely and hard knocks it out. What counts is the velocity along the face
+    normal (speed x cos of the obliquity) against what that round needs: a 9 kg round shot needs 15 m/s
+    square-on, a heavy shell about 10, a light incendiary or HE casing 20+ (HE's own blast does the
+    rest). Below that the hit does a share falling to a third at 40% of the kill speed, and under that
+    only its ordinary damage. Rounds past the ricochet angle glance off before they get here. Canister
+    pellets, smoke and flak do their ordinary damage.
   */
-  objectiveHit(b: Block, p: Projectile, speed: number) {
-    if (!b.target || p.enemy || p.pellet || speed < 9) return 0;
-    if (p.ammo.id === 'smoke' || p.ammo.id === 'flak') return 0;
-    return b.maxHp * 1.05;
+  objectiveHit(b: Block, p: Projectile, speed: number, cosI = 1) {
+    if (!b.target || p.enemy || p.pellet) return 0;
+    const a = p.ammo;
+    if (a.id === 'smoke' || a.id === 'flak') return 0;
+    const punch = Math.max(10, a.kinetic, (a.pen ?? 0) * 0.4);
+    const vKill = 15 * Math.sqrt(55 / punch), vMin = vKill * 0.4;
+    const vn = speed * cosI;
+    if (vn < vMin) return 0;
+    return b.maxHp * 1.05 * Math.min(1, 0.34 + 0.66 * (vn - vMin) / (vKill - vMin));
   }
 
   damageBlock(b: Block, dmg: number, cause = '') {
@@ -833,7 +844,7 @@ export class Game {
     const vis = opts.visual ?? radius / 3;
     if (!opts.smoke) audio.play(radius < 2.2 ? 'blastSmall' : radius < 4.6 ? 'blast' : 'blastBig', x, Math.min(1.2, 0.5 + radius / 5));
     // visuals
-    this.burst(x, y, vis, opts.smoke);
+    this.burst(x, y, vis, opts.smoke, opts.source === 'fuel' || opts.source === 'ammo');
     this.r.shake = Math.min(2.2, this.r.shake + vis * 0.7);
     if (vis > 1.2) { this.r.flash = Math.min(1, this.r.flash + 0.5); this.r.split = Math.min(1, this.r.split + vis * 0.45); }
     if (!opts.smoke) this.r.lights.add(x, y + 0.5, Math.max(4, radius * 2.6), [1.0, 0.62, 0.28], 1.6 + vis * 0.4, 0.35 + vis * 0.2, 0.3);
@@ -876,8 +887,9 @@ export class Game {
       const bonus = opts.bonus?.[b.matId] ?? (opts.fuelChain && b.mat.volatile ? 0.5 : 1);
       // flak shells are thin-walled fragmentation rounds: little effect on masonry
       let bd = dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1);
-      // a shell bursting close to an objective (not behind a wall) takes half its strength: two near misses finish it
-      if (b.target && !opts.enemy && !opts.flak && !opts.smoke && dmg >= 20 && f > 0.25) bd = Math.max(bd, b.maxHp * (shielded ? 0.3 : 0.55));
+      // an HE shell (or bigger) bursting close to an objective, not behind a wall, takes half its strength:
+      // two near misses finish it. Smaller charges count in proportion (a heavy shell's burst ~30%, a round shot's ~14%).
+      if (b.target && !opts.enemy && !opts.flak && !opts.smoke && f > 0.25) bd = Math.max(bd, b.maxHp * (shielded ? 0.3 : 0.55) * Math.min(1, dmg / 100));
       this.frac.hit(b, { kind: 'blast', x: qx, y: qy, dx: d > 0.01 ? (qx - x) / d : 0, dy: d > 0.01 ? (qy - y) / d : 1, e: bd, fire: !!opts.ignite, quiet: opts.source === 'shot' || opts.smoke });
       this.damageBlock(b, bd, opts.source);
       // the fireball does not lick round a wall: a firebrick (or other non-flammable) wall in the way keeps the flames off
@@ -927,38 +939,10 @@ export class Game {
     if (cd < radius + 1.2) this.damageCannon((dmg * 0.32 * (1 - cd / (radius + 1.2)) + (opts.enemy ? 6 : 0)) * (opts.enemy && this.stats.shieldedGun ? 0.5 : 1));
   }
 
-  burst(x: number, y: number, s: number, smokeOnly = false) {
+  burst(x: number, y: number, s: number, smokeOnly = false, fuel = false) {
     const nearGround = y - this.groundY(x) < 1.5;
-    for (let i = 0; i < (smokeOnly ? 70 : 22 * s + 6); i++) {
-      const a = Math.random() * Math.PI * 2, sp = Math.random() * (smokeOnly ? 5 : 3.5 * s + 1);
-      const g = 0.25 + Math.random() * 0.15;
-      this.r.smoke.spawn({ x: x + Math.cos(a) * 0.3, y: y + Math.sin(a) * 0.3, vx: Math.cos(a) * sp + this.wind * 0.3, vy: Math.sin(a) * sp * 0.7 + 0.8,
-        max: (smokeOnly ? 9 : 2.2) + Math.random() * 1.5, size0: (smokeOnly ? 2 : 1.2 * s + 0.5), size1: (smokeOnly ? 7 : 4 * s + 1.5),
-        c0: smokeOnly ? [0.85, 0.85, 0.82] : [g + 0.15, g + 0.12, g + 0.1], c1: smokeOnly ? [0.75, 0.75, 0.74] : [0.55, 0.53, 0.5], a0: 0.85, a1: 0, drag: 1.8, grav: 0.4 });
-    }
-    if (!smokeOnly) {
-      // the flash: brief and warm, so the fireball (not a white disc) is what reads
-      this.r.fire.spawn({ x, y, max: 0.08, size0: 2.6 * s + 0.8, size1: 4.2 * s + 1, c0: [2.2, 1.7, 1.0], c1: [1.6, 0.8, 0.25], a0: 0.85, a1: 0 });
-      // fireball: opaque cel flame puffs (drawn over the smoke) cooling yellow → orange → ember;
-      // additive puffs stacked into a white HDR blob that the bloom smeared over the whole screen
-      for (let i = 0; i < 20 * s + 5; i++) {
-        const a = Math.random() * Math.PI * 2, sp = (2 + Math.random() * 7) * s + 1;
-        const hot = Math.random();
-        this.r.flame.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 1, max: 0.35 + Math.random() * 0.4, size0: (0.8 + Math.random()) * s + 0.3, size1: 0.25,
-          c0: [1.45, 0.95 + hot * 0.3, 0.3 + hot * 0.2], c1: [0.6, 0.2, 0.07], a0: 1, a1: 0, drag: 3.5, grav: 2 });
-      }
-      // a few additive hot cores keep the centre glowing (and feed the bloom a little)
-      for (let i = 0; i < 4 + 3 * s; i++) {
-        const a = Math.random() * Math.PI * 2, sp = Math.random() * 3 * s;
-        this.r.fire.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 1, max: 0.18 + Math.random() * 0.15, size0: (0.6 + Math.random() * 0.5) * s + 0.2, size1: 0.2,
-          c0: [1.4, 0.9, 0.35], c1: [0.6, 0.15, 0.02], a0: 0.8, a1: 0, drag: 3 });
-      }
-      for (let i = 0; i < 18 * s + 3; i++) {
-        const a = Math.random() * Math.PI * 2, sp = (8 + Math.random() * 16) * s;
-        this.r.fire.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, max: 0.4 + Math.random() * 0.4, size0: 0.18, size1: 0.08,
-          c0: [3, 2.2, 1], c1: [2, 0.6, 0.1], a0: 1, a1: 0, drag: 1.5, grav: -12 });
-      }
-    }
+    if (smokeOnly) fxSmokeCloud(this.r.fx, x, y);
+    else fxExplosion(this.r.fx, x, y, s, fuel);
     if (nearGround && !smokeOnly) {
       const c = new THREE.Color(0.4, 0.31, 0.22);
       for (let i = 0; i < 10 * s + 2; i++) this.r.debris.spawn(x, this.groundY(x) + 0.1, (Math.random() - 0.5) * 10 * s, 3 + Math.random() * 8 * s, 0.1 + Math.random() * 0.2, c.clone().multiplyScalar(0.7 + Math.random() * 0.5));
@@ -966,7 +950,7 @@ export class Game {
   }
 
   /** seconds of fire a block holds: material burn time scaled by its size */
-  burnTime(b: Block) { return (b.mat.burn ?? 12) * Math.min(2, Math.max(0.6, Math.sqrt(b.w * b.h))); }
+  burnTime(b: Block) { return (b.mat.burn ?? 12) * Math.min(1.45, Math.max(0.6, Math.sqrt(b.w * b.h))); } // a big timber burns ~15-18 s, not half a minute
 
   /**
    * Set a block alight. Once it catches it burns through all its remaining fuel; `_heat` (the old
@@ -1184,7 +1168,7 @@ export class Game {
     if (speed > 6 && !p.impacted) this.garrison.blast(t.x, t.y, 0.7);
     const kin = a.kinetic * (speed / 30) ** 2 * cosI;
     if (block && !p.impacted) {
-      const kd = Math.max(kin * block.mat.kinetic, this.objectiveHit(block, p, speed));
+      const kd = Math.max(kin * block.mat.kinetic, this.objectiveHit(block, p, speed, cosI));
       if (speed > 1) this.frac.hit(block, { kind: 'shot', x: t.x, y: t.y, dx: v.x / speed, dy: v.y / speed, e: kd, ammo: a.id, r: p.bomblet ? 0.16 : a.radius, speed, cosI });
       this.damageBlock(block, kd);
     }
@@ -1380,7 +1364,7 @@ export class Game {
           p.x += dir.x * 0.01; p.y += dir.y * 0.01;
           continue;
         }
-        const sd = Math.max(p.pen * b.mat.pierce * cosI, this.objectiveHit(b, p, Math.hypot(p.vx, p.vy)));
+        const sd = Math.max(p.pen * b.mat.pierce * cosI, this.objectiveHit(b, p, Math.hypot(p.vx, p.vy), cosI));
         this.frac.hit(b, { kind: 'apStop', x: p.x, y: p.y, dx: dir.x, dy: dir.y, e: sd, ammo: a.id, cosI });
         this.damageBlock(b, sd);
         if (b.matId === 'steel' && a.id === 'ap') this.toast('Armor plate stopped the AP round.', 'info');
@@ -1573,15 +1557,7 @@ export class Game {
         // HP goes over ~80% of the burn: timber usually gives way before it burns out
         this.damageBlock(b, b.mat.fire * grow * b.maxHp / (b.fuelMax * 0.8) * dt, 'fire');
         if (b.dead) continue;
-        if (Math.random() < dt * 30 * grow * Math.min(1.5, b.w * b.h)) {
-          const lx = (Math.random() - 0.5) * b.w, ly = (Math.random() - 0.3) * b.h;
-          // opaque cel tongues (additive ones stacked into a white, bloom-smeared sheet) plus the odd hot ember
-          this.r.flame.spawn({ x: t.x + lx, y: t.y + ly, vx: this.wind * 0.3, vy: 1.5 + Math.random() * 2, max: 0.6 + Math.random() * 0.5, size0: 0.7 + Math.random() * 0.5, size1: 0.1,
-            c0: [1.4, 0.68 + Math.random() * 0.25, 0.14], c1: [0.75, 0.16, 0.03], a0: 0.95, a1: 0, drag: 1 });
-          if (Math.random() < 0.2) this.r.fire.spawn({ x: t.x + lx, y: t.y + ly, vx: this.wind * 0.3 + (Math.random() - 0.5), vy: 2.5 + Math.random() * 2, max: 0.7, size0: 0.14, size1: 0.05,
-            c0: [3, 1.5, 0.4], c1: [1.5, 0.3, 0.05], a0: 1, a1: 0, drag: 0.6 });
-          if (Math.random() < 0.3) this.r.smoke.spawn({ x: t.x + lx, y: t.y + b.h / 2, vx: this.wind * 0.6, vy: 1.6, max: 3, size0: 0.8, size1: 3, c0: [0.25, 0.23, 0.22], c1: [0.45, 0.44, 0.43], a0: 0.6, a1: 0, drag: 0.4 });
-        }
+        fxBurning(this.r.fx, t.x, t.y, b.w, b.h, grow, dt, b.body.rotation());
         b.spreadT -= dt;
         if (b.spreadT <= 0) {
           b.spreadT = FIRE_TICK;
@@ -2142,47 +2118,44 @@ export class Game {
         }
       }
     }
-    // engineers
-    if (this.liveTargets('workshop').length) {
-      this.repT -= dt;
-      if (this.repT <= 0) {
-        this.repT = 5;
-        const dmg = this.blocks.filter((b) => !b.dead && b.hp < b.maxHp * 0.98 && !b.mat.indestructible).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp).slice(0, 3);
-        for (const b of dmg) {
-          b.hp = Math.min(b.maxHp, b.hp + 40);
-          // engineers douse what they patch: it smoulders on with ~5 s less fire (the unburnt fuel can catch again)
-          if (b.burning > 0) b.burning = Math.max(0, b.burning - 5);
-          const t = b.body.translation();
-          for (let i = 0; i < 8; i++) this.r.fire.spawn({ x: t.x + (Math.random() - 0.5) * b.w, y: t.y + (Math.random() - 0.5) * b.h, vy: 1.5, max: 0.8, size0: 0.25, size1: 0.05, c0: [0.4, 1.6, 2.4], c1: [0.2, 0.6, 1.2], a0: 1, a1: 0 });
-        }
-        if (dmg.length && Math.random() < 0.35) this.toast('Enemy engineers are repairing.', 'info');
-      }
-      this.rebT -= dt;
-      if (this.rebT <= 0) {
-        this.rebT = 13;
-        for (let i = 0; i < this.destroyedSlots.length; i++) {
-          const s = this.destroyedSlots[i];
-          if (this.battleTime - s.t < 6) continue;
-          const d = s.def;
-          let blocked = false;
-          this.world.intersectionsWithShape({ x: d.x + d.w / 2, y: d.y + d.h / 2 }, 0, new RAPIER.Cuboid(d.w / 2 - 0.02, d.h / 2 - 0.02), () => { blocked = true; return false; });
-          // nor onto the garrison or a saboteur standing in the gap
-          if (!blocked) blocked = this.garrison.list.some((p) => p.state !== 'dead' && p.x > d.x - 0.2 && p.x < d.x + d.w + 0.2 && p.y + p.h > d.y && p.y < d.y + d.h)
-            || this.saboteurs.some((p) => !p.dead && p.x > d.x - 0.3 && p.x < d.x + d.w + 0.3 && p.y + 1.3 > d.y && p.y < d.y + d.h);
-          if (blocked) continue;
-          // needs support directly below
-          let supported = d.y - this.groundY(d.x + d.w / 2) < 0.1;
-          if (!supported) this.world.intersectionsWithShape({ x: d.x + d.w / 2, y: d.y - 0.05 }, 0, new RAPIER.Cuboid(d.w / 2 - 0.05, 0.04), (c) => { if (this.owners.get(c.handle)?.t === 'block') supported = true; return !supported; });
-          if (!supported) continue;
-          this.destroyedSlots.splice(i, 1);
-          const nb = this.addBlock(d, true);
-          nb.hp = nb.maxHp * 0.6;
-          this.toast('Enemy engineers rebuilt a wall section.', 'bad');
-          break;
-        }
-      }
-    }
+    // engineers: one crew, one block at a time, working from the bottom of the work up. They patch
+    // cracked blocks still standing in place; anything shattered, burning or knocked loose is beyond them.
+    if (this.liveTargets('workshop').length) this.updateEngineers(dt);
+    else this.repairing = null;
   }
+
+  repairing: Block | null = null;
+  updateEngineers(dt: number) {
+    const ok = (b: Block) => !b.dead && !b.mat.indestructible && b.burning <= 0 && b.hp < b.maxHp * 0.97 && b.hp > b.maxHp * 0.15 && !b.target
+      // short-lived rubble is not worth patching (a fractured piece still in place is)
+      && !this.frac.isRubble(b)
+      && Math.abs(b.body.rotation()) < 0.08 && Math.hypot(b.body.linvel().x, b.body.linvel().y) < 0.05;
+    if (this.repairing && !ok(this.repairing)) this.repairing = null;
+    if (!this.repairing) {
+      // the crew takes a while to move to the next job
+      this.repT -= dt;
+      if (this.repT > 0) return;
+      this.repT = 4;
+      let best: Block | null = null, by = Infinity;
+      for (const b of this.blocks) {
+        if (!ok(b)) continue;
+        const y = b.body.translation().y - b.h / 2;
+        if (y < by - 0.05) { by = y; best = b; }
+      }
+      if (!best) return;
+      this.repairing = best;
+      if (!this.repairToast) { this.repairToast = true; this.toast('Enemy engineers are patching a cracked wall. Knock out the engineers to stop them.', 'info'); }
+    }
+    const b = this.repairing;
+    // ~30 s to make good a badly cracked block
+    b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.028 * dt);
+    if (Math.random() < dt * 4) {
+      const t = b.body.translation();
+      this.r.fire.spawn({ x: t.x + (Math.random() - 0.5) * b.w, y: t.y + (Math.random() - 0.5) * b.h, vy: 1, max: 0.6, size0: 0.16, size1: 0.04, c0: [0.4, 1.6, 2.4], c1: [0.2, 0.6, 1.2], a0: 1, a1: 0 });
+    }
+    if (b.hp >= b.maxHp * 0.97) this.repairing = null;
+  }
+  repairToast = false;
 
   /** later operations field shield infantry: from difficulty 4, a growing share of each draft */
   get shieldChance() { const d = this.level.difficulty ?? 0; return d >= 4 ? Math.min(0.55, 0.25 + (d - 4) * 0.08) : 0; }
@@ -2316,6 +2289,9 @@ export class Game {
       b.uni.uFlash.value = b.flash * 0.6;
       b.uni.uDamage.value = Math.max(0, 1 - b.hp / b.maxHp);
       b.uni.uBurn.value = b.burnAmt;
+      // live fire under the char: glowing cracks while alight, fading to cold char once out
+      const ua = b.uni.uAlight;
+      if (ua) ua.value += ((b.burning > 0 ? Math.min(1, 0.4 + b.burning / 3) * Math.min(1, 0.3 + b.fireT / 3) : 0) - ua.value) * 0.05;
       b.uni.uTime.value = this.time;
       b.uni.uHighlight.value = b.highlight;
       if (b.rebuilt < 1) { b.rebuilt = Math.min(1, b.rebuilt + 0.02); b.uni.uFade.value = b.rebuilt; }

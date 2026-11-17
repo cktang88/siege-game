@@ -155,7 +155,7 @@ function bastion(): LevelDef {
   b.add(83.2, g + 5.4, 0.8, 0.8, 'stone');
   return {
     id: 'bastion', elevation: 7, gunCap: 30, name: 'Bastion Kell',
-    brief: 'A modern bastion. Command is buried in a concrete bunker topped by a counter-battery gun that will fire on you. Engineers repair anything you damage.',
+    brief: 'A modern bastion. Command is buried in a concrete bunker topped by a counter-battery gun that will fire on you. Engineers patch cracked walls, slowly, from the bottom up.',
     intel: ['Concrete laughs at HE: bring bunker busters or go underneath.', 'Front curtain wall may be hiding something. A drone would tell you.', 'The gun bracket-fires: each shot lands closer.'],
     budget: 1300, wind: [-3, 3], parTime: 90,
     ground: [[-80, 0], [46, 0], [54, g], [92, g], [98, 0], [220, 0]],

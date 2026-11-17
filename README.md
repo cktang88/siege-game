@@ -92,7 +92,7 @@ Castles stand on hills, 3.5–11 m above the plain depending on the operation (s
 - **Motor pool:** sends vehicles from the front of the fortress until destroyed. They halt on the valley floor short of your redoubt and queue behind each other; a knocked-out vehicle burns as a wreck.
   - *Armoured car:* fast, strafes your gun with a turret MG (small, steady damage). Canister bounces off and solid shot barely dents it; one AP round, two HE hits, a sticky charge, a drill under it or a bomb kills it.
   - *Light tank* (Zoo Flak Tower onward): slow, heavier armour with a long sloped glacis that glances flat AP and shot. Its main gun shells your gun every 6–8 s, walking its fall of shot in. Plunge AP onto it (two hits), stick two charges on it, or use bunker busters and AP bombs. Smoke blinds it.
-- **Engineers:** repair damaged blocks and rebuild destroyed wall sections, so waiting costs you.
+- **Engineers:** one crew patches one cracked block at a time, working from the bottom of the castle up (about 30 s for a badly cracked block). They can't mend blocks that are burning, knocked loose or shattered, and they never rebuild what you destroyed. Knock out the engineers' workshop to stop them.
 - **Flak:** shoots down bombers and drones. A bomber that releases within a flak gun's reach (about 48 m) has its stick thrown off the aim point, so fly high over defended targets.
 - **Munitions store:** detonates in a chain reaction when destroyed or burned.
 

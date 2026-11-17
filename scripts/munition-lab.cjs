@@ -640,6 +640,43 @@ test('objective_near', 'he', 'Two near misses (HE landing beside it) knock out a
   return { pass: !one && L.b(0).dead, info: `after one: ${one ? 'down' : 'standing'}; after two: ${L.b(0).dead ? 'down' : 'standing'}` };
 });
 
+test('objective_angle', 'shell', 'A glancing or slow hit on an objective does far less than a square, fast one', () => {
+  const L = window.__lab;
+  // square on at 26 m/s
+  L.setup([{ x: 30, y: 0, w: 1.6, h: 1.4, mat: 'stone', target: 'barracks' }]);
+  L.shoot('shell', 26, 0.7, 26, 0); L.step(1);
+  const square = L.b(0).dead;
+  // slow lob dropping on it at ~8 m/s
+  L.setup([{ x: 30, y: 0, w: 1.6, h: 1.4, mat: 'stone', target: 'barracks' }]);
+  L.shoot('shell', 30, 3.2, 0, -2); L.step(1);
+  const slow = L.b(0).dead ? 1 : L.frac(0);
+  return { pass: square && slow < 0.75, info: `square 26 m/s: ${square ? 'down' : 'standing'}; slow drop: ${slow === 1 ? 'down' : L.r(slow * 100, 0) + '% hp'}` };
+});
+
+test('objective_type', 'heavy', 'What a direct hit does depends on the round: a heavy shell at 12 m/s knocks an objective out, a light incendiary casing does not', () => {
+  const L = window.__lab;
+  L.setup([{ x: 30, y: 0, w: 1.6, h: 1.4, mat: 'stone', target: 'barracks' }]);
+  L.shoot('heavy', 27.5, 0.7, 12, 0); L.step(0.6);
+  const heavy = L.b(0).dead;
+  L.setup([{ x: 30, y: 0, w: 1.6, h: 1.4, mat: 'stone', target: 'barracks' }]);
+  L.shoot('incendiary', 27.5, 0.7, 12, 0); L.step(0.6);
+  const inc = L.b(0).dead ? 1 : L.frac(0);
+  return { pass: heavy && inc < 1, info: `heavy: ${heavy ? 'down' : 'standing'}; incendiary: ${inc === 1 ? 'down' : L.r(inc * 100, 0) + '% hp'}` };
+});
+
+test('engineers_slow', 'shell', 'Engineers patch one cracked block at a time, bottom first, slowly; not burning ones', () => {
+  const L = window.__lab;
+  const g = L.setup([{ x: 30, y: 0, w: 1, h: 1, mat: 'stone' }, { x: 30, y: 1, w: 1, h: 1, mat: 'stone' }, { x: 34, y: 0, w: 1, h: 1, mat: 'wood' },
+    { x: 40, y: 0, w: 1.2, h: 1, mat: 'stone', target: 'workshop' }], { live: true });
+  g.artT = g.barT = 999; g.repT = 0;
+  for (const i of [0, 1]) L.b(i).hp = L.b(i).maxHp * 0.4;
+  L.b(2).hp = L.b(2).maxHp * 0.5; g.ignite(L.b(2));
+  L.step(6);
+  const h = (i) => L.r(L.b(i).hp / L.b(i).maxHp * 100, 0);
+  const a = [h(0), h(1)];
+  return { pass: a[0] > 45 && a[0] < 70 && a[1] <= 40.5 && L.b(2).hp <= L.b(2).maxHp * 0.5, info: `after 6 s: bottom ${a[0]}%, top ${a[1]}%, burning timber ${h(2)}%` };
+});
+
 // ───────────────────────── runner ─────────────────────────
 module.exports = { installLab };
 if (require.main === module) (async () => {
