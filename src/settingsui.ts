@@ -42,7 +42,7 @@ export function settingsSheets(inBattle = false) {
       ${row('Master volume', '', slider('master', 0, 1, 0.05))}
       ${row('Music', 'the field march under the guns', slider('music', 0, 1, 0.05))}
       ${row('Effects', 'guns, blasts, fire and the UI', slider('sfx', 0, 1, 0.05))}
-      ${row('Mute all', 'M in battle', sw('muted', 'Muted', 'Sound on'))}
+      ${row('Mute all', 'M in battle', sw('muted', 'Muted', 'Off'))}
     </section>
     <section class="plate sheet-s">
       <header><span class="stencil">Fire control</span><small>aiming</small></header>
@@ -65,7 +65,7 @@ export function settingsSheets(inBattle = false) {
     </section>
     ${inBattle ? '' : `<section class="plate sheet-s">
       <header><span class="stencil">Records</span><small>campaign save</small></header>
-      ${row('Campaign', `${cleared} operations taken · ★ ${totalStars} · ${S.save.funds.toLocaleString()} war funds · ${S.save.tech.length} research`, '<button class="btn small danger" data-act="reset">Reset progress</button>')}
+      ${row('Campaign', `${cleared} operation${cleared === 1 ? '' : 's'} taken · ★ ${totalStars} · ${S.save.funds.toLocaleString()} war funds · ${S.save.tech.length} research`, '<button class="btn small danger" data-act="reset">Reset progress</button>')}
       <p class="snote">Wipes stars, records, war funds and research back to a fresh commission. Settings are kept. This cannot be undone.</p>
     </section>`}
     <section class="plate sheet-s dev">

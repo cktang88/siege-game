@@ -38,7 +38,7 @@ export function buildDevPanel() {
         ${tog('reload', 'Instant reload', g.dev.instantReload, 'No reload wait between shots')}
         ${tog('slow', 'Slow-mo ¼', S.timeScale < 1, 'Run the simulation at quarter speed')}
       </div>
-      <div class="drow" style="margin-top:6px"><button class="btn ghost small" data-a="reveal" title="Break open every concealed room">Reveal hidden rooms</button><button class="btn ghost small" data-a="clear" title="Kill every enemy unit on the field">Clear field</button></div>
+      <div class="drow" style="margin-top:6px"><button class="btn ghost small" data-a="reveal" title="Break open every concealed room">Reveal rooms</button><button class="btn ghost small" data-a="clear" title="Kill every enemy unit on the field">Clear field</button></div>
       <div class="foot mono">${g.dev.unlimited ? 'Rack: every round ∞' : 'Rack: bought rounds'} · not scored</div>
     </div>`;
   $('#hud').appendChild(el);

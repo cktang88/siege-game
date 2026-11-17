@@ -555,7 +555,7 @@ export function updateLabels() {
   const pinned = new Set<string>();
   if (--platePoll <= 0) {
     platePoll = 30;
-    plates = ['#hud-left', '#hud-right', '#minimap'].map((q) => document.querySelector(q)?.getBoundingClientRect()).filter((r): r is DOMRect => !!r && r.height > 0);
+    plates = ['#hud-left', '#hud-right', '#minimap', '#devpanel'].map((q) => document.querySelector(q)?.getBoundingClientRect()).filter((r): r is DOMRect => !!r && r.height > 0);
   }
   labels.forEach((el, b) => {
     const color = TARGETS[b.target!].color;
@@ -578,8 +578,9 @@ export function updateLabels() {
       if (edge) y = Math.max(top, Math.min(bottom, y));
     }
     // (labels hang above their point: test the label's own box, about 64 x 26 px)
-    const under = !edge && plates.find((r) => x > r.left - 32 && x < r.right + 32 && y > r.top && y - 26 < r.bottom);
-    if (under) { y = under.bottom + 30; edge = '▲'; }
+    // (edge markers too: the dev panel sits on the right edge below the instruments)
+    const under = plates.find((r) => x > r.left - 32 && x < r.right + 32 && y > r.top && y - 26 < r.bottom);
+    if (under) { y = under.bottom + 30; edge = edge || '▲'; }
     const key = `${b.target}${edge}`;
     const dup = !!edge && pinned.has(key);
     if (edge) pinned.add(key);

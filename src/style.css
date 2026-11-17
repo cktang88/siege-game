@@ -359,7 +359,8 @@ button { font: inherit; color: inherit; }
 .setbar { margin: 70px 16px 8px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
 .setbar .stencil { font-size: 26px; }
 .setbar .mono { color: var(--bone-dim); font-size: 12px; }
-.sheets { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 10px; margin: 0 16px 16px; align-items: start; }
+.sheets { columns: 3 440px; column-gap: 10px; margin: 0 16px 16px; }
+.sheets > .sheet-s { break-inside: avoid; margin-bottom: 10px; }
 .sheet-s { padding: 12px 18px 12px 14px; }
 .sheet-s header { display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 6px; margin-bottom: 4px; }
 .sheet-s header .stencil { font-size: 21px; }
