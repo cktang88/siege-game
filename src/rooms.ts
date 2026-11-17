@@ -24,7 +24,32 @@ export type RoomInfo = NonNullable<LevelDef['rooms']>[number];
 
 export interface Ladder { a: RoomRT; b: RoomRT; x: number; mesh: THREE.Mesh; gone: boolean }
 
-interface Cover { mesh: THREE.Mesh; uni: Record<string, THREE.IUniform>; mat: MatId; fade: number; cx: number; cy: number }
+interface Cover { mesh: THREE.Mesh; uni: Record<string, THREE.IUniform>; mark: THREE.ShaderMaterial; mat: MatId; fade: number; cx: number; cy: number }
+
+/*
+  A cover must hide the room but still read as infill, not structure: it is darker than the frame,
+  sits back between the columns (an inset shadow under the lintel and along both jambs) and carries a
+  faint diagonal hatch, the map-maker's mark for ground that has not been surveyed.
+*/
+const markFrag = /* glsl */ `
+uniform vec2 uSize; uniform float uFade; varying vec2 vUv;
+void main(){
+  vec2 p = vUv * uSize;
+  float dTop = uSize.y - p.y, dSide = min(p.x, uSize.x - p.x), dBot = p.y;
+  // set back between the jambs: shadow under the lintel and down both sides
+  float inset = 0.6 * (1.0 - smoothstep(0.0, 0.3, dTop)) + 0.45 * (1.0 - smoothstep(0.0, 0.2, dSide)) + 0.2 * (1.0 - smoothstep(0.0, 0.1, dBot));
+  // unsurveyed-ground hatch
+  float h = fract((p.x + p.y) / 0.42);
+  float hatch = (1.0 - smoothstep(0.035, 0.07, abs(h - 0.5))) * 0.34;
+  vec4 col = vec4(0.07, 0.06, 0.08, clamp(inset + hatch, 0.0, 0.8));
+  // dashed survey line just inside the opening
+  float e = min(min(dTop, dBot), dSide);
+  float along = (dSide < min(dTop, dBot)) ? p.y : p.x;
+  float line = (1.0 - smoothstep(0.03, 0.055, abs(e - 0.16))) * step(0.5, fract(along / 0.36));
+  col = mix(col, vec4(0.93, 0.78, 0.42, 0.85), line);
+  gl_FragColor = vec4(col.rgb, col.a * uFade);
+}`;
+const markVert = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 
 export interface RoomRT {
   i: number;
@@ -157,12 +182,17 @@ export class Rooms {
     // a hair wider than the opening so no sliver of the room shows at the columns
     const w = r.x1 - r.x0 + 0.04, h = r.y1 - r.y0 + 0.04;
     const geo = blockGeometry(w, h);
-    const sm = makeBlockMaterial(M.color.map((c) => c * 0.94) as [number, number, number], w, h, M.kind, geo);
+    const sm = makeBlockMaterial(M.color.map((c) => c * 0.84) as [number, number, number], w, h, M.kind, geo);
     const mesh = new THREE.Mesh(geo, sm);
     const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
     mesh.position.set(cx, cy, COVER_Z);
+    const mark = new THREE.ShaderMaterial({ vertexShader: markVert, fragmentShader: markFrag, transparent: true, depthWrite: false,
+      uniforms: { uSize: { value: new THREE.Vector2(w, h) }, uFade: { value: 1 } } });
+    const ov = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mark);
+    ov.position.z = 0.02; ov.renderOrder = 1;
+    mesh.add(ov);
     root.add(mesh);
-    r.cover = { mesh, uni: sm.uniforms, mat, fade: 1, cx, cy };
+    r.cover = { mesh, uni: sm.uniforms, mark, mat, fade: 1, cx, cy };
   }
 
   /** the material a block appears to be, if it is walled up in a concealed room */
@@ -257,8 +287,9 @@ export class Rooms {
       if (!r.hidden) {
         c.fade = Math.max(0, c.fade - dt * 1.4);
         c.uni.uFade.value = c.fade;
+        c.mark.uniforms.uFade.value = c.fade;
         c.uni.uDamage.value = Math.min(1, (1 - c.fade) * 2.2);
-        if (c.fade <= 0) { c.mesh.parent?.remove(c.mesh); c.mesh.geometry.dispose(); r.cover = null; }
+        if (c.fade <= 0) { c.mesh.parent?.remove(c.mesh); c.mesh.geometry.dispose(); (c.mesh.children[0] as THREE.Mesh | undefined)?.geometry.dispose(); c.mark.dispose(); r.cover = null; }
       }
     }
     // a drone sweeping in finds rooms one after another: tell of them together once it has settled
