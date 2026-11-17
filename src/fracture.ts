@@ -243,6 +243,8 @@ export class Fracture {
     if (b.dead || b.target) return null;
     const cls = clsOf(b);
     if (cls === 'none' || cls === 'earth') return null;
+    // fused penetrators (bunker buster, AP bomb) wreck what they bore through on their way to the charge
+    if (ammo === 'bunker' || ammo === 'bomb_pen') return null;
     // exit point: cast back at this block from beyond it
     const L = Math.hypot(b.w, b.h) + 1;
     const ray = new RAPIER.Ray({ x: x + dir.x * L, y: y + dir.y * L }, { x: -dir.x, y: -dir.y });
@@ -349,7 +351,8 @@ export class Fracture {
       // plate tears only under a buried charge (bunker buster, AP bomb, drill)
       if (k === 'charge' && f >= 0.25 && area >= 0.3 && b.matId === 'steel') return this.crack(b, dom, 2);
     } else if (cls === 'earth') {
-      if (k !== 'impact' && f >= 0.08) return this.erode(b, dom, f);
+      // rammed earth soaks blast: only a buried charge, a solid shot or a penetrator digs it out
+      if ((k === 'charge' || k === 'shot' || k === 'apStop') && f >= 0.08) return this.erode(b, dom, f);
     }
     return false;
   }
