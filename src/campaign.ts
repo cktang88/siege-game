@@ -102,7 +102,8 @@ export function devCastles(): LevelDef[] {
 
 /** dev mode: a freshly generated castle (fortress: difficulty 1-5, any theme; grand: difficulty 5-8, no timber) */
 export function generateCastle(kind: 'fort' | 'grand', seed: number, difficulty: number, theme: 'timber' | 'stone' | 'concrete' | 'mixed'): LevelDef {
-  seed = Math.max(0, Math.floor(seed)) || 1;
+  seed = Number.isFinite(seed) ? Math.min(2147483647, Math.max(1, Math.floor(seed))) : 1;
+  if (!Number.isFinite(difficulty)) difficulty = kind === 'grand' ? 6 : 3;
   if (kind === 'grand') {
     const d = Math.max(5, Math.min(8, Math.round(difficulty)));
     return generateGrand({ id: `gen-grand-${seed}-${d}`, name: `Generated Grand ${seed}`, seed, difficulty: d, theme: theme === 'timber' ? 'stone' : theme, keeps: d >= 8 ? 2 : 1 });

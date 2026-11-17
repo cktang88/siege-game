@@ -423,6 +423,7 @@ export function showSettings() {
 
 // ───────────────────────── Dev: castle picker ─────────────────────────
 let picked: LevelDef | null = null;
+const SEED_MAX = 2147483647;
 const gen = { kind: 'fort' as 'fort' | 'grand', seed: 1234, difficulty: 3, theme: 'stone' as 'timber' | 'stone' | 'concrete' | 'mixed' };
 
 export function showPicker() {
@@ -452,7 +453,7 @@ export function showPicker() {
       <div class="genform">
         <span>Generator</span><div class="seg pseg"><button data-gk="fort" class="${gen.kind === 'fort' ? 'on' : ''}">Fortress</button><button data-gk="grand" class="${gen.kind === 'grand' ? 'on' : ''}">Grand</button></div>
         <span>Theme</span><div class="seg pseg">${themes.map((t) => `<button data-gt="${t}" class="${gen.theme === t ? 'on' : ''}">${t}</button>`).join('')}</div>
-        <span>Seed</span><div class="gin"><input id="pk-seed" type="number" min="1" step="1" value="${gen.seed}"><button class="btn ghost small" id="pk-roll" title="Random seed">Roll</button></div>
+        <span>Seed</span><div class="gin"><input id="pk-seed" type="number" min="1" max="${SEED_MAX}" step="1" value="${gen.seed}"><button class="btn ghost small" id="pk-roll" title="Random seed">Roll</button></div>
         <span>Difficulty</span><div class="gin"><input id="pk-diff" type="number" min="${dMin}" max="${dMax}" step="1" value="${gen.difficulty}"><i>${dMin}–${dMax}</i></div>
       </div>
       <button class="btn steel" id="pk-gen" style="width:100%;margin-top:10px">Generate</button>
@@ -467,8 +468,11 @@ export function showPicker() {
     showPicker();
   }));
   const readForm = () => {
-    gen.seed = Math.max(1, Math.floor(+$<HTMLInputElement>('#pk-seed').value || 1));
-    gen.difficulty = Math.round(+$<HTMLInputElement>('#pk-diff').value || dMin);
+    // empty, non-numeric, negative or absurd entries fall back into range (seeds are 32-bit)
+    const seed = Math.floor(+$<HTMLInputElement>('#pk-seed').value);
+    gen.seed = Number.isFinite(seed) && seed >= 1 ? Math.min(SEED_MAX, seed) : 1;
+    const d = Math.round(+$<HTMLInputElement>('#pk-diff').value);
+    gen.difficulty = Number.isFinite(d) ? Math.max(dMin, Math.min(dMax, d)) : dMin;
   };
   screen().querySelectorAll<HTMLElement>('[data-gk]').forEach((b) => b.addEventListener('click', () => { readForm(); gen.kind = b.dataset.gk as 'fort' | 'grand'; gen.difficulty = gen.kind === 'grand' ? 6 : 3; showPicker(); }));
   screen().querySelectorAll<HTMLElement>('[data-gt]').forEach((b) => b.addEventListener('click', () => { readForm(); gen.theme = b.dataset.gt as 'stone'; showPicker(); }));
