@@ -304,7 +304,8 @@ function installValue() {
   V.infantryTrial = (o) => {
     const g = V.load(o.level, { seed: o.seed });
     const cx = g.level.cannonX;
-    for (let i = 0; i < 4; i++) g.spawnSoldier(cx + 34 + i * 2.2, Math.random() < (o.shields ?? 0));
+    const N = o.n || 4;
+    for (let i = 0; i < N; i++) g.spawnSoldier(cx + 34 + i * (o.gap || 2.2), Math.random() < (o.shields ?? 0));
     for (const s of g.soldiers) s.stopX = cx + 14;
     V.step(1.5);
     const live = g.soldiers.filter((s) => !s.dead);
@@ -312,14 +313,17 @@ function installValue() {
     // lead: they walk 1.6 m/s toward the gun
     const a = V.cfg.AMMO_BY_ID[o.id];
     let tx = mid;
+    // cluster is lobbed and burst early over the file, as it is meant to be used
+    const lofted = o.id === 'cluster';
+    let sol = null;
     for (let k = 0; k < 3; k++) {
-      const sol = V.solve(a, { x: tx, y: g.groundY(tx) + (o.id === 'canister' || o.id === 'shell' ? 0.9 : 0.15) });
+      sol = V.solve(a, { x: tx, y: g.groundY(tx) + (o.id === 'canister' || o.id === 'shell' ? 0.9 : 0.15) }, { ground: o.id !== 'canister' && o.id !== 'shell', lofted });
       tx = mid - 1.6 * (sol ? sol.t : 0.8);
     }
     const aimY = g.groundY(tx) + (o.id === 'canister' || o.id === 'shell' ? 0.9 : 0.15);
-    V.fireAt(o.id, { x: tx, y: aimY }, { sigma: 0.35, ground: o.id !== 'canister' && o.id !== 'shell' });
+    V.fireAt(o.id, { x: tx, y: aimY }, { sigma: 0.35, ground: o.id !== 'canister' && o.id !== 'shell', lofted, airburst: lofted && sol ? Math.max(0.2, sol.t - 0.9) : undefined });
     V.settle(6, 0.5);
-    return { kills: g.soldiers.filter((s) => s.dead).length, n: 4, shields: g.soldiers.filter((s) => s.shield > 0 || s.rig.shieldDropped).length };
+    return { kills: g.soldiers.filter((s) => s.dead).length, n: N, shields: g.soldiers.filter((s) => s.shield > 0 || s.rig.shieldDropped).length };
   };
 
   /** aircraft: launch one unit from a mast, fire up to 8 rounds with lead until it is down */
@@ -417,6 +421,10 @@ function installValue() {
       timber: [{ x: 30, y: 0, w: 0.6, h: 2.6, mat: 'wood' }, { x: 30.6, y: 0, w: 1.4, h: 1.2, mat: 'crate', target: 'ammo' }, { x: 32, y: 0, w: 0.6, h: 2.6, mat: 'wood' }, { x: 30, y: 2.6, w: 2.6, h: 0.5, mat: 'wood' }, { x: 33.5, y: 0, w: 2, h: 2, mat: 'wood' }, { x: 36, y: 0, w: 2, h: 2, mat: 'wood' }],
       // a tall masonry tower with the post on its top floor
       tower: [0, 1.5, 3, 4.5, 6].map((y) => ({ x: 30, y, w: 1.6, h: 1.5, mat: 'stone' })).concat([{ x: 30.2, y: 7.5, w: 1.2, h: 1, mat: 'wood', target: 'command' }]),
+      // a lookout post on a slender tower, boxed in masonry (no clean line): bring the tower down
+      topple: [0, 1, 2, 3, 4, 5].map((y) => ({ x: 30, y, w: 1.5, h: 1, mat: 'stone' })).concat([{ x: 29.7, y: 6, w: 0.4, h: 1.4, mat: 'stone' }, { x: 30.1, y: 6, w: 1, h: 1, mat: 'wood', target: 'command' }, { x: 31.1, y: 6, w: 0.4, h: 1.4, mat: 'stone' }, { x: 29.7, y: 7.4, w: 1.8, h: 0.4, mat: 'stone' }]),
+      // an open gun line: three guns 3 m apart behind a 1.2 m earth parapet (every gun must go)
+      battery: [{ x: 32, y: 0, w: 1.2, h: 1.2, mat: 'earth' }, { x: 34, y: 0, w: 1.4, h: 0.9, mat: 'steel', target: 'artillery' }, { x: 37, y: 0, w: 1.4, h: 0.9, mat: 'steel', target: 'artillery' }, { x: 40, y: 0, w: 1.4, h: 0.9, mat: 'steel', target: 'artillery' }],
     };
     const blocks = scenes[o.scene];
     const lvl = { id: 'lab', name: 'Lab', brief: '', intel: [], budget: 1, wind: [0, 0], parTime: 60, ground: [[-80, 0], [400, 0]], cannonX: 0,
@@ -430,22 +438,34 @@ function installValue() {
     const inv = {}; for (const a of V.cfg.SHOP_AMMO()) inv[a.id] = 99;
     V.hud.startBattle(inv, 0, 999999); S.mode = 'map'; g.wind = 0; g.cannonHp = 1e6;
     V.g = g; V.live = {}; V.off();
-    const tgt = g.blocks.find((b) => b.target && !b.mat.indestructible);
-    const tc = { x: tgt.def.x + tgt.def.w / 2, y: tgt.def.y + tgt.def.h / 2 };
+    const tgts = g.blocks.filter((b) => b.target && !b.mat.indestructible);
+    const multi = tgts.length > 1;
     const a = V.cfg.AMMO_BY_ID[o.id];
     const hp0 = V.hpOf(g.blocks.filter((b) => !b.mat.indestructible));
     let n = 0;
-    for (; n < 8 && !tgt.dead; n++) {
+    for (; n < 8 && tgts.some((b) => !b.dead); n++) {
+      const tgt = tgts.find((b) => !b.dead);
+      const tc = centre(tgt);
       const j = () => V.gauss() * 0.15;
+      if (multi && a.mode !== 'saboteur' && a.mode !== 'airstrike' && o.id !== 'drill') {
+        // a gun line: the gunner's solver against the next gun (cluster lobbed and burst early over the line)
+        const lofted = o.id === 'cluster';
+        const mid = o.id === 'cluster' ? { x: (tgts[0].def.x + tgts[tgts.length - 1].def.x + 1.4) / 2, y: 0.5 } : tgt;
+        const sol = V.solve(a, mid, { lofted, ground: !mid.body });
+        V.fireAt(o.id, mid, { sigma: 0.35, lofted, ground: !mid.body, airburst: lofted && sol ? Math.max(0.2, sol.t - 0.6) : undefined });
+        V.settle(25, 0.6);
+        continue;
+      }
       if (a.mode === 'saboteur') { g.sabTarget = null; g.selected = 'saboteur'; g.reload = 0; g.fire(); }
       else if (a.mode === 'airstrike') { Object.assign(g.strike, { x: tc.x, dir: 1, alt: 24, dive: 0, spacing: 1.6, ordnance: 'he' }); g.selected = 'airstrike'; g.reload = 0; g.fire(); }
       else if (o.id === 'drill') V.shoot('drill', 22, 3, 14, -4 + j());
       else if (o.id === 'cluster') { const p = V.shoot('cluster', tc.x - 8, 12 + j(), 9, 0); V.step(0.3); if (!p.dead) g.splitCluster(p); }
-      else V.shoot(o.id, 26, Math.max(0.4, tc.y) + j(), 30 * (a.speed || 1), 0);
+      else V.shoot(o.id, 26, (o.scene === 'topple' && tc.y > 5 ? 4.5 : Math.max(0.4, tc.y)) + j(), 30 * (a.speed || 1), 0);
       V.settle(25, 0.6);
     }
     V.step(o.id === 'incendiary' ? 15 : 2);
-    return { killed: tgt.dead, rounds: tgt.dead ? n : NaN, cost: tgt.dead ? n * a.price : NaN, hp: hp0 - V.hpOf(g.blocks.filter((b) => !b.mat.indestructible)) };
+    const all = tgts.every((b) => b.dead);
+    return { killed: all, rounds: all ? n : NaN, cost: all ? n * a.price : NaN, hp: hp0 - V.hpOf(g.blocks.filter((b) => !b.mat.indestructible)) };
   };
   V.shoot = (id, x, y, vx, vy) => V.g.spawnProjectile(V.cfg.AMMO_BY_ID[id], x, y, vx, vy, false, {});
 
@@ -597,7 +617,7 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
   }
 
   if (SECTIONS.includes('niche')) {
-    const scenes = ['reactive', 'earth', 'casemate', 'timber', 'tower'];
+    const scenes = ['reactive', 'earth', 'casemate', 'timber', 'tower', 'topple', 'battery'];
     const ids = ['shell', 'he', 'heavy', 'ap', 'incendiary', 'bunker', 'cluster', 'delayed', 'sticky', 'drill', 'saboteur', 'airstrike'];
     const jobs = [];
     for (const scene of scenes) for (const id of ids) for (let s = 1; s <= TRIALS; s++) jobs.push({ fn: 'nicheLab', arg: { scene, id, seed: s }, scene, id });
@@ -622,14 +642,14 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
 
   if (SECTIONS.includes('infantry')) {
     const jobs = [];
-    const lvls = [['redhill', 0], ['greywater', 0.25], ['blackcitadel', 0.55]];
-    for (const [lv, sh] of lvls) for (const id of ['canister', 'shell', 'he', 'cluster', 'flak', 'incendiary']) for (let s = 1; s <= TRIALS * 3; s++) jobs.push({ fn: 'infantryTrial', arg: { level: lv, id, seed: s, shields: sh }, lv, id });
+    const lvls = [['redhill', 0, 'redhill (no shields)', 4], ['greywater', 0.25, 'greywater (25% shields)', 4], ['greywater', 0.55, 'greywater (55% shields, late campaign)', 4], ['greywater', 0.25, 'greywater, a crowd of 8 (25% shields)', 8]];
+    for (const [lv, sh, key, n] of lvls) for (const id of ['canister', 'shell', 'he', 'cluster', 'flak', 'incendiary']) for (let s = 1; s <= TRIALS * 3; s++) jobs.push({ fn: 'infantryTrial', arg: { level: lv, id, seed: s, shields: sh, n }, lv: key, id });
     const res = await runAll(pages, jobs);
     report.infantry = {};
-    console.log('\n## Infantry: a file of 4 men walking in; one aimed round; kills');
+    console.log('\n## Infantry: a file of men (2.2 m apart) walking in; one aimed round; kills');
     console.log('| level | round | price | kills/round | kills per 100 cr |');
     console.log('|---|---|---|---|---|');
-    for (const [lv] of lvls) {
+    for (const [, , lv] of lvls) {
       report.infantry[lv] = {};
       for (const id of ['canister', 'shell', 'he', 'cluster', 'flak', 'incendiary']) {
         const rs = res.filter((x) => x.lv === lv && x.id === id && x.r).map((x) => x.r);
