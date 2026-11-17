@@ -23,6 +23,10 @@ export function startBattle(cart: Partial<Record<AmmoId, number>>, spent: number
   $('#screen').innerHTML = '';
   S.devBattle = S.save.dev;
   S.paused = false;
+  // the dev sandbox switches (god-mode gun, frozen enemy, instant reload, slow motion) carry from one dev
+  // battle to the next, but never into a scored battle
+  if (!S.devBattle) { Object.assign(S.game.dev, { freeze: false, god: false, instantReload: false }); S.timeScale = 1; }
+  withdrawArmed = 0;
   S.mouseAim = SET.mouseAim;
   S.game.start(cart, spent, budget, unlimited && S.save.dev);
   buildHud();
