@@ -694,17 +694,76 @@ test('objective_type', 'heavy', 'What a direct hit does depends on the round: a 
   return { pass: heavy && inc < 1, info: `heavy: ${heavy ? 'down' : 'standing'}; incendiary: ${inc === 1 ? 'down' : L.r(inc * 100, 0) + '% hp'}` };
 });
 
-test('engineers_slow', 'shell', 'Engineers patch one cracked block at a time, bottom first, slowly; not burning ones', () => {
+test('engineers_slow', 'shell', 'Engineers walk out, put up a scaffold and patch one cracked block at a time, bottom first, slowly; not burning ones', () => {
   const L = window.__lab;
-  const g = L.setup([{ x: 30, y: 0, w: 1, h: 1, mat: 'stone' }, { x: 30, y: 1, w: 1, h: 1, mat: 'stone' }, { x: 34, y: 0, w: 1, h: 1, mat: 'wood' },
+  const g = L.setup([{ x: 30, y: 0, w: 1, h: 1, mat: 'stone' }, { x: 30, y: 1, w: 1, h: 1, mat: 'stone' }, { x: 22, y: 0, w: 1, h: 1, mat: 'wood' },
     { x: 40, y: 0, w: 1.2, h: 1, mat: 'stone', target: 'workshop' }], { live: true });
   g.artT = g.barT = 999; g.repT = 0;
   for (const i of [0, 1]) L.b(i).hp = L.b(i).maxHp * 0.4;
   L.b(2).hp = L.b(2).maxHp * 0.5; g.ignite(L.b(2));
-  L.step(6);
+  // the crew has to walk ~10 m and put the scaffold up first
+  const t0 = L.step(40, () => g.crew.working > 0) / 60;
   const h = (i) => L.r(L.b(i).hp / L.b(i).maxHp * 100, 0);
+  const a0 = h(0);
+  L.step(6);
   const a = [h(0), h(1)];
-  return { pass: a[0] > 45 && a[0] < 70 && a[1] <= 40.5 && L.b(2).hp <= L.b(2).maxHp * 0.5, info: `after 6 s: bottom ${a[0]}%, top ${a[1]}%, burning timber ${h(2)}%` };
+  return { pass: t0 > 5 && t0 < 30 && a0 <= 41 && a[0] - a0 > 6 && a[0] - a0 < 30 && a[1] <= 40.5 && L.b(2).hp <= L.b(2).maxHp * 0.5,
+    info: `at work after ${L.r(t0, 1)} s (bottom still ${a0}%); 6 s later: bottom ${a[0]}%, top ${a[1]}%, burning timber ${h(2)}%` };
+});
+
+test('engineers_present', 'shell', 'No repair unless an engineer is at work at the block', () => {
+  const L = window.__lab;
+  const g = L.setup([{ x: 30, y: 0, w: 1.4, h: 1.2, mat: 'stone' }, { x: 40, y: 0, w: 1.2, h: 1, mat: 'stone', target: 'workshop' }], { live: true });
+  g.artT = g.barT = 999; g.repT = 0;
+  const b = L.b(0); b.hp = b.maxHp * 0.4;
+  let bad = 0, last = b.hp, worked = 0;
+  L.step(30, () => { if (b.hp > last + 1e-6 && g.crew.working === 0) bad++; if (g.crew.working) worked++; last = b.hp; });
+  return { pass: bad === 0 && worked > 0 && b.hp > b.maxHp * 0.45, info: `${bad} frames mended with nobody at work; ${L.r(worked / 60, 1)} s of hands at work, block now ${L.r(b.hp / b.maxHp * 100, 0)}%` };
+});
+
+test('engineers_killed', 'canister', 'Killing the crew stops repairs (and counts as casualties) until the workshop sends more', () => {
+  const L = window.__lab;
+  const g = L.setup([{ x: 30, y: 0, w: 1.4, h: 1.2, mat: 'stone' }, { x: 40, y: 0, w: 1.2, h: 1, mat: 'stone', target: 'workshop' }], { live: true });
+  g.artT = g.barT = 999; g.repT = 0;
+  const b = L.b(0); b.hp = b.maxHp * 0.3;
+  L.step(40, () => g.crew.working > 0);
+  const c0 = g.garrison.casualties;
+  // a canister load through the crew
+  const men = g.crew.alive.length;
+  for (const e of g.crew.alive) L.shoot('canister', e.s.x - 3, e.s.y + 0.8, 30, 0, { pellet: true });
+  L.step(0.5);
+  const killed = g.garrison.casualties - c0;
+  const hp1 = b.hp;
+  L.step(10);
+  const still = b.hp - hp1;
+  // replacements: one man every ~20 s
+  const t = L.step(60, () => g.crew.working > 0) / 60;
+  return { pass: killed === men && still < 1e-6 && g.crew.working > 0, info: `${killed}/${men} killed by canister; mended in the next 10 s: ${L.r(still, 2)} hp; a replacement at work ${L.r(t + 10.5, 0)} s after: ${g.crew.working > 0} (${g.crew.list.map((e) => e.mode + '/' + e.goal).join(' ')}, scaffold ${g.crew.scaf ? g.crew.scaf.state : '-'})` };
+});
+
+test('scaffold_cycle', 'he', 'A scaffold goes up for the job, comes down after it; a blast beside it knocks it down; a destroyed workshop ends repairs', () => {
+  const L = window.__lab;
+  const g = L.setup([{ x: 30, y: 0, w: 1.4, h: 1.2, mat: 'stone' }, { x: 30, y: 1.2, w: 1.4, h: 1.2, mat: 'stone' }, { x: 40, y: 0, w: 1.2, h: 1, mat: 'stone', target: 'workshop' }], { live: true });
+  g.artT = g.barT = 999; g.repT = 0;
+  const b = L.b(1); b.hp = b.maxHp * 0.7;
+  let up = false;
+  L.step(40, () => { if (g.crew.scaf && g.crew.scaf.built && g.crew.scaf.members.some((m) => m.mesh.visible)) up = true; return up && g.crew.working > 0; });
+  // made good, struck and taken away
+  let struck = false;
+  L.step(60, () => { if (g.crew.scaf && g.crew.scaf.state === 'strike') struck = true; return struck && !g.crew.scaf; });
+  const mended = b.hp >= b.maxHp * 0.97, gone = !g.crew.scaf;
+  // a second job: blow its scaffold down
+  b.hp = b.maxHp * 0.5;
+  L.step(40, () => g.crew.scaf && g.crew.scaf.built);
+  const had = !!(g.crew.scaf && g.crew.scaf.built);
+  g.explode(28.6, 1, 2, 60, { source: 'test' });
+  L.step(0.2);
+  const blown = had && !g.crew.scaf && g.crew.fallen.length > 0;
+  // the workshop goes: no more repairs
+  g.destroyBlock(L.b(2));
+  const hp = b.hp;
+  L.step(25);
+  return { pass: up && mended && struck && gone && blown && b.hp === hp && !g.crew.job, info: `up ${up}, block mended ${mended}, struck ${struck}, removed ${gone}; blast knocked it down ${blown}; workshop gone: mended ${L.r(b.hp - hp, 2)} hp after` };
 });
 
 // ───────────────────────── runner ─────────────────────────
