@@ -613,7 +613,7 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
     console.log('| level | aim x | landed (burrowed) | blew at | objective x | objective destroyed |');
     console.log('|---|---|---|---|---|---|');
     report.drill = dr.map((x) => ({ lv: x.lv, ...x.r }));
-    for (const x of dr) if (x.r) console.log(`| ${x.lv} | ${x.r.aimX.toFixed(1)} | ${x.r.burrowed ? x.r.land.toFixed(1) : 'no (hit a block)'} | ${x.r.blew ? x.r.blew.x.toFixed(1) + ',' + x.r.blew.y.toFixed(1) + ' r' + x.r.blew.r : '-'} | ${x.r.target.toFixed(1)} | ${!!x.r.killed} |`);
+    for (const x of dr) if (x.r) console.log(`| ${x.lv} | ${x.r.aimX.toFixed(1)} | ${x.r.burrowed ? x.r.land.toFixed(1) : 'no (hit a block)'} | ${x.r.blew ? x.r.blew.x.toFixed(1) + ',' + x.r.blew.y.toFixed(1) + ' r' + x.r.blew.r.toFixed(1) : '-'} | ${x.r.target.toFixed(1)} | ${!!x.r.killed} |`);
   }
 
   if (SECTIONS.includes('niche')) {
