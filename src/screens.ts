@@ -1,6 +1,6 @@
 import { AMMO_BY_ID, MATERIALS, SHOP_AMMO, type AmmoId } from './config';
 import { CAMPAIGN, NODE_BY_ID, devCatalog, generateCastle, nodeState } from './campaign';
-import { startBattle, targetName } from './hud';
+import { clearLabels, hideTooltip, startBattle, targetName } from './hud';
 import type { LevelDef } from './levels';
 import { BRANCHES, TECH, TECH_BY_ID, availableAmmo, canRefund, canResearch, computeStats, dependents, hasTech, missionReward, refund, research, salvageReward, writeSave, type Branch, type Reward } from './progress';
 import { $, S, icon } from './state';
@@ -9,7 +9,14 @@ import { settingsSheets, wireSettings } from './settingsui';
 
 const screen = () => $('#screen');
 const totalStars = () => Object.values(S.save.stars).reduce((a, b) => a + b, 0);
-const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
+/** off the battlefield: the HUD, the target labels of the last battle and the block inspector go */
+function offField() {
+  $('#hud').classList.add('hidden');
+  clearLabels();
+  hideTooltip();
+}
 
 function topbar(active: 'map' | 'tech' | 'armory' | 'settings' | 'picker') {
   return `<div class="topbar">
@@ -45,8 +52,7 @@ function setBattleView(level: LevelDef) {
 // ───────────────────────── Operations map ─────────────────────────
 export function showMap() {
   S.mode = 'map';
-  $('#hud').classList.add('hidden');
-  $('#labels').innerHTML = '';
+  offField();
   const stars = S.save.stars;
   const dev = S.save.dev;
   const lines = CAMPAIGN.flatMap((n) => n.from.map((f) => {
@@ -96,7 +102,7 @@ function renderDossier() {
     <div class="label">Intelligence</div>
     <ul>${lvl.intel.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>
     <div class="meta">
-      <div>Budget<b>$${Math.round(lvl.budget * stats.budgetMult)}</b></div>
+      <div>Budget<b>$${Math.round(lvl.budget * stats.budgetMult).toLocaleString()}</b></div>
       <div>Par time<b>${lvl.parTime}s</b></div>
       <div>Record<b>${best ? best.toLocaleString() : '—'}</b></div>
       <div>Stars<b style="color:#8a6a10">${'★'.repeat(s)}${'☆'.repeat(3 - s)}</b></div>
@@ -128,7 +134,7 @@ const techIcon = (n: { id: string; branch: Branch; unlocks?: AmmoId[] }) => {
 export function showTech() {
   const prevScroll = S.mode === 'tech' ? screen().querySelector('.techscreen')?.scrollTop ?? 0 : 0;
   S.mode = 'tech';
-  $('#hud').classList.add('hidden');
+  offField();
   const branches = Object.keys(BRANCHES) as Branch[];
   const col = (b: Branch) => {
     const nodes = TECH.filter((t) => t.branch === b);
@@ -192,9 +198,11 @@ const cartCost = () => (Object.keys(S.cart) as AmmoId[]).reduce((s, k) => s + (S
 export function showArmory(level: LevelDef, keepCart = false) {
   S.mode = 'armory';
   setBattleView(level);
-  $('#hud').classList.add('hidden');
+  offField();
   S.survey = false;
-  if (!keepCart) S.cart = {};
+  // the cart stays while you browse (map, research, survey) and come back to the same operation
+  if (!keepCart && S.cartFor !== level.id) S.cart = {};
+  S.cartFor = level.id;
   // a kept cart (retry) may hold rounds whose research was refunded, or cost more than the budget now allows
   const owned = new Set(availableAmmo(S.save));
   for (const id of Object.keys(S.cart) as AmmoId[]) if (!owned.has(id)) delete S.cart[id];
@@ -384,7 +392,7 @@ export function showResult(win: boolean, reason: string) {
       ${win ? '' : `<div class="label">Objectives</div><table class="objtally">${objRows}</table>`}
       ${!win ? '' : `<table>${rows.map(([k, v]) => `<tr><td>${k}</td><td style="color:${v < 0 ? '#9a2a1a' : 'inherit'}">${v.toLocaleString()}</td></tr>`).join('')}
       <tr><td><b>Total</b>${record && win ? ' <span class="rec">new record</span>' : ''}</td><td><b>${sc.total.toLocaleString()}</b></td></tr></table>`}
-      <p class="mono" style="font-size:12px;margin:0 0 4px">Time ${Math.floor(g.battleTime / 60)}:${String(Math.floor(g.battleTime % 60)).padStart(2, '0')} · Spent $${g.spentBudget}${win ? ` · Stars at ${thresholds}` : ''}</p>
+      <p class="mono" style="font-size:12px;margin:0 0 4px">Time ${Math.floor(g.battleTime / 60)}:${String(Math.floor(g.battleTime % 60)).padStart(2, '0')} · Spent $${g.spentBudget.toLocaleString()}${win ? ` · Stars at ${thresholds}` : ''}</p>
       ${earned ? `<p class="earn">+${earned.toLocaleString()} war funds <span>${reward.lines.map(([k, v]) => `${k} +${v}`).join(' · ')}</span></p>` : ''}
       ${payNote ? `<p class="mono" style="font-size:12px;opacity:.75">${payNote}</p>` : ''}
       ${nextNames.length ? `<p class="mono opened">New operation${nextNames.length > 1 ? 's' : ''} open: <b>${nextNames.map(esc).join(', ')}</b></p>` : ''}
@@ -403,7 +411,7 @@ export function showResult(win: boolean, reason: string) {
 export function showSettings() {
   const prevScroll = S.mode === 'settings' ? screen().querySelector('.settingsscreen')?.scrollTop ?? 0 : 0;
   S.mode = 'settings';
-  $('#hud').classList.add('hidden');
+  offField();
   screen().innerHTML = `<div class="settingsscreen">${topbar('settings')}
     <div class="setbar"><span class="stencil">Standing orders</span><span class="mono">Changes take effect at once and are kept in this browser.</span></div>
     ${settingsSheets(false)}
@@ -415,12 +423,13 @@ export function showSettings() {
 
 // ───────────────────────── Dev: castle picker ─────────────────────────
 let picked: LevelDef | null = null;
+const SEED_MAX = 2147483647;
 const gen = { kind: 'fort' as 'fort' | 'grand', seed: 1234, difficulty: 3, theme: 'stone' as 'timber' | 'stone' | 'concrete' | 'mixed' };
 
 export function showPicker() {
   if (!S.save.dev) { showMap(); return; }
   S.mode = 'picker';
-  $('#hud').classList.add('hidden');
+  offField();
   const scroll = screen().querySelector('.picker .castles')?.scrollTop ?? 0;
   const groups = devCatalog();
   const lv = picked ?? S.level;
@@ -444,7 +453,7 @@ export function showPicker() {
       <div class="genform">
         <span>Generator</span><div class="seg pseg"><button data-gk="fort" class="${gen.kind === 'fort' ? 'on' : ''}">Fortress</button><button data-gk="grand" class="${gen.kind === 'grand' ? 'on' : ''}">Grand</button></div>
         <span>Theme</span><div class="seg pseg">${themes.map((t) => `<button data-gt="${t}" class="${gen.theme === t ? 'on' : ''}">${t}</button>`).join('')}</div>
-        <span>Seed</span><div class="gin"><input id="pk-seed" type="number" min="1" step="1" value="${gen.seed}"><button class="btn ghost small" id="pk-roll" title="Random seed">Roll</button></div>
+        <span>Seed</span><div class="gin"><input id="pk-seed" type="number" min="1" max="${SEED_MAX}" step="1" value="${gen.seed}"><button class="btn ghost small" id="pk-roll" title="Random seed">Roll</button></div>
         <span>Difficulty</span><div class="gin"><input id="pk-diff" type="number" min="${dMin}" max="${dMax}" step="1" value="${gen.difficulty}"><i>${dMin}–${dMax}</i></div>
       </div>
       <button class="btn steel" id="pk-gen" style="width:100%;margin-top:10px">Generate</button>
@@ -459,8 +468,11 @@ export function showPicker() {
     showPicker();
   }));
   const readForm = () => {
-    gen.seed = Math.max(1, Math.floor(+$<HTMLInputElement>('#pk-seed').value || 1));
-    gen.difficulty = Math.round(+$<HTMLInputElement>('#pk-diff').value || dMin);
+    // empty, non-numeric, negative or absurd entries fall back into range (seeds are 32-bit)
+    const seed = Math.floor(+$<HTMLInputElement>('#pk-seed').value);
+    gen.seed = Number.isFinite(seed) && seed >= 1 ? Math.min(SEED_MAX, seed) : 1;
+    const d = Math.round(+$<HTMLInputElement>('#pk-diff').value);
+    gen.difficulty = Number.isFinite(d) ? Math.max(dMin, Math.min(dMax, d)) : dMin;
   };
   screen().querySelectorAll<HTMLElement>('[data-gk]').forEach((b) => b.addEventListener('click', () => { readForm(); gen.kind = b.dataset.gk as 'fort' | 'grand'; gen.difficulty = gen.kind === 'grand' ? 6 : 3; showPicker(); }));
   screen().querySelectorAll<HTMLElement>('[data-gt]').forEach((b) => b.addEventListener('click', () => { readForm(); gen.theme = b.dataset.gt as 'stone'; showPicker(); }));

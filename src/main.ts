@@ -268,6 +268,8 @@ function frame(now: number) {
     g.aimMarker.visible = false;
   }
   if (live) updateLabels();
+  // the aim readout belongs to a running battle (the report or the pause menu can come up under a still cursor)
+  if ((S.mode !== 'battle' || S.paused) && tip.style.display !== 'none') hideTip();
   if (S.mode === 'battle' || (S.mode === 'armory' && S.survey)) updateTooltip(mouse, !!down?.dragged || !overField);
   else hideTooltip();
   audio.lx = S.renderer.cx;

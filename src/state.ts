@@ -17,6 +17,8 @@ export const S = {
   nodeId: null as string | null,
   selectedNode: 'outpost',
   cart: {} as Partial<Record<AmmoId, number>>,
+  /** the level the cart was filled for: coming back to the same operation keeps it */
+  cartFor: null as string | null,
   /** dev mode: unlimited budget in the armory */
   devBudget: false,
   /** armory survey: hover blocks on the field to read them */
