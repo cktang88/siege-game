@@ -191,7 +191,6 @@ export class Game {
   /** how far the enemy gunners have walked their fall of shot onto your gun */
   bracket = 0;
   artT = 9; barT = 12; repT = 5; rebT = 14;
-  destroyedSlots: { def: BlockDef; t: number }[] = [];
   carriage!: THREE.Mesh;
   barrel!: THREE.Group;
   enemyGuns = new Map<Block, THREE.Mesh>();
@@ -260,7 +259,7 @@ export class Game {
     this.cannonHp = 100;
     this.time = 0; this.battleTime = 0;
     this.ended = false; this.running = false; this.revealed = false;
-    this.artilleryShots = 0; this.bracket = 0; this.artT = 10; this.barT = 12; this.repT = 5; this.rebT = 14; this.repairing = null; this.repairToast = false;
+    this.artilleryShots = 0; this.bracket = 0; this.artT = 10; this.barT = 12; this.repT = 5; this.rebT = 14; this.repairing = null;
     this.collateral = 0; this.enemyBlind = 0; this.winT = -1; this.idleT = 0;
     this.targetsDestroyed = {}; this.targetsTotal = {}; this.shieldsSeen = false;
     this.lastPath = [];
@@ -377,7 +376,7 @@ export class Game {
     this.crew.clear();
     this.mastSprites.clear();
     this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
-    this.pending = []; this.embers = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.gunElev.clear(); this.events = [];
+    this.pending = []; this.embers = []; this.owners.clear(); this.enemyGuns.clear(); this.gunElev.clear(); this.events = [];
     if (this.world) { this.world.free(); this.eq.free(); }
     this.r.smoke.parts.length = 0; this.r.fire.parts.length = 0; this.r.flame.parts.length = 0; this.r.debris.chunks.length = 0; this.r.lights.lights.length = 0;
   }
@@ -848,7 +847,6 @@ export class Game {
         this.pending.push({ x: t.x, y: t.y, r: 5, dmg: 200, delay: 0.05, opts: { ignite: 6, visual: 1.8, source: 'ammo' } });
       }
     } else if (!b.def.target && b.rebuilt >= 1 && !b.frag) {
-      this.destroyedSlots.push({ def: b.def, t: this.battleTime });
     }
   }
 
@@ -2234,7 +2232,6 @@ export class Game {
   updateEngineers(dt: number) {
     this.crew.update(dt, this.liveTargets('workshop').length > 0 && !this.dev.freeze && this.repT < 900);
   }
-  repairToast = false;
 
   /** later operations field shield infantry: from difficulty 4, a growing share of each draft */
   get shieldChance() { const d = this.level.difficulty ?? 0; return d >= 4 ? Math.min(0.55, 0.25 + (d - 4) * 0.08) : 0; }
