@@ -376,6 +376,34 @@ test('drill_earth', 'drill', 'Earthworks: drills cut them (HE barely scratches t
   return { pass: dr >= 0.5 && he < 0.15, info: `earth berm 3x2: drill ${L.r(dr * 100, 0)}%, HE ${L.r(he * 100, 0)}%` };
 });
 
+test('drill_under', 'drill', 'Drill tunnels under a wall and blows beneath the target behind it', () => {
+  const L = window.__lab;
+  // a masonry curtain wall, then a ground-floor magazine 3 m behind it
+  L.setup([{ x: 33, y: 0, w: 1.2, h: 3, mat: 'stone' }, { x: 37, y: 0, w: 1.4, h: 1.2, mat: 'wood', target: 'workshop' }]);
+  L.shoot('drill', 22, 3, 14, -4); L.step(5);
+  const bl = L.blasts[0];
+  return { pass: L.b(1).dead && bl && bl.x > 36.5, info: `blew at x=${bl && L.r(bl.x, 1)} (wall 33-34.2, target 37-38.4); target ${L.b(1).dead ? 'destroyed' : L.r(L.frac(1) * 100, 0) + '%'}; wall ${L.b(0).dead ? 'destroyed' : L.r(L.frac(0) * 100, 0) + '%'}` };
+});
+
+test('drill_wall', 'drill', 'A drill that strikes a wall instead of earth still goes off in it (no fizzle)', () => {
+  const L = window.__lab;
+  const run = (id, vx) => { L.setup([{ x: 30, y: 0, w: 1, h: 3, mat: 'stone' }]); L.shoot(id, 26, 1.5, vx, 0); L.step(2); return L.b(0).dead ? 1 : L.frac(0); };
+  const dr = run('drill', 30), he = run('he', 30);
+  return { pass: dr >= he * 0.8 && dr > 0.5, info: `masonry wall: drill ${L.r(dr * 100, 0)}%, HE ${L.r(he * 100, 0)}%` };
+});
+
+test('flak_infantry', 'flak', 'Flak bursting among infantry on the ground is no canister (kills only men right beside it)', () => {
+  const L = window.__lab; const g = L.setup([]);
+  for (const x of [26, 28, 30, 32]) g.spawnSoldier(x);
+  L.shoot('flak', 29, 6, 0, -12); L.step(1);
+  const f = g.soldiers.filter((s) => s.dead).length;
+  const g2 = L.setup([]);
+  for (const x of [26, 28, 30, 32]) g2.spawnSoldier(x);
+  L.shoot('he', 29, 6, 0, -12); L.step(1);
+  const h = g2.soldiers.filter((s) => s.dead).length;
+  return { pass: f <= 2 && h >= 3, info: `4 men 2 m apart, burst in the middle: flak ${f} killed, HE ${h}` };
+});
+
 test('canister_infantry', 'canister', 'Canister shreds advancing infantry', () => {
   const L = window.__lab; const g = L.setup([]);
   for (const x of [24, 25.2, 26.4, 27.6, 28.8, 30]) g.spawnSoldier(x);

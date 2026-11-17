@@ -1711,7 +1711,8 @@ export class Game {
             break;
           }
           if (p.ammo.blastRadius > 0 && !p.inert && !['delayed', 'sticky'].includes(p.ammo.id)) {
-            this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage);
+            // a flak shell striking a man is still a flak burst (thin case, little ground effect)
+            this.boom(p, p.x, p.y, p.ammo.blastRadius, p.ammo.blastDamage, p.ammo.id === 'flak' ? { flak: true, visual: 0.8 } : {});
             this.removeProjectile(p);
             break;
           }
