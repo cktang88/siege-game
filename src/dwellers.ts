@@ -191,9 +191,25 @@ export class Garrison {
     d.mesh.rotation.z = rot;
   }
 
+  /** a person stops living in their room (killed, or fled outside): the room's head count (and a
+   *  ladder destination they were bound for) gives them up */
+  private leaveRoom(d: Dweller) {
+    if (!d.person) return;
+    if (d.climb && d.ladder) {
+      // mid-climb: the room below already let them go, the one they were climbing to counted them
+      (d.climb.up ? d.ladder.b : d.ladder.a).pop--;
+      d.climb = null; d.ladder = null;
+    } else if (d.room) {
+      this.dropLadder(d);
+      d.room.pop--;
+    }
+    d.room = null;
+  }
+
   kill(d: Dweller, fling?: V2) {
     if (d.state === 'dead' || d.state === 'fled') return;
     if (d.person) {
+      if (d.state === 'home') this.leaveRoom(d);
       this.casualties++;
       if (d.origin) d.origin.dead++;
       if (fling) { d.vx = fling.x; d.vy = fling.y; }
@@ -236,6 +252,7 @@ export class Garrison {
     const low = d.y - this.g.groundY(d.x) < 0.8;
     if (atEnd && low) {
       // out of the back door and away from the fire
+      this.leaveRoom(d);
       d.state = 'fled';
       d.deadT = 0;
       d.vx = p.dir * 1.8;
