@@ -1,6 +1,7 @@
 import { AMMO, AMMO_BY_ID, PHYS, TARGETS, type AmmoId, type TargetKind } from './config';
 import type { Block } from './game';
 import { blockTip } from './screens';
+import { audio } from './audio';
 import { SET } from './settings';
 import { settingsSheets, wireSettings } from './settingsui';
 import { buildDevPanel, updateDevPanel } from './devpanel';
@@ -28,6 +29,7 @@ export function startBattle(cart: Partial<Record<AmmoId, number>>, spent: number
   if (!S.devBattle) { Object.assign(S.game.dev, { freeze: false, god: false, instantReload: false }); S.timeScale = 1; }
   withdrawArmed = 0;
   S.mouseAim = SET.mouseAim;
+  audio.cancelPending();
   S.game.start(cart, spent, budget, unlimited && S.save.dev);
   buildHud();
 }
@@ -119,6 +121,8 @@ export function togglePause(on = !S.paused) {
   if (on && (S.mode !== 'battle' || g.ended)) return;
   S.paused = on;
   document.querySelector('#pause')?.remove();
+  // a whistle queued for a shell in the air would sound over the menu (the shell itself is frozen)
+  if (on) audio.cancelPending();
   if (!on) return;
   const el = document.createElement('div');
   el.id = 'pause';

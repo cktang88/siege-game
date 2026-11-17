@@ -44,6 +44,7 @@ function wireTopbar(rerender: () => void) {
 }
 
 function setBattleView(level: LevelDef) {
+  audio.cancelPending();
   S.level = level;
   S.game.stats = computeStats(S.save);
   S.game.load(level);
@@ -330,6 +331,7 @@ function renderArmory() {
 // ───────────────────────── After-action report ─────────────────────────
 export function showResult(win: boolean, reason: string) {
   S.mode = 'result';
+  audio.cancelPending();
   const g = S.game;
   const sc = g.score();
   // taking the objectives always clears the operation, so a win is worth at least one star
