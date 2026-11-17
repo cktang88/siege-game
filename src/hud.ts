@@ -23,6 +23,10 @@ export function startBattle(cart: Partial<Record<AmmoId, number>>, spent: number
   $('#screen').innerHTML = '';
   S.devBattle = S.save.dev;
   S.paused = false;
+  // the dev sandbox switches (god-mode gun, frozen enemy, instant reload, slow motion) carry from one dev
+  // battle to the next, but never into a scored battle
+  if (!S.devBattle) { Object.assign(S.game.dev, { freeze: false, god: false, instantReload: false }); S.timeScale = 1; }
+  withdrawArmed = 0;
   S.mouseAim = SET.mouseAim;
   S.game.start(cart, spent, budget, unlimited && S.save.dev);
   buildHud();
@@ -131,7 +135,10 @@ export function togglePause(on = !S.paused) {
     el.querySelector('[data-p="resume"]')!.addEventListener('click', () => togglePause(false));
     el.querySelector('[data-p="settings"]')!.addEventListener('click', settings);
     const w = el.querySelector<HTMLElement>('[data-p="withdraw"]')!;
+    // the objectives are down and the win is counting in: there is nothing left to abandon
+    if (g.winT >= 0) { w.setAttribute('disabled', ''); w.title = 'The objectives are taken'; }
     w.addEventListener('click', () => {
+      if (g.ended || g.winT >= 0) return;
       if (w.classList.contains('armed')) { togglePause(false); g.end(false, 'You withdrew from the field.'); return; }
       w.classList.add('armed');
       w.textContent = 'Confirm withdraw';
@@ -310,7 +317,9 @@ function buildFcp() {
   const bindRange = (id: string, set: (v: number) => void) => {
     const el = fcp.querySelector<HTMLInputElement>(`#${id}`);
     el?.addEventListener('input', () => set(+el.value));
-    el?.addEventListener('change', () => el.blur());
+    // a slider set with the mouse hands the keys back to the battle; one stepped with the keyboard keeps them,
+    // so its arrows can step it again (blurring on 'change' dropped focus after the first arrow press)
+    el?.addEventListener('pointerup', () => el.blur());
   };
   bindRange('s-alt', (v) => { g.strike.alt = v; });
   bindRange('s-dive', (v) => { g.strike.dive = v; });
@@ -535,7 +544,7 @@ export function clearLabels() { labels.forEach((el) => el.remove()); labels.clea
 const hits = new Map<Block, { hp: number; el: HTMLElement | null; t: number; v: number }>();
 function targetFloater(x: number, y: number, text: string, color: string, big = false) {
   const box = document.querySelector<HTMLElement>('#floaters');
-  if (!box || x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return null;
+  if (!box || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return null;
   const el = document.createElement('div');
   el.className = `floater tgt ${big ? 'big' : ''}`;
   el.style.color = color;
@@ -618,8 +627,10 @@ export function updateTooltip(mouse: { x: number; y: number }, hide: boolean) {
   if (walled) tip.innerHTML = blockTip(walled, false, 0, 0, undefined, false, false);
   else tip.innerHTML = blockTip(S.game.shownMat(b), known, b.hp, b.maxHp, b.target ? TARGETS[b.target].label : undefined, !!b.highlight, b.burning > 0);
   tip.classList.remove('hidden');
-  tip.style.left = `${Math.min(mouse.x + 16, window.innerWidth - tip.offsetWidth - 8)}px`;
-  tip.style.top = `${mouse.y + 18 + tip.offsetHeight > window.innerHeight - 8 ? mouse.y - tip.offsetHeight - 10 : mouse.y + 18}px`;
+  // (its size on screen includes the UI scale, which is a transform)
+  const r = tip.getBoundingClientRect();
+  tip.style.left = `${Math.max(4, Math.min(mouse.x + 16, window.innerWidth - r.width - 8))}px`;
+  tip.style.top = `${mouse.y + 18 + r.height > window.innerHeight - 8 ? Math.max(4, mouse.y - r.height - 10) : mouse.y + 18}px`;
 }
 
 export const MIN_SPEED = PHYS.minSpeed;

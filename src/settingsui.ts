@@ -87,7 +87,8 @@ export function wireSettings(root: HTMLElement, rerender: () => void) {
       // a short tick so the effects level can be heard while dragging
       if (k === 'sfx' || k === 'master') audio.play('click');
     });
-    el.addEventListener('change', () => el.blur());
+    // mouse: let go of the keys afterwards; keyboard: keep focus so the arrows can keep stepping
+    el.addEventListener('pointerup', () => el.blur());
   });
   root.querySelectorAll<HTMLElement>('[data-b]').forEach((b) => b.addEventListener('click', () => {
     const k = b.dataset.b as BoolKey;
