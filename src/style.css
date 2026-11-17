@@ -212,10 +212,11 @@ button { font: inherit; color: inherit; }
 .windvane svg { width: 38px; height: 14px; }
 
 #rack { position: absolute; bottom: 12px; left: 444px; right: 12px; display: flex; gap: 3px; padding: 8px 10px 6px; overflow-x: auto; width: max-content; max-width: calc(100vw - 456px); }
-@media (max-width: 1000px) { #rack { left: 12px; bottom: auto; top: 140px; max-width: calc(100vw - 24px); } }
 .slot { position: relative; width: 68px; padding: 4px 2px 4px; text-align: center; cursor: pointer; background: rgba(0, 0, 0, 0.3); border: 0; border-bottom: 3px solid transparent; flex: none; }
 .slot img { width: 46px; height: 46px; object-fit: contain; display: block; margin: 0 auto; filter: drop-shadow(0 2px 2px #000); }
-.slot .nm { font: 600 11px/1 var(--ui); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--bone-dim); margin-top: 3px; }
+.slot .nm { font: 600 11px/1 var(--ui); letter-spacing: 0.04em; text-transform: uppercase; color: var(--bone-dim); margin-top: 3px;
+  /* long names (Armor-Piercing, High Explosive) take a second line instead of an ellipsis */
+  min-height: 2em; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: break-word; }
 .slot .ct { position: absolute; top: 2px; right: 4px; font: 700 13px var(--mono); color: var(--amber); }
 .slot .key { position: absolute; top: 2px; left: 4px; font: 10px var(--mono); color: #777; }
 .slot.sel { border-bottom-color: var(--signal); background: rgba(255, 90, 31, 0.15); }
@@ -267,7 +268,7 @@ button { font: inherit; color: inherit; }
 .tlabel .hp { height: 3px; margin-top: 3px; background: rgba(255, 255, 255, 0.15); }
 .tlabel .hp i { display: block; height: 100%; background: currentColor; }
 .tlabel.obj::before { content: '◆ '; }
-#help { position: absolute; bottom: 2px; right: 12px; max-width: calc(100vw - 640px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 10.5px var(--mono); color: rgba(226, 220, 203, 0.5); animation: helpfade 2s ease 25s forwards; }
+#help { position: absolute; bottom: 0; line-height: 12px; right: 12px; max-width: calc(100vw - 640px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 10.5px var(--mono); color: rgba(226, 220, 203, 0.5); animation: helpfade 2s ease 25s forwards; }
 #help:hover { animation: none; opacity: 1; white-space: normal; }
 @keyframes helpfade { to { opacity: 0.12; } }
 @media (max-width: 1000px) { #help { display: none; } }
@@ -336,7 +337,6 @@ button { font: inherit; color: inherit; }
 #coach { position: absolute; left: 444px; bottom: 116px; max-width: min(560px, calc(100vw - 460px)); padding: 9px 22px 8px 14px; font: 13px/1.4 var(--mono); color: var(--bone);
   border-left: 4px solid var(--signal); animation: tin 0.3s ease-out; }
 #coach b { color: var(--amber); }
-@media (max-width: 1000px) { #coach { bottom: 12px; } }
 /* armory: the rack only takes the height it needs, so the fortress shows below it */
 .armory .rack { align-self: start; max-height: 100%; }
 #hud #coach { pointer-events: none; }
@@ -455,3 +455,5 @@ button { font: inherit; color: inherit; }
 .gin input { width: 92px; height: 28px; font: 700 14px var(--mono); background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(44, 39, 33, 0.5); color: var(--paper-ink); padding: 0 6px; }
 .gin i { font-style: normal; opacity: 0.7; }
 @media (max-width: 900px) { .picker .castles { right: 16px; width: auto; bottom: 330px; } }
+/* narrow screens: the rack shares the bottom edge with the fire-control plate, so its slots run narrow */
+@media (max-width: 1000px) { #rack .slot .nm { font-size: 9.5px; letter-spacing: 0; } }
