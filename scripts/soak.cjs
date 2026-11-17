@@ -121,7 +121,14 @@ function installSoak() {
       g.__soakWrapped = true;
       const ox = g.explode.bind(g);
       g.explode = (...a) => { K.blasts++; return ox(...a); };
+      // per-part timing, reported with each spike
+      K.T = {};
+      const wrap = (obj, name, key) => { const o = obj[name].bind(obj); obj[name] = (...a) => { const t = performance.now(); try { return o(...a); } finally { K.T[key] = (K.T[key] || 0) + performance.now() - t; } }; };
+      for (const n of ['updateBlocks', 'updateProjectiles', 'updatePending', 'updateSoldiers', 'updateAir', 'updateEnemy', 'syncMeshes']) wrap(g, n, n);
+      wrap(g.frac, 'update', 'fracture'); wrap(g.garrison, 'update', 'garrison'); wrap(g.air, 'update', 'aircraft'); wrap(g.motor, 'update', 'vehicles');
     }
+    // the physics world is new on every load
+    { const w = g.world, o = w.step.bind(w); w.step = (...a) => { const t = performance.now(); o(...a); K.T.physics = (K.T.physics || 0) + performance.now() - t; }; }
     K.vehStuck = new Map();
     K.seen = { maxBlocks: 0, maxProj: 0, maxParts: 0, maxRoot: 0, maxLights: 0, maxRubble: 0 };
     return { id: lvl.id, blocks: g.blocks.length, rooms: g.garrison.rooms.list.length, hidden: g.garrison.rooms.concealed, objectives: lvl.objectives.join('+') };
@@ -217,7 +224,8 @@ function installSoak() {
     if (!fin(r.cx) || !fin(r.cy) || !fin(r.viewH) || r.viewH <= 0) V('nan', `camera ${r.cx},${r.cy},${r.viewH}`);
     if (!fin(g.cannonHp) || !fin(g.collateral)) V('nan', `cannonHp ${g.cannonHp} collateral ${g.collateral}`);
     // engineers only patch whole, still, unburnt, non-objective blocks
-    const rp = g.repairing;
+    // (only while the enemy is active: after the battle ends the crew's last job is simply left as it was)
+    const rp = g.running && !g.ended ? g.repairing : null;
     if (rp) {
       if (rp.dead) V('engineer', `repairing dead block ${rp.id}`);
       else if (g.frac.isRubble(rp)) V('engineer', `repairing rubble ${rp.id}`);
@@ -321,6 +329,7 @@ function installSoak() {
         }
       }
       const b0 = K.blasts, s0 = g.frac.stats.splits + g.frac.stats.pieces;
+      for (const k in K.T) K.T[k] = 0;
       const t0 = performance.now();
       try { g.update(1 / 60); } catch (e) {
         V('exception', `update: ${e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : e}`);
@@ -332,7 +341,8 @@ function installSoak() {
       if (ms > (opts.spike || 50)) {
         K.slow++;
         if (K.spikes.length < 8 || ms > Math.min(...K.spikes.map((s) => s.ms))) {
-          K.spikes.push({ ms: +ms.toFixed(1), t: +g.battleTime.toFixed(2), blasts: K.blasts - b0, split: g.frac.stats.splits + g.frac.stats.pieces - s0, live: g.blocks.filter((b) => !b.dead).length, proj: g.projectiles.length, act: K.lastAct, burning: g.blocks.filter((b) => !b.dead && b.burning > 0).length });
+          K.spikes.push({ ms: +ms.toFixed(1), t: +g.battleTime.toFixed(2), blasts: K.blasts - b0, split: g.frac.stats.splits + g.frac.stats.pieces - s0, live: g.blocks.filter((b) => !b.dead).length, proj: g.projectiles.length, act: K.lastAct, burning: g.blocks.filter((b) => !b.dead && b.burning > 0).length,
+            parts: Object.entries(K.T).filter(([, v]) => v > 3).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(', ') });
           K.spikes.sort((a, b) => b.ms - a.ms); K.spikes.length = Math.min(8, K.spikes.length);
         }
       }
@@ -471,7 +481,7 @@ if (require.main === module) (async () => {
   console.log(`battles ended: ${results.filter((r) => r.st.ended).length}/${results.length} (finite racks: ${results.filter((r) => r.seed % 2 === 1 && r.st.ended).length}/${results.filter((r) => r.seed % 2 === 1).length})`);
   console.log(`update ms: mean of means ${(results.reduce((s, r) => s + (r.st.avgMs || 0), 0) / Math.max(1, results.length)).toFixed(2)}, max ${Math.max(...results.map((r) => r.st.maxMs || 0))}, steps > ${SPIKE} ms: ${results.reduce((s, r) => s + (r.st.slow || 0), 0)}`);
   console.log('worst steps:');
-  for (const w of worst) console.log(`  ${w.ms} ms  ${w.id} s${w.seed} t=${w.t} blasts=${w.blasts} splitPieces=${w.split} live=${w.live} proj=${w.proj} burning=${w.burning} lastAct=${w.act}`);
+  for (const w of worst) console.log(`  ${w.ms} ms  ${w.id} s${w.seed} t=${w.t} blasts=${w.blasts} splitPieces=${w.split} live=${w.live} proj=${w.proj} burning=${w.burning} lastAct=${w.act} [${w.parts}]`);
   await browser.close();
   process.exitCode = hard.length || (leak && leak.grew) ? 1 : 0;
 })();
