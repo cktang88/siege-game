@@ -640,6 +640,19 @@ test('objective_near', 'he', 'Two near misses (HE landing beside it) knock out a
   return { pass: !one && L.b(0).dead, info: `after one: ${one ? 'down' : 'standing'}; after two: ${L.b(0).dead ? 'down' : 'standing'}` };
 });
 
+test('objective_angle', 'shell', 'A glancing or slow hit on an objective does far less than a square, fast one', () => {
+  const L = window.__lab;
+  // square on at 26 m/s
+  L.setup([{ x: 30, y: 0, w: 1.6, h: 1.4, mat: 'stone', target: 'barracks' }]);
+  L.shoot('shell', 26, 0.7, 26, 0); L.step(1);
+  const square = L.b(0).dead;
+  // slow lob dropping on it at ~8 m/s
+  L.setup([{ x: 30, y: 0, w: 1.6, h: 1.4, mat: 'stone', target: 'barracks' }]);
+  L.shoot('shell', 30, 3.2, 0, -2); L.step(1);
+  const slow = L.b(0).dead ? 1 : L.frac(0);
+  return { pass: square && slow < 0.75, info: `square 26 m/s: ${square ? 'down' : 'standing'}; slow drop: ${slow === 1 ? 'down' : L.r(slow * 100, 0) + '% hp'}` };
+});
+
 // ───────────────────────── runner ─────────────────────────
 module.exports = { installLab };
 if (require.main === module) (async () => {

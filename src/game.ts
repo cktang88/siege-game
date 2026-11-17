@@ -726,13 +726,18 @@ export class Game {
 
   /**
     Objectives are the soft heart of a work (a map table, a powder store, a radio room), not its walls:
-    a real shell striking one squarely knocks it out. Glancing hits (ricochets go elsewhere), canister
-    pellets and spent rounds (under 9 m/s) do their ordinary damage.
+    a shell striking one squarely and hard knocks it out. What counts is the velocity along the face
+    normal (speed x cos of the obliquity): 15 m/s or more square-on is a kill; below that the hit does a
+    share falling to a third at 6 m/s, and under 6 m/s (a spent or badly glancing round) only its
+    ordinary damage. Rounds past the ricochet angle glance off before they get here. Canister pellets,
+    smoke and flak do their ordinary damage.
   */
-  objectiveHit(b: Block, p: Projectile, speed: number) {
-    if (!b.target || p.enemy || p.pellet || speed < 9) return 0;
+  objectiveHit(b: Block, p: Projectile, speed: number, cosI = 1) {
+    if (!b.target || p.enemy || p.pellet) return 0;
     if (p.ammo.id === 'smoke' || p.ammo.id === 'flak') return 0;
-    return b.maxHp * 1.05;
+    const vn = speed * cosI;
+    if (vn < 6) return 0;
+    return b.maxHp * 1.05 * Math.min(1, 0.34 + 0.66 * (vn - 6) / 9);
   }
 
   damageBlock(b: Block, dmg: number, cause = '') {
@@ -1171,7 +1176,7 @@ export class Game {
     }
     if (speed > 6 && !p.impacted) this.garrison.blast(t.x, t.y, 0.7);
     const kin = a.kinetic * (speed / 30) ** 2 * cosI;
-    if (block && !p.impacted) this.damageBlock(block, Math.max(kin * block.mat.kinetic, this.objectiveHit(block, p, speed)));
+    if (block && !p.impacted) this.damageBlock(block, Math.max(kin * block.mat.kinetic, this.objectiveHit(block, p, speed, cosI)));
     if (house && !p.impacted) this.damageHouse(house, kin * 0.6);
 
     if (p.bomblet) {
@@ -1351,7 +1356,7 @@ export class Game {
           p.x += dir.x * 0.01; p.y += dir.y * 0.01;
           continue;
         }
-        this.damageBlock(b, Math.max(p.pen * b.mat.pierce * cosI, this.objectiveHit(b, p, Math.hypot(p.vx, p.vy))));
+        this.damageBlock(b, Math.max(p.pen * b.mat.pierce * cosI, this.objectiveHit(b, p, Math.hypot(p.vx, p.vy), cosI)));
         if (b.matId === 'steel' && a.id === 'ap') this.toast('Armor plate stopped the AP round.', 'info');
         // never hand a destroyed block (its Rapier body is freed) to the embed code
         this.penetratorStop(p, dir, b.dead ? undefined : b);
