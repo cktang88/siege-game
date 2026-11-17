@@ -317,7 +317,9 @@ function buildFcp() {
   const bindRange = (id: string, set: (v: number) => void) => {
     const el = fcp.querySelector<HTMLInputElement>(`#${id}`);
     el?.addEventListener('input', () => set(+el.value));
-    el?.addEventListener('change', () => el.blur());
+    // a slider set with the mouse hands the keys back to the battle; one stepped with the keyboard keeps them,
+    // so its arrows can step it again (blurring on 'change' dropped focus after the first arrow press)
+    el?.addEventListener('pointerup', () => el.blur());
   };
   bindRange('s-alt', (v) => { g.strike.alt = v; });
   bindRange('s-dive', (v) => { g.strike.dive = v; });
