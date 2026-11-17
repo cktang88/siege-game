@@ -4,6 +4,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { DECAL_GLSL, markUniforms } from './decals';
+import { FireFX } from './fx';
 
 // ───────────────────────── Shaders ─────────────────────────
 const NOISE = /* glsl */ `
@@ -64,7 +66,10 @@ export class LightPool {
     for (let k = 0; k < n; k++) {
       const l = ls[k];
       const fade = l.key ? 1 : (l.life / l.max) ** 1.5;
-      const fl = 1 - l.flicker * (0.5 + 0.5 * Math.sin(time * 23 + k * 7.1) * Math.sin(time * 13.7 + k));
+      // phase from the light's position (not its slot, which reshuffles as lights come and go), two
+      // incommensurate rates plus a slow swell: fires gutter rather than strobe
+      const ph = l.x * 1.37 + l.y * 0.71;
+      const fl = 1 - l.flicker * (0.5 + 0.35 * Math.sin(time * 23 + ph) * Math.sin(time * 13.7 + ph * 1.3) + 0.15 * Math.sin(time * 3.1 + ph * 0.5));
       const I = l.i * fade * fl;
       LIGHTS.uLightPos.value[k].set(l.x, l.y, l.r, 0);
       LIGHTS.uLightCol.value[k].set(l.c[0] * I, l.c[1] * I, l.c[2] * I);
@@ -130,20 +135,24 @@ export function blockGeometry(w: number, h: number, poly?: [number, number][]) {
 }
 
 const blockFrag = /* glsl */ `
-uniform vec3 uColor; uniform vec2 uSize; uniform float uKind; uniform float uDamage; uniform float uBurn;
+uniform vec3 uColor; uniform vec2 uSize; uniform float uKind; uniform float uDamage; uniform float uBurn; uniform float uAlight;
 uniform float uFlash; uniform float uHighlight; uniform float uSeed; uniform float uTime; uniform float uTarget; uniform vec3 uTargetColor;
 uniform float uFade;
+// pattern space: a fractured piece draws the part of the original block it came from (uOff = its place in it, uFull = the original's size)
+uniform vec2 uOff; uniform vec2 uFull;
 varying vec2 vUv; varying vec2 vWorld; varying vec4 vDA; varying vec4 vDB;
 ${NOISE}
 ${LIGHT_GLSL}
+${DECAL_GLSL}
 void main(){
-  vec2 p = vUv * uSize;            // meters
+  vec2 p = vUv * uSize + uOff;     // meters
+  vec2 fullSz = uFull.x > 0.0 ? uFull : uSize;
   vec2 px = fwidth(p);             // meters per pixel
   vec3 col = uColor;
   float line = 0.0;                // seams (0..1)
   float k = uKind;
   if (k < 0.5) {                   // wood planks
-    bool horiz = uSize.x >= uSize.y;
+    bool horiz = fullSz.x >= fullSz.y;
     vec2 q = horiz ? p : p.yx;
     float pw = 0.28; float row = floor(q.y / pw);
     float grain = fbm(vec2(q.x * 1.2, q.y * 14.0 + row * 7.0 + uSeed));
@@ -187,21 +196,21 @@ void main(){
     line = max(line, 1.0 - smoothstep(0.01, 0.01 + px.x * 1.5, min(d.x, d.y)));
   } else if (k < 6.5) {            // munitions crates
     float slat = fract(p.y / 0.22); col *= 0.9 + 0.1 * step(0.5, slat);
-    vec2 d2 = min(vUv, 1.0 - vUv) * uSize;
+    vec2 d2 = min(p, fullSz - p);
     float frame = step(min(d2.x, d2.y), 0.09);
     col = mix(col, col * 0.7, frame);
     // diagonal brace
-    vec2 n = normalize(vec2(uSize.y, -uSize.x));
+    vec2 n = normalize(vec2(fullSz.y, -fullSz.x));
     float diag = abs(dot(p - vec2(0.0), n));
     col = mix(col * 0.75, col, smoothstep(0.05, 0.06, diag));
     // hazard stencil
-    vec2 c = p - uSize * .5; float stencil = step(abs(c.x), 0.22) * step(abs(c.y), 0.13);
+    vec2 c = p - fullSz * .5; float stencil = step(abs(c.x), 0.22) * step(abs(c.y), 0.13);
     col = mix(col, vec3(0.85, 0.65, 0.2), stencil * step(0.5, fract((c.x + c.y) * 6.0)));
   } else if (k < 8.5) {            // earthworks: rammed strata with stones and a turf cap
     col *= 0.86 + 0.22 * fbm(p * 2.5 + uSeed);
     col *= 0.93 + 0.07 * step(0.5, fract(p.y * 2.2 + fbm(p) * 0.6));
     col = mix(col, col * 1.35, step(0.86, vnoise(p * 7.0)));
-    if (uSize.y - p.y < 0.22) col = vec3(0.38, 0.47, 0.25) * (0.9 + 0.2 * fbm(p * 8.0));
+    if (fullSz.y - p.y < 0.22) col = vec3(0.38, 0.47, 0.25) * (0.9 + 0.2 * fbm(p * 8.0));
   } else if (k < 9.5) {            // clay roof tiles: scalloped courses
     float row = floor(p.y / 0.24);
     float fx = fract(p.x / 0.32 + mod(row, 2.0) * 0.5);
@@ -211,7 +220,7 @@ void main(){
     col *= mix(0.7, 1.08, smoothstep(0.0, 0.3, scallop));
   } else if (k < 10.5) {           // plaster over timber framing
     col *= 0.96 + 0.06 * fbm(p * 4.0 + uSeed);
-    vec2 d2 = min(vUv, 1.0 - vUv) * uSize;
+    vec2 d2 = min(p, fullSz - p);
     float post = step(abs(fract(p.x / 1.4) - 0.5) * 1.4, 0.09);
     float frame = max(post, step(min(d2.y, 9.0), 0.16));
     col = mix(col, vec3(0.24, 0.17, 0.12), frame);
@@ -219,15 +228,15 @@ void main(){
     col *= 0.9 + 0.14 * smoothstep(0.0, 1.0, sin(p.x * 2.0 + uSeed) * 0.5 + 0.5);
     float seam = step(abs(fract(p.y / 1.2) - 0.5) * 1.2, 0.02);
     col *= 1.0 - seam * 0.35;
-    float band = step(abs(p.y - uSize.y * 0.6), 0.18);
+    float band = step(abs(p.y - fullSz.y * 0.6), 0.18);
     col = mix(col, mix(vec3(0.85, 0.65, 0.12), vec3(0.12), step(0.5, fract((p.x + p.y) * 2.5))), band);
   } else {                         // bedrock
     col *= 0.85 + 0.25 * fbm(p * 2.0);
   }
   // target tint band
   if (uTarget > 0.5) {
-    vec2 c = p - uSize * .5;
-    float band = step(abs(c.y - uSize.y * 0.18), 0.12);
+    vec2 c = p - fullSz * .5;
+    float band = step(abs(c.y - fullSz.y * 0.18), 0.12);
     col = mix(col, uTargetColor, band * 0.85);
   }
   col *= 1.0 - line * 0.45;
@@ -244,23 +253,32 @@ void main(){
   float bev = 0.07;
   float lit = 1.0;
   if (dmin < bev) { float k = dot(nrm, normalize(vec2(-0.6, 0.8))); lit = k > 0.3 ? 1.18 : k < -0.3 ? 0.72 : 1.0; }
-  lit *= mix(0.9, 1.0, step(0.45, vUv.y));
+  lit *= mix(0.9, 1.0, step(0.45, p.y / fullSz.y));
   col *= lit;
 
-  // cracks
-  if (uDamage > 0.02) {
-    float ve = voronoiEdge(p * 2.2 + uSeed * 3.0);
-    float mask = step(fbm(p * 1.7 + uSeed), uDamage * 1.15);
-    float crack = (1.0 - smoothstep(0.0, 0.035 + px.x, ve)) * mask;
-    col = mix(col, col * 0.25, crack);
-    col *= 1.0 - uDamage * 0.18;
-  }
-  // charring + embers
+  // marks (craters, scorch, holes, dents) and cracks: src/decals.ts
+  col = blockMarks(col, p, px.x, fullSz.x >= fullSz.y);
+  // charring: a patchy front eats in from noise blotches; behind it alligatored charcoal whose cracks
+  // glow and pulse while alight (uAlight), going cold and ashy once the fire is out
   if (uBurn > 0.01) {
-    float n = fbm(p * 3.0 + vec2(0.0, -uTime * 0.6));
-    col = mix(col, col * 0.25, clamp(uBurn * 1.2, 0.0, 0.85));
-    float ember = smoothstep(0.62, 0.8, n) * uBurn;
-    col += vec3(2.4, 0.9, 0.2) * ember;
+    float n = fbm(p * 1.6 + uSeed * 1.7);
+    float front = uBurn * 1.35 - 0.15;
+    float charM = smoothstep(n - 0.06, n + 0.06, front);
+    float ve = voronoiEdge(p * 3.2 + uSeed * 5.0);
+    // alligatored charcoal: each cell a block with a sheen toward its middle, dark seams between
+    vec3 charCol = uColor * 0.16 + vec3(0.035, 0.03, 0.028);
+    charCol *= 0.75 + 0.55 * smoothstep(0.04, 0.16, ve);
+    col = mix(col, charCol, charM);
+    // scorch halo ahead of the front
+    col *= 1.0 - 0.45 * (1.0 - smoothstep(0.0, 0.18, n - front)) * (1.0 - charM);
+    float crack = (1.0 - smoothstep(0.015, 0.045 + px.x, ve)) * charM;
+    float pulse = 0.55 + 0.45 * sin(uTime * 2.7 + n * 14.0 + uSeed);
+    float edgeGlow = (1.0 - smoothstep(0.0, 0.07, abs(n - front))) * uAlight;
+    float glow = clamp(crack * uAlight * pulse + edgeGlow * 0.9, 0.0, 1.0);
+    vec3 hot = mix(vec3(0.75, 0.16, 0.04), vec3(1.15, 0.62, 0.14), step(0.72, glow));
+    col = mix(col, hot, step(0.28, glow));
+    // once cold, a little pale ash settles on the cell tops
+    col = mix(col, vec3(0.4, 0.38, 0.36), step(0.84, vnoise(p * 16.0 + uSeed)) * step(0.1, ve) * charM * (1.0 - uAlight) * 0.6);
   }
   // outline
   float edge = dmin / mpp;
@@ -288,6 +306,7 @@ export function makeBlockMaterial(color: [number, number, number], w: number, h:
       uKind: { value: kind },
       uDamage: { value: 0 },
       uBurn: { value: 0 },
+      uAlight: { value: 0 },
       uFlash: { value: 0 },
       uHighlight: { value: 0 },
       uSeed: { value: Math.random() * 100 },
@@ -295,6 +314,9 @@ export function makeBlockMaterial(color: [number, number, number], w: number, h:
       uTarget: { value: 0 },
       uTargetColor: { value: new THREE.Color(1, 0, 0) },
       uFade: { value: 1 },
+      uOff: { value: new THREE.Vector2(0, 0) },
+      uFull: { value: new THREE.Vector2(0, 0) },
+      ...markUniforms(kind),
       ...LIGHTS,
     },
   });
@@ -385,113 +407,9 @@ void main(){
 `;
 
 // ───────────────────────── Particles ─────────────────────────
-const partVert = /* glsl */ `
-attribute float aSize; attribute vec3 aColor; attribute float aAlpha; attribute float aKind;
-uniform float uPx; varying vec3 vColor; varying float vAlpha; varying float vKind;
-void main(){ vColor = aColor; vAlpha = aAlpha; vKind = aKind;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  gl_PointSize = aSize * uPx; }
-`;
-const partFrag = /* glsl */ `
-varying vec3 vColor; varying float vAlpha; varying float vKind;
-void main(){
-  vec2 c = gl_PointCoord - 0.5; float d = length(c) * 2.0;
-  if (d > 1.0 || vAlpha <= 0.0) discard;
-  vec3 col = vColor;
-  if (vKind < 0.5) { // smoke: toon puff with darker rim and lit top
-    float lit = step(0.0, -c.y + c.x * 0.3 - 0.05);
-    col *= mix(0.82, 1.08, lit);
-    col *= mix(1.0, 0.82, step(0.82, d));
-  } else if (vKind < 1.5) { // fire (additive): hot core
-    col = mix(col * 1.8, col, step(0.45, d));
-  } else {          // flame (opaque): cel tongue, pale hot core, inked tip edge; saturates instead of stacking to white
-    col = mix(col * 1.3 + vec3(0.25, 0.18, 0.02), col, step(0.42, d));
-    col *= mix(1.0, 0.7, step(0.86, d));
-  }
-  gl_FragColor = vec4(col, vAlpha);
-}
-`;
-
-export interface Particle {
-  x: number; y: number; vx: number; vy: number;
-  life: number; max: number;
-  size0: number; size1: number;
-  c0: [number, number, number]; c1: [number, number, number];
-  a0: number; a1: number;
-  drag: number; grav: number;
-}
-
-export class ParticlePool {
-  points: THREE.Points;
-  parts: Particle[] = [];
-  private geo: THREE.BufferGeometry;
-  private attrs: THREE.BufferAttribute[];
-  private pos: Float32Array; private size: Float32Array; private col: Float32Array; private alpha: Float32Array; private kindA: Float32Array;
-  material: THREE.ShaderMaterial;
-  /** kind: 0 smoke puff, 1 additive fire/sparks, 2 opaque cel flame (drawn between the two) */
-  constructor(public max: number, public additive: boolean, z: number, kind = additive ? 1 : 0) {
-    this.geo = new THREE.BufferGeometry();
-    this.pos = new Float32Array(max * 3);
-    this.size = new Float32Array(max);
-    this.col = new Float32Array(max * 3);
-    this.alpha = new Float32Array(max);
-    this.kindA = new Float32Array(max).fill(kind);
-    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
-    this.geo.setAttribute('aSize', new THREE.BufferAttribute(this.size, 1));
-    this.geo.setAttribute('aColor', new THREE.BufferAttribute(this.col, 3));
-    this.geo.setAttribute('aAlpha', new THREE.BufferAttribute(this.alpha, 1));
-    this.geo.setAttribute('aKind', new THREE.BufferAttribute(this.kindA, 1));
-    this.material = new THREE.ShaderMaterial({
-      vertexShader: partVert, fragmentShader: partFrag, transparent: true, depthWrite: false, depthTest: false,
-      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, uniforms: { uPx: { value: 10 } },
-    });
-    this.attrs = ['position', 'aSize', 'aColor', 'aAlpha'].map((n) => this.geo.getAttribute(n) as THREE.BufferAttribute);
-    for (const a of this.attrs) a.setUsage(THREE.DynamicDrawUsage);
-    this.points = new THREE.Points(this.geo, this.material);
-    this.points.frustumCulled = false;
-    this.points.position.z = z;
-    this.points.renderOrder = additive ? 20 : kind === 2 ? 17 : 15;
-  }
-  private evict = 0;
-  spawn(p: Partial<Particle> & { x: number; y: number }) {
-    const max = p.max ?? 1;
-    const np = { vx: 0, vy: 0, size0: 1, size1: 1, c0: [1, 1, 1], c1: [1, 1, 1], a0: 1, a1: 0, drag: 0, grav: 0, ...p, life: 0, max } as Particle;
-    // full: overwrite round-robin (O(1)) rather than shifting the whole array for every spawn
-    if (this.parts.length >= this.max) this.parts[this.evict++ % this.max] = np;
-    else this.parts.push(np);
-  }
-  update(dt: number) {
-    const ps = this.parts;
-    let w = 0;
-    for (let i = 0; i < ps.length; i++) {
-      const p = ps[i];
-      p.life += dt;
-      if (p.life >= p.max) continue;
-      p.vy += p.grav * dt;
-      const d = Math.exp(-p.drag * dt);
-      p.vx *= d; p.vy *= d;
-      p.x += p.vx * dt; p.y += p.vy * dt;
-      ps[w++] = p;
-    }
-    ps.length = w;
-    const pos = this.pos, col = this.col;
-    for (let i = 0; i < w; i++) {
-      const p = ps[i];
-      const t = p.life / p.max;
-      pos[i * 3] = p.x; pos[i * 3 + 1] = p.y;
-      this.size[i] = p.size0 + (p.size1 - p.size0) * t;
-      col[i * 3] = p.c0[0] + (p.c1[0] - p.c0[0]) * t;
-      col[i * 3 + 1] = p.c0[1] + (p.c1[1] - p.c0[1]) * t;
-      col[i * 3 + 2] = p.c0[2] + (p.c1[2] - p.c0[2]) * t;
-      this.alpha[i] = p.a0 + (p.a1 - p.a0) * t;
-    }
-    if (w === 0) this.alpha[0] = 0;
-    this.geo.setDrawRange(0, Math.max(w, 1));
-    // upload only the live range, not the whole pool
-    const live = Math.max(w, 1);
-    for (const a of this.attrs) { a.clearUpdateRanges(); a.addUpdateRange(0, live * a.itemSize); a.needsUpdate = true; }
-  }
-}
+// fire, smoke and sparks live in fx.ts (field-composited toon flames and smoke, instanced sparks)
+export type { Particle } from './fx';
+export { FxPool as ParticlePool } from './fx';
 
 // ───────────────────────── Debris ─────────────────────────
 interface Chunk { x: number; y: number; vx: number; vy: number; r: number; vr: number; s: number; life: number; color: THREE.Color }
@@ -604,10 +522,16 @@ export class Renderer {
   world = new THREE.Group();
   lights = new LightPool();
   split = 0;
-  smoke = new ParticlePool(1800, false, 8);
-  fire = new ParticlePool(1500, true, 9);
-  /** burning works and fireballs: opaque, so a dozen overlapping tongues read as flame, not an HDR white-out under bloom */
-  flame = new ParticlePool(1400, false, 8.5, 2);
+  /** fire, smoke and sparks: flames and smoke are field-composited (see fx.ts) */
+  fx = new FireFX();
+  /** smoke puffs (density field; colour is the smoke's tone) */
+  smoke = this.fx.smoke;
+  /** additive sparks, embers, flashes and rings; big puffs spawned here go to the flame field */
+  fire = this.fx.sparks;
+  /** flame tongues and fireballs (heat field, stepped ramp) */
+  flame = this.fx.flame;
+  /** wind (m/s): smoke drifts with it, flames lean */
+  wind = 0;
   debris: DebrisPool;
   cx = 40; cy = 10; viewH = 40;
   shake = 0;
@@ -631,7 +555,7 @@ export class Renderer {
     this.bg.renderOrder = -10;
     this.scene.add(this.bg, this.world);
     this.debris = new DebrisPool(700, groundY);
-    this.scene.add(this.smoke.points, this.flame.points, this.fire.points, this.debris.mesh);
+    this.scene.add(...this.fx.sceneObjects, this.debris.mesh);
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -648,6 +572,8 @@ export class Renderer {
     this.width = w; this.height = h;
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
+    const db = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    this.fx.resize(db.x, db.y);
   }
 
   get viewW() { return this.viewH * (this.width / this.height); }
@@ -675,19 +601,22 @@ export class Renderer {
     this.bgMat.uniforms.uCam.value.set(this.cx, this.cy);
     this.bgMat.uniforms.uView.value.set(this.viewW * 1.05, this.viewH * 1.05);
     this.bgMat.uniforms.uTime.value = time;
-    this.smoke.material.uniforms.uPx.value = this.pxPerUnit;
-    this.fire.material.uniforms.uPx.value = this.pxPerUnit;
-    this.flame.material.uniforms.uPx.value = this.pxPerUnit;
-    this.smoke.update(dt);
-    this.flame.update(dt);
-    this.fire.update(dt);
-    this.debris.update(dt);
+    this.tickFx(dt, time, false);
     this.vignette.uniforms.uFlash.value = this.flash * 0.35;
     this.split = Math.max(0, this.split - dt * 3);
     this.vignette.uniforms.uSplit.value = this.split;
     this.vignette.uniforms.uTime.value = time;
     this.lights.update(dt, time);
+    this.fx.renderFields(this.renderer, this.camera);
     this.composer.render(dt);
+  }
+
+  /** advance particles (and lights) without drawing: also used by headless labs that step the sim */
+  tickFx(dt: number, time: number, lights = true) {
+    this.fx.wind = this.wind;
+    this.fx.update(dt, time);
+    this.debris.update(dt);
+    if (lights) this.lights.update(dt, time);
   }
 }
 

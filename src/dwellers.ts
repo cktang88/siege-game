@@ -143,6 +143,32 @@ export class Garrison {
     this.list.push(d);
   }
 
+  /** block `old` split into `pieces` (src/fracture.ts): rooms re-link, people ride the piece under them */
+  relink(old: Block, pieces: Block[], heir: Block | null, ot: V2) {
+    this.rooms.relink(old, pieces, heir, ot);
+    const roomArrays = new Set(this.rooms.list.map((r) => r.deps));
+    for (const d of this.list) {
+      if (d.floor === old) {
+        let best: Block | null = null, bd = Infinity;
+        for (const p of pieces) {
+          if (p.collider.containsPoint({ x: d.x, y: d.y - 0.05 })) { best = p; break; }
+          const t = p.body.translation(); const q = Math.hypot(t.x - d.x, t.y - d.y);
+          if (q < bd) { bd = q; best = p; }
+        }
+        d.floor = best ?? heir;
+        this.toLocal(d);
+      }
+      if (!roomArrays.has(d.deps)) {
+        const i = d.deps.indexOf(old);
+        if (i >= 0) {
+          const h = d.home[i];
+          d.deps.splice(i, 1); d.home.splice(i, 1);
+          for (const p of pieces) { const t = p.body.translation(); d.deps.push(p); d.home.push({ x: t.x - (ot.x - h.x), y: t.y - (ot.y - h.y) }); }
+        }
+      }
+    }
+  }
+
   /** remember position relative to the floor body */
   private toLocal(d: Dweller) {
     if (!d.floor || d.floor.dead) { d.floor = null; d.lx = d.x; d.ly = d.y; return; }

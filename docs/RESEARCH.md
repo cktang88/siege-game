@@ -128,3 +128,74 @@ The archetype proportions below come from these sources. Where a number has no s
   - bergfrieds are 8–12 storeys
   - curtain walls step back in their upper third
 - **Storm Winds** is a steampunk browser game by Hero Interactive. Waves of gyrocopters and airships attack, and you aim the turrets yourself between upgrades ([JayIsGames](https://games.jayisgames.com/review/storm-winds.php), [TV Tropes](https://tvtropes.org/pmwiki/pmwiki.php/VideoGame/Stormwinds)). That is the model for the mooring masts, the gyrocopter strafing runs, the airship bomb runs, and hand-aimed proximity-fuzed flak.
+
+## Fire & smoke VFX
+
+The old fire was stacks of round cel discs and the smoke was overlapping translucent circles; under bloom the
+fireballs became white blobs. What the references agree on:
+
+- **Shape and value carry the read, not brightness.** Riot's League of Legends VFX style guide ranks effects by
+  gameplay weight and asks for hand-drawn shapes that mix hard and soft forms, avoiding stacked shapes that go
+  muddy ([Riot Nexus post](https://nexus.leagueoflegends.com/en-us/2017/10/dev-leagues-vfx-style-guide/),
+  [guide PDF](https://nexus.leagueoflegends.com/wp-content/uploads/2017/10/VFX_Styleguide_final_public_hidpjqwx7lqyx0pjj3ss.pdf),
+  [realtimevfx thread](https://realtimevfx.com/t/official-league-of-legends-vfx-style-guide/3392)).
+  Value range is what draws the eye ([VFX Apprentice](https://www.vfxapprentice.com/blog/five-artistic-principles-gaming-vfx)).
+- **Stylised fire is a noise-eroded mask through a stepped ramp.** Alpha erosion moves a threshold through a
+  mask (step for hard toon edges, smoothstep for a feathered one)
+  ([vfxdoc: alpha erosion](https://vfxdoc.readthedocs.io/en/latest/shaders/alpha-erosion/)). Toon fire shaders
+  subtract scrolling noise from a flame mask, then band the result into two to five flat colours
+  ([Duck in Town devlog](https://papaya-games.itch.io/duck-in-town/devlog/95149/how-to-make-an-stylized-fire-shader),
+  [Godot stylised fire after Minionsart](https://godotshaders.com/shader/stylized-fire-3d/),
+  [Zelda campfire breakdown](https://realtimevfx.com/t/stylized-zelda-camp-fire-breakdown/9613),
+  [Vel'Koz fire erosion thread](https://realtimevfx.com/t/about-fire-from-infernal-velkoz/13491)).
+  Stepped interpolation between colour stops is what makes a ramp read as toon
+  ([Maxon toon material](https://help.maxon.net/r3d/houdini/en-us/Content/html/Material+Toon.html)).
+- **Many particles, one silhouette: 2D metaballs.** Draw soft falloff sprites additively into a render target,
+  then colour only the pixels above a threshold; lowering the field fades and shrinks the shape
+  ([2D metaballs](https://captainproton42.github.io/2DMetaballs/), [Defold fluid thread](https://forum.defold.com/t/fluid-simulation-2d-metaballs/47371),
+  [gamedev.net isosurfaces](https://www.gamedev.net/articles/programming/graphics/exploring-metaballs-and-isosurfaces-in-2d-r2556/)).
+- **Cartoon smoke is two-tone shaded with a silhouette.** McGuire, Fein and Hartnett shade billboard puffs with
+  normal maps quantised to two tones, add self-shadowing and black outlines
+  ([Real-Time Cartoon Rendering of Smoke, SIGGRAPH 2004 poster](https://history.siggraph.org/wp-content/uploads/2023/01/2004-Poster-026-Mcguire_Real-Time-Cartoon-Rendering-of-Smoke.pdf)).
+- **Hand-made look over a 3D (or particle) base.** Guilty Gear Xrd hand-tunes shading so 3D reads as drawn and
+  animates on keyframes for a limited-animation feel ([GDC 2015 talk](https://gdcvault.com/play/1022031/GuiltyGearXrd-s-Art-Style-The),
+  [Arc System Works](https://www.arcsystemworks.com/guilty-gear-xrd-art-talk-at-game-developers-conference-2015/)).
+- **Simulation games.** Noita spreads fire pixel by pixel: a burning cell tries a random neighbour each step
+  ([80.lv](https://80.lv/articles/noita-a-game-based-on-falling-sand-simulation/), [GDC 2019](https://gdcvault.com/play/1025695/Exploring-the-Tech-and-Design)).
+  Teardown renders smoke and other particles after its deferred pass ([frame teardown](https://acko.net/blog/teardown-frame-teardown/),
+  [Gustafsson's smoke experiments](https://80.lv/articles/simulating-light-smoke-for-games/)). Our spread stays rule-based; only the look changed.
+- **Hades, Broforce:** no first-party technical breakdown of their fire turned up (the [80.lv Hades piece](https://80.lv/articles/a-behind-the-scenes-look-at-the-effects-in-hades)
+  only shows clips), so nothing here is taken from them.
+- **Free assets.** Kenney's [Smoke Particles](https://kenney.nl/assets/smoke-particles) and
+  [Particle Pack](https://kenney.nl/assets/particle-pack) are CC0, and OpenGameArt has CC0 fire/smoke sheets
+  ([fire-smoke animations](https://opengameart.org/content/fire-smoke-animations)). Painted puffs would fight the cel
+  look and could not be re-thresholded per frame, so **no third-party art is shipped**: every fire and smoke shape is
+  generated in shaders (`src/fx.ts`), so no licence applies.
+
+Applied here (`src/fx.ts`, the burn/char block of `blockFrag` in `src/render.ts`):
+
+- **Fields, not sprites.** Flame particles write a teardrop of heat (opacity × temperature, where temperature is the
+  callers' yellow→ember colour read as green/red) into a half-resolution float target; smoke writes colour × density
+  and density into another. Overlapping tongues merge into one body with one outline.
+- **Flames.** The composite erodes the heat with fbm noise stretched vertically, scrolled upward and sheared downwind,
+  plus a finer flicker noise, then bands it: deep-red rim, red, orange, yellow, pale core. The core sits at luma ~0.9,
+  so it only grazes the bloom threshold (0.92); a fireball can no longer white out. As heat cools the ball shrinks
+  through the bands to an ember rim and is gone.
+- **Smoke.** Two-tone (lit / shadow, plus a mid tone in flat interiors) from the density gradient taken over ~0.5 m in
+  world space, lit from the top-left like the blocks; a darker silhouette band; two opacity steps (wisps see-through,
+  body near-solid); noise erosion that grows with age so old smoke frays into wisps; an orange belly where it sits over
+  flames. Smoke eases toward the wind speed, so plumes stream downwind.
+- **Sparks and embers** are additive instanced quads stretched along their velocity (about 1/40 s of travel), with a
+  hot pinched core and a twinkle; explosions add a brief flat flash disc and a thinning shock ring.
+- **Explosions:** flash + ring, a core blob and a ring of heat blobs thrown out and braked hard (fast punch, then
+  stall), sparks under gravity, and smoke that appears 0.1–0.3 s later as the ball cools, with a rising column; fuel
+  and ammunition cook-offs get a taller, longer fireball and black smoke.
+- **Burning blocks:** a bed of tongues hugging the (rotated) block, embers drifting downwind, a dark smoke column, and in
+  the block shader a patchy char front eating in, scorch ahead of it, alligatored charcoal behind it whose cracks pulse
+  with ember glow while alight (`uAlight`) and go cold with a little ash after.
+- **Light:** fires keep their flickering point light; the flicker phase now comes from the light's position (not its
+  pool slot, which reshuffles) with a slow swell, so fires gutter instead of strobing.
+- **Budget.** One instanced draw per pool (smoke 2400, flame 2600, sparks 1600), two half-res targets, two view-sized
+  composite quads. Continuous emitters throttle as a pool passes 60% full, so 128 burning blocks still form plumes
+  instead of evicting smoke before it rises. Heat haze was left out: it needs a scene copy and a distortion pass for
+  little gain at gameplay zoom.

@@ -61,7 +61,7 @@ export const TARGETS: Record<TargetKind, { label: string; desc: string; color: s
   ammo: { label: 'AMMO', desc: 'Munitions store — detonates when destroyed or set alight', color: '#e8b03a' },
   barracks: { label: 'BARRACKS', desc: 'Sends infantry at your gun until destroyed', color: '#9fb35a' },
   artillery: { label: 'GUN', desc: 'Counter-battery gun — fires at your cannon', color: '#d27a3a' },
-  workshop: { label: 'ENGINEERS', desc: 'Repairs damage and rebuilds walls', color: '#5aa6d2' },
+  workshop: { label: 'ENGINEERS', desc: 'Slowly patches cracked blocks, one at a time from the bottom up', color: '#5aa6d2' },
   flak: { label: 'FLAK', desc: 'Anti-air — shoots down bombers and drones', color: '#b77ad2' },
   mast: { label: 'MAST', desc: 'Airship mast — launches gyrocopters and airships until destroyed', color: '#6fd0c0' },
   depot: { label: 'DEPOT', desc: 'Motor pool — sends armoured cars and light tanks at your gun until destroyed', color: '#c8b46a' },
