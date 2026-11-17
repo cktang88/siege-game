@@ -7,7 +7,7 @@
 
     npx vite --port 5193 --host 127.0.0.1 --strictPort &      # then:
     BASE=http://127.0.0.1:5193 NODE_PATH=$(npm root -g) node scripts/value-lab.cjs [sections] [trials]
-      sections: comma list of struct,niche,infantry,air,smoke,drone,pen (default: all)
+      sections: comma list of struct,niche,campaign,infantry,air,smoke,drone,pen (default: all)
       trials:   seeds per cell (default 3)
     VALUE_JSON=out.json also writes the raw rows.
 
@@ -503,7 +503,7 @@ function installValue() {
 }
 
 // ───────────────────────── runner ─────────────────────────
-const SECTIONS = (process.argv[2] && process.argv[2] !== 'all' ? process.argv[2] : 'struct,niche,infantry,air,smoke,drone,pen').split(',');
+const SECTIONS = (process.argv[2] && process.argv[2] !== 'all' ? process.argv[2] : 'struct,niche,campaign,infantry,air,smoke,drone,pen').split(',');
 const TRIALS = +(process.argv[3] || 3);
 const BASE = process.env.BASE || 'http://127.0.0.1:5193';
 
@@ -638,6 +638,26 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
     }
     const best = scenes.map((scene) => { const e = Object.entries(report.niche[scene]).filter(([, v]) => v.ok === v.n && v.n).sort((a, b) => a[1].cost - b[1].cost)[0]; return e ? `${scene}: ${e[0]}` : `${scene}: -`; });
     console.log('cheapest sure kill: ' + best.join(', '));
+  }
+
+  if (SECTIONS.includes('campaign')) {
+    // can every operation still be won inside its own budget? one round type at a time, base research
+    const nodes = await pages[0].evaluate(() => window.__val.camp.CAMPAIGN.map((n) => ({ id: n.id, budget: n.level().budget })));
+    const ids = ['shell', 'he', 'ap', 'bunker', 'cluster', 'delayed'];
+    const jobs = [];
+    for (const n of nodes) for (const id of ids) jobs.push({ fn: 'structTrial', arg: { level: n.id, id, seed: 1, budget: n.budget, tail: 2 }, lv: n.id, id, budget: n.budget });
+    const res = await runAll(pages, jobs);
+    report.campaign = {};
+    console.log('\n## Campaign: each operation fought with a single round type, inside its own budget (credits spent to win; × = not won)');
+    console.log('| operation | budget | ' + ids.join(' | ') + ' | cheapest |');
+    console.log('|---|---|' + ids.map(() => '---').join('|') + '|---|');
+    for (const n of nodes) {
+      const row = ids.map((id) => res.find((x) => x.lv === n.id && x.id === id)?.r);
+      const cells = row.map((r) => (r && r.won ? String(r.spent) : '×'));
+      const won = row.map((r, i) => [ids[i], r && r.won ? r.spent : Infinity]).sort((a, b) => a[1] - b[1])[0];
+      report.campaign[n.id] = Object.fromEntries(row.map((r, i) => [ids[i], r && r.won ? r.spent : null]));
+      console.log(`| ${n.id} | ${n.budget} | ${cells.join(' | ')} | ${won[1] < Infinity ? won[0] + ' ' + won[1] : 'NONE'} |`);
+    }
   }
 
   if (SECTIONS.includes('infantry')) {
