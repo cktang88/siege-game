@@ -1303,7 +1303,8 @@ export class Game {
         if (p.pellet && p.kills >= 2) { this.removeProjectile(p); return; }
       }
     }
-    const exclude = new Set<number>();
+    // blocks this round has already bored or cut through stay out of its way
+    const exclude = this.frac.passedBy(p);
     let guard = 0;
     while (remaining > 1e-4 && guard++ < 12 && !p.dead) {
       const sp = Math.hypot(p.vx, p.vy);
@@ -1366,7 +1367,14 @@ export class Game {
         if (p.pen >= eff && !b.mat.indestructible && !deep) {
           p.pen -= eff;
           // a slender member is cut in two along the shot, a thick one bored through (src/fracture.ts); otherwise it is holed out
-          if (!this.frac.apThrough(b, p.x, p.y, dir, a.id)) this.destroyBlock(b, 'ap');
+          const out = this.frac.apThrough(b, p.x, p.y, dir, a.id);
+          if (!out) this.destroyBlock(b, 'ap');
+          else {
+            // the block still stands (bored, or cut at the end of the frame): the round comes out the far side
+            const adv = Math.hypot(out.x - p.x, out.y - p.y);
+            p.x = out.x; p.y = out.y;
+            remaining = Math.max(0, remaining - adv);
+          }
           exclude.add(hit.collider.handle);
           p.vx *= 0.88; p.vy *= 0.88;
           p.x += dir.x * 0.01; p.y += dir.y * 0.01;
@@ -1535,7 +1543,7 @@ export class Game {
       const v = b.body.linvel();
       if (settle && !b.body.isSleeping()) {
         const dv = Math.hypot(v.x - b.lastVel.x, v.y - b.lastVel.y);
-        if (dv > 4.5) {
+        if (dv > 4.5 && !this.frac.inGrace(b)) {
           const id = Math.pow(dv - 4.5, 1.5) * 3 * b.mat.kinetic;
           const t = b.body.translation();
           this.frac.hit(b, { kind: 'impact', x: t.x, y: t.y, dx: (v.x - b.lastVel.x) / dv, dy: (v.y - b.lastVel.y) / dv, e: id });

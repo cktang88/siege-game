@@ -82,6 +82,9 @@ const CLS: Partial<Record<MatId, Cls>> = {
   stone: 'brittle', concrete: 'brittle', fireproof: 'brittle', plaster: 'brittle', tile: 'brittle',
   wood: 'timber', crate: 'timber', steel: 'steel', fuel: 'steel', earth: 'earth',
 };
+/** how worn (share of HP gone) a block must be before an ordinary hit breaks it, relative to its class
+ *  default: reinforced concrete holds together nearly to the end */
+const WORN: Partial<Record<MatId, number>> = { concrete: 1.15 };
 const clsOf = (b: Block): Cls => (b.mat.indestructible ? 'none' : CLS[b.matId] ?? 'none');
 
 // ───────────────────────── convex polygon helpers (CCW, block-local) ─────────────────────────
@@ -205,9 +208,18 @@ export class Fracture {
   marks(b: Block): readonly Mark[] { return this.st.get(b)?.marks ?? []; }
   isRubble(b: Block) { return (this.st.get(b)?.rubble ?? -1) >= 0; }
 
+  /** game time until which a block takes no fall/jolt ('impact') damage: just struck by a round (the
+   *  round's own damage covers the blow; the solver's jolt would count it twice) or just split off */
+  private graceT = new WeakMap<Block, number>();
+  inGrace(b: Block) { return (this.graceT.get(b) ?? -1) > this.g.time; }
+  /** collider handles each penetrator has already gone through (a bored block still stands) */
+  private passed = new WeakMap<object, Set<number>>();
+  passedBy(p: object): Set<number> { let s = this.passed.get(p); if (!s) { s = new Set(); this.passed.set(p, s); } return s; }
+
   /** report a hit on a block (call before the damage is applied) */
   hit(b: Block, h: Hit) {
     if (b.dead || b.mat.indestructible || !(h.e > 0)) return;
+    if (h.kind !== 'blast' && h.kind !== 'impact') this.graceT.set(b, this.g.time + 0.25);
     const l = this.hits.get(b);
     if (l) l.push(h); else this.hits.set(b, [h]);
   }
@@ -224,33 +236,34 @@ export class Fracture {
   /**
    * An armour-piercing round goes right through block b (entry point, unit direction). A slender
    * member crossed side-on is cut in two along the shot line; a thick block is bored through and
-   * survives (badly hurt). Returns false when the block should simply be destroyed (the old rule).
+   * survives (badly hurt). Returns where the round leaves the block, or null when the block should
+   * simply be destroyed (the old rule).
    */
-  apThrough(b: Block, x: number, y: number, dir: V2, ammo: AmmoId): boolean {
-    if (b.dead || b.target) return false;
+  apThrough(b: Block, x: number, y: number, dir: V2, ammo: AmmoId): V2 | null {
+    if (b.dead || b.target) return null;
     const cls = clsOf(b);
-    if (cls === 'none' || cls === 'earth') return false;
+    if (cls === 'none' || cls === 'earth') return null;
     // exit point: cast back at this block from beyond it
     const L = Math.hypot(b.w, b.h) + 1;
     const ray = new RAPIER.Ray({ x: x + dir.x * L, y: y + dir.y * L }, { x: -dir.x, y: -dir.y });
     const toi = b.collider.castRay(ray, L, true);
-    if (toi === null || toi < 0) return false;
+    if (toi === null || toi < 0) return null;
     const ex = x + dir.x * (L - toi), ey = y + dir.y * (L - toi);
     const rot = b.body.rotation();
     const lu = b.w >= b.h ? { x: Math.cos(rot), y: Math.sin(rot) } : { x: -Math.sin(rot), y: Math.cos(rot) };
     const aspect = Math.max(b.w, b.h) / Math.max(0.01, Math.min(b.w, b.h));
-    const across = Math.abs(dir.x * lu.x + dir.y * lu.y) < 0.75;
+    const across = Math.abs(dir.x * lu.x + dir.y * lu.y) < 0.85;
     if (aspect >= 1.8 && across && this.state(b).gen < MAX_GEN) {
       this.hit(b, { kind: 'ap', x, y, dx: dir.x, dy: dir.y, ex, ey, e: b.maxHp * 0.3, ammo });
       this.g.damageBlock(b, b.maxHp * 0.3, 'ap');
-      return true;
+      return { x: ex, y: ey };
     }
     if (Math.min(b.w, b.h) >= 1.1 && b.w * b.h >= 1.4) {
       this.hit(b, { kind: 'ap', x, y, dx: dir.x, dy: dir.y, ex, ey, e: b.maxHp * 0.5, ammo });
       this.g.damageBlock(b, b.maxHp * 0.5, 'ap');
-      return true;
+      return { x: ex, y: ey };
     }
-    return false;
+    return null;
   }
 
   // ───────────────────────── per frame ─────────────────────────
@@ -322,7 +335,7 @@ export class Fracture {
     if (b.target) return false;
     // accumulated damage: hit after hit, a block gives way well before its last HP goes
     const D = 1 - b.hp / b.maxHp;
-    const worn = (lim: number) => D >= lim && f >= 0.08;
+    const worn = (lim: number) => D >= lim * (WORN[b.matId] ?? 1) && f >= 0.08;
     if (cls === 'brittle') {
       if (k === 'shot' && area >= 0.3 && minDim >= 0.3 && (f >= 0.5 || worn(0.8))) return this.crack(b, dom, f >= 0.75 && area >= 1.1 ? 3 : 2);
       if (k === 'impact' && f >= 0.45 && area >= 0.4 && s.gen < 2) return this.crack(b, dom, 2);
@@ -336,7 +349,7 @@ export class Fracture {
       // plate tears only under a buried charge (bunker buster, AP bomb, drill)
       if (k === 'charge' && f >= 0.25 && area >= 0.3 && b.matId === 'steel') return this.crack(b, dom, 2);
     } else if (cls === 'earth') {
-      if (k !== 'impact' && f >= 0.15) return this.erode(b, dom, f);
+      if (k !== 'impact' && f >= 0.08) return this.erode(b, dom, f);
     }
     return false;
   }
@@ -391,6 +404,8 @@ export class Fracture {
         const cos = h.cosI ?? 1;
         // an oblique blow drags a gouge along the face before the pit; a square one just pits it
         if (cos < 0.75) this.addGouge(b, h, r * 0.7, 0.25 + (1 - cos) * 0.9);
+        // soft-skinned rounds (incendiary, smoke) splash rather than pit
+        if (h.ammo === 'incendiary' || h.ammo === 'bomb_inc' || h.ammo === 'smoke') break;
         if (h.speed !== undefined && h.speed < 9) { this.addMark(b, h.x, h.y, r * 0.55, MarkType.POCK); break; }
         this.addMark(b, h.x, h.y, (steel ? r * 0.85 : r) * (0.6 + 0.4 * cos), steel ? MarkType.DENT : MarkType.CRATER);
         break;
@@ -667,6 +682,9 @@ export class Fracture {
       const frac = it.a / A;
       // velocity: the parent's (incl. spin) plus a kick away from the hit
       let vx = snap.v.x - snap.av * (wc.y - snap.t.y), vy = snap.v.y + snap.av * (wc.x - snap.t.x);
+      // the parent's velocity at the moment of the hit is the solver's jolt, not a real flight speed
+      const vl = Math.hypot(vx, vy);
+      if (vl > 5) { vx *= 5 / vl; vy *= 5 / vl; }
       if (opts.from && opts.kick) {
         let ox = gc.x - opts.from.x, oy = gc.y - opts.from.y;
         const ol = Math.hypot(ox, oy) || 1;
@@ -696,11 +714,12 @@ export class Fracture {
       nb.body.setLinvel({ x: vx, y: vy }, true);
       nb.body.setAngvel(snap.av + (tier === 'keep' && i === 0 ? 0 : (Math.random() - 0.5) * (opts.dead ? 4 : 1.5)), true);
       nb.lastVel = { x: vx, y: vy };
+      this.graceT.set(nb, g.time + 0.35);
       nb.mesh.position.set(wc.x, wc.y, 4);
       nb.mesh.rotation.z = snap.rot;
       // HP and fire carry over by share
-      nb.maxHp = b.maxHp * frac * (opts.dead ? 0.5 : 1);
-      nb.hp = opts.dead ? nb.maxHp * 0.5 : opts.keepHp ? Math.min(hpLeft, nb.maxHp) : Math.max(1, hpLeft * frac);
+      nb.maxHp = b.maxHp * frac;
+      nb.hp = opts.dead ? nb.maxHp * 0.6 : opts.keepHp ? Math.min(hpLeft, nb.maxHp) : Math.max(1, hpLeft * frac);
       nb.burning = b.burning; nb.burnAmt = b.burnAmt; nb.fireT = b.fireT; nb.fuelMax = b.fuelMax; nb.fuel = b.fuel; nb.cookoff = b.cookoff > 0 && i === 0 ? b.cookoff : -1;
       nb.spreadT = b.spreadT; nb.flash = Math.max(b.flash, 0.3); nb.rebuilt = 1;
       const ns = this.state(nb);
