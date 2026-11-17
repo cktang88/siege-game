@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { AMMO_BY_ID, MATERIALS, PHYS, TARGETS, type AmmoDef, type AmmoId, type MatId, type MaterialDef, type TargetKind } from './config';
 import type { BlockDef, HouseDef, LevelDef } from './levels';
 import { Renderer, blockGeometry, makeBlockMaterial, makeGround, makeSprite } from './render';
+import { fxBurning, fxExplosion, fxSmokeCloud } from './fx';
 import { baseStats, type Stats } from './progress';
 import { SoldierRig } from './soldier';
 import { audio } from './audio';
@@ -234,6 +235,7 @@ export class Game {
     this.eq = new RAPIER.EventQueue(true);
     this.r.world.add(this.root);
     this.wind = +(level.wind[0] + Math.random() * (level.wind[1] - level.wind[0])).toFixed(1);
+    this.r.wind = this.wind;
     this.cannonHp = 100;
     this.time = 0; this.battleTime = 0;
     this.ended = false; this.running = false; this.revealed = false;
@@ -813,7 +815,7 @@ export class Game {
     const vis = opts.visual ?? radius / 3;
     if (!opts.smoke) audio.play(radius < 2.2 ? 'blastSmall' : radius < 4.6 ? 'blast' : 'blastBig', x, Math.min(1.2, 0.5 + radius / 5));
     // visuals
-    this.burst(x, y, vis, opts.smoke);
+    this.burst(x, y, vis, opts.smoke, opts.source === 'fuel' || opts.source === 'ammo');
     this.r.shake = Math.min(2.2, this.r.shake + vis * 0.7);
     if (vis > 1.2) { this.r.flash = Math.min(1, this.r.flash + 0.5); this.r.split = Math.min(1, this.r.split + vis * 0.45); }
     if (!opts.smoke) this.r.lights.add(x, y + 0.5, Math.max(4, radius * 2.6), [1.0, 0.62, 0.28], 1.6 + vis * 0.4, 0.35 + vis * 0.2, 0.3);
@@ -903,38 +905,10 @@ export class Game {
     if (cd < radius + 1.2) this.damageCannon((dmg * 0.32 * (1 - cd / (radius + 1.2)) + (opts.enemy ? 6 : 0)) * (opts.enemy && this.stats.shieldedGun ? 0.5 : 1));
   }
 
-  burst(x: number, y: number, s: number, smokeOnly = false) {
+  burst(x: number, y: number, s: number, smokeOnly = false, fuel = false) {
     const nearGround = y - this.groundY(x) < 1.5;
-    for (let i = 0; i < (smokeOnly ? 70 : 22 * s + 6); i++) {
-      const a = Math.random() * Math.PI * 2, sp = Math.random() * (smokeOnly ? 5 : 3.5 * s + 1);
-      const g = 0.25 + Math.random() * 0.15;
-      this.r.smoke.spawn({ x: x + Math.cos(a) * 0.3, y: y + Math.sin(a) * 0.3, vx: Math.cos(a) * sp + this.wind * 0.3, vy: Math.sin(a) * sp * 0.7 + 0.8,
-        max: (smokeOnly ? 9 : 2.2) + Math.random() * 1.5, size0: (smokeOnly ? 2 : 1.2 * s + 0.5), size1: (smokeOnly ? 7 : 4 * s + 1.5),
-        c0: smokeOnly ? [0.85, 0.85, 0.82] : [g + 0.15, g + 0.12, g + 0.1], c1: smokeOnly ? [0.75, 0.75, 0.74] : [0.55, 0.53, 0.5], a0: 0.85, a1: 0, drag: 1.8, grav: 0.4 });
-    }
-    if (!smokeOnly) {
-      // the flash: brief and warm, so the fireball (not a white disc) is what reads
-      this.r.fire.spawn({ x, y, max: 0.08, size0: 2.6 * s + 0.8, size1: 4.2 * s + 1, c0: [2.2, 1.7, 1.0], c1: [1.6, 0.8, 0.25], a0: 0.85, a1: 0 });
-      // fireball: opaque cel flame puffs (drawn over the smoke) cooling yellow → orange → ember;
-      // additive puffs stacked into a white HDR blob that the bloom smeared over the whole screen
-      for (let i = 0; i < 20 * s + 5; i++) {
-        const a = Math.random() * Math.PI * 2, sp = (2 + Math.random() * 7) * s + 1;
-        const hot = Math.random();
-        this.r.flame.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 1, max: 0.35 + Math.random() * 0.4, size0: (0.8 + Math.random()) * s + 0.3, size1: 0.25,
-          c0: [1.45, 0.95 + hot * 0.3, 0.3 + hot * 0.2], c1: [0.6, 0.2, 0.07], a0: 1, a1: 0, drag: 3.5, grav: 2 });
-      }
-      // a few additive hot cores keep the centre glowing (and feed the bloom a little)
-      for (let i = 0; i < 4 + 3 * s; i++) {
-        const a = Math.random() * Math.PI * 2, sp = Math.random() * 3 * s;
-        this.r.fire.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 1, max: 0.18 + Math.random() * 0.15, size0: (0.6 + Math.random() * 0.5) * s + 0.2, size1: 0.2,
-          c0: [1.4, 0.9, 0.35], c1: [0.6, 0.15, 0.02], a0: 0.8, a1: 0, drag: 3 });
-      }
-      for (let i = 0; i < 18 * s + 3; i++) {
-        const a = Math.random() * Math.PI * 2, sp = (8 + Math.random() * 16) * s;
-        this.r.fire.spawn({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, max: 0.4 + Math.random() * 0.4, size0: 0.18, size1: 0.08,
-          c0: [3, 2.2, 1], c1: [2, 0.6, 0.1], a0: 1, a1: 0, drag: 1.5, grav: -12 });
-      }
-    }
+    if (smokeOnly) fxSmokeCloud(this.r.fx, x, y);
+    else fxExplosion(this.r.fx, x, y, s, fuel);
     if (nearGround && !smokeOnly) {
       const c = new THREE.Color(0.4, 0.31, 0.22);
       for (let i = 0; i < 10 * s + 2; i++) this.r.debris.spawn(x, this.groundY(x) + 0.1, (Math.random() - 0.5) * 10 * s, 3 + Math.random() * 8 * s, 0.1 + Math.random() * 0.2, c.clone().multiplyScalar(0.7 + Math.random() * 0.5));
@@ -1521,15 +1495,7 @@ export class Game {
         // HP goes over ~80% of the burn: timber usually gives way before it burns out
         this.damageBlock(b, b.mat.fire * grow * b.maxHp / (b.fuelMax * 0.8) * dt, 'fire');
         if (b.dead) continue;
-        if (Math.random() < dt * 30 * grow * Math.min(1.5, b.w * b.h)) {
-          const lx = (Math.random() - 0.5) * b.w, ly = (Math.random() - 0.3) * b.h;
-          // opaque cel tongues (additive ones stacked into a white, bloom-smeared sheet) plus the odd hot ember
-          this.r.flame.spawn({ x: t.x + lx, y: t.y + ly, vx: this.wind * 0.3, vy: 1.5 + Math.random() * 2, max: 0.6 + Math.random() * 0.5, size0: 0.7 + Math.random() * 0.5, size1: 0.1,
-            c0: [1.4, 0.68 + Math.random() * 0.25, 0.14], c1: [0.75, 0.16, 0.03], a0: 0.95, a1: 0, drag: 1 });
-          if (Math.random() < 0.2) this.r.fire.spawn({ x: t.x + lx, y: t.y + ly, vx: this.wind * 0.3 + (Math.random() - 0.5), vy: 2.5 + Math.random() * 2, max: 0.7, size0: 0.14, size1: 0.05,
-            c0: [3, 1.5, 0.4], c1: [1.5, 0.3, 0.05], a0: 1, a1: 0, drag: 0.6 });
-          if (Math.random() < 0.3) this.r.smoke.spawn({ x: t.x + lx, y: t.y + b.h / 2, vx: this.wind * 0.6, vy: 1.6, max: 3, size0: 0.8, size1: 3, c0: [0.25, 0.23, 0.22], c1: [0.45, 0.44, 0.43], a0: 0.6, a1: 0, drag: 0.4 });
-        }
+        fxBurning(this.r.fx, t.x, t.y, b.w, b.h, grow, dt, b.body.rotation());
         b.spreadT -= dt;
         if (b.spreadT <= 0) {
           b.spreadT = FIRE_TICK;
@@ -2256,6 +2222,8 @@ export class Game {
       b.uni.uFlash.value = b.flash * 0.6;
       b.uni.uDamage.value = Math.max(0, 1 - b.hp / b.maxHp);
       b.uni.uBurn.value = b.burnAmt;
+      // live fire under the char: glowing cracks while alight, fading to cold char once out
+      b.uni.uAlight.value += ((b.burning > 0 ? Math.min(1, 0.4 + b.burning / 3) * Math.min(1, 0.3 + b.fireT / 3) : 0) - b.uni.uAlight.value) * 0.05;
       b.uni.uTime.value = this.time;
       b.uni.uHighlight.value = b.highlight;
       if (b.rebuilt < 1) { b.rebuilt = Math.min(1, b.rebuilt + 0.02); b.uni.uFade.value = b.rebuilt; }
