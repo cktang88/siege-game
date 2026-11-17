@@ -283,7 +283,7 @@ export class Garrison {
     d.act = 'pace';
     d.next = 'stand';
     p.speed = 0.45 + Math.random() * 0.45;
-    if (rm && rm.ladders.length && roll < 0.2 && !rm.burning && !rm.failed) {
+    if (rm && rm.ladders.length && roll < 0.1 && !rm.burning && !rm.failed) {
       const l = rm.ladders[Math.floor(Math.random() * rm.ladders.length)];
       const dest = l.a === rm ? l.b : l.a;
       // never into a room that has failed, is on fire or is crowded

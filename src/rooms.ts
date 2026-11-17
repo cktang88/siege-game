@@ -277,14 +277,15 @@ export class Rooms {
       if (r.inside.some((b) => b.def.mat === 'crate')) return 'storeroom';
       return 'room';
     };
-    const names = found.map((f) => what(f.r));
-    const key = names.find((n) => n !== 'room' && n !== 'guardroom' && n !== 'storeroom') ?? names[0];
-    const lead = found[0].by === 'drone' ? 'Drone intel: hidden' : found[0].by === 'fire' ? 'Fire exposes a hidden' : 'Hidden';
-    const text = found.length === 1
-      ? `${lead} ${key} uncovered.`
-      : `${found[0].by === 'drone' ? 'Drone intel: ' : ''}${found.length} hidden rooms uncovered${key !== 'room' ? `, including a ${key}` : ''}.`;
+    const names: string[] = found.map((f) => what(f.r));
+    const order = ['magazine', 'command post', 'barracks', 'workshop', 'emplacement', 'guardroom', 'storeroom', 'room'];
+    const key = order.find((n) => names.includes(n)) ?? 'room';
+    const by = found[0].by;
+    const text = found.length > 1
+      ? `${by === 'drone' ? 'Drone intel: ' : ''}${found.length} hidden rooms uncovered${key !== 'room' ? `, including a ${key}` : ''}.`
+      : by === 'drone' ? `Drone intel: hidden ${key} uncovered.` : by === 'fire' ? `Fire exposes a hidden ${key}.` : `Hidden ${key} uncovered.`;
     const important = found.some((f) => f.r.target && this.g.level.objectives.includes(f.r.target.target as TargetKind));
-    this.g.toast(text.charAt(0).toUpperCase() + text.slice(1), important ? 'good' : 'info');
+    this.g.toast(text, important ? 'good' : 'info');
   }
 
   /** a live target of this kind can be seen (or at least one exists out of sight) */
