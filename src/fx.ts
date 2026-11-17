@@ -86,6 +86,10 @@ export class FxPool {
     this.mesh.frustumCulled = false;
   }
 
+  /** emission throttle for continuous sources: 1 while there is room, falling to 0.15 as the pool fills,
+   *  so a castle-wide blaze thins its emitters instead of evicting smoke before it can form a plume */
+  get room() { return Math.min(1, Math.max(0.15, (1 - this.parts.length / this.max) / 0.4)); }
+
   spawn(p: SpawnArg) {
     if (this.overflow && (p.kind ?? 0) === 0 && (p.size0 ?? 1) >= 0.5) { this.overflow.spawn(p); return; }
     const max = p.max ?? 1;
@@ -477,19 +481,19 @@ export function fxBurning(fx: FireFX, x: number, y: number, w: number, h: number
   // a random point on the (rotated) block; lx, ly are block-local
   const at = (lx: number, ly: number): [number, number] => [x + lx * c - ly * sn, y + lx * sn + ly * c];
   // bed of flame hugging the block, and tongues rising off it
-  if (Math.random() < dt * 34 * grow * Math.max(0.35, area)) {
+  if (Math.random() < dt * 34 * grow * Math.max(0.35, area) * fx.flame.room) {
     const [px, py] = at(rnd(-0.5, 0.5) * w, rnd(-0.35, 0.4) * h);
     const big = Math.min(1.3, 0.55 + 0.35 * Math.sqrt(area));
     fx.flame.spawn({ x: px, y: py, vx: rnd(-0.3, 0.3), vy: rnd(1.2, 2.4), max: rnd(0.5, 0.9), size0: rnd(0.85, 1.25) * big, size1: 0.25, stretch: rnd(1.4, 1.9),
       c0: [1.4, rnd(0.85, 1.15), 0.2], c1: [0.8, 0.18, 0.03], a0: 1.0 * (0.6 + 0.4 * grow), a1: 0, drag: 0.8 });
   }
-  if (Math.random() < dt * 4 * grow * Math.max(0.5, area)) {
+  if (Math.random() < dt * 4 * grow * Math.max(0.5, area) * fx.sparks.room) {
     // embers: wander up on the heat, drift downwind, twinkle out
     const [px, py] = at(rnd(-0.5, 0.5) * w, h * 0.4);
     fx.sparks.spawn({ x: px, y: py, vx: rnd(-1, 1), vy: rnd(2, 4.5), max: rnd(1.2, 2.4), size0: rnd(0.07, 0.12), size1: 0.03,
       c0: [2.4, 1.2, 0.3], c1: [1.4, 0.3, 0.05], a0: 1, a1: 0, drag: 0.7, grav: -0.6, windK: 0.6 });
   }
-  if (Math.random() < dt * 9 * grow * Math.max(0.4, area)) {
+  if (Math.random() < dt * 9 * grow * Math.max(0.4, area) * fx.smoke.room) {
     const g = rnd(0.13, 0.2);
     const [px, py] = at(rnd(-0.4, 0.4) * w, h * 0.5);
     fx.smoke.spawn({ x: px, y: py + 0.4, vx: rnd(-0.3, 0.3), vy: rnd(1.4, 2.2), delay: 0.1, max: rnd(4.5, 6), size0: 0.9, size1: rnd(3.6, 4.6),
