@@ -275,7 +275,14 @@ function installSoak() {
       const s = K.vehStuck.get(u) || { x: u.x, t: g.battleTime };
       if (Math.abs(s.x - u.x) > 0.3) { s.x = u.x; s.t = g.battleTime; }
       K.vehStuck.set(u, s);
-      if (u.x > u.stopX + 1 && g.battleTime - s.t > 40 && !s.told) { s.told = true; V('stuck', `${u.kind} halted at ${u.x.toFixed(1)} short of ${u.stopX.toFixed(1)} for 40 s`); }
+      if (u.x > u.stopX + 1 && g.battleTime - s.t > 40 && !s.told) {
+        s.told = true;
+        // what holds it: a vehicle or wreck ahead, or a block in its path
+        const ahead = g.motor.units.filter((o) => o !== u && o.x < u.x && u.x - o.x - (u.len + o.len) / 2 < 1.2).map((o) => `${o.kind}${o.wreckT >= 0 ? ' wreck ' + o.wreckT.toFixed(0) + 's' : ''}`);
+        const blk = g.blocks.filter((b) => !b.dead && Math.abs(b.body.translation().x - (u.x - u.len / 2 - 0.35)) < b.w / 2 + 0.4 && b.body.translation().y - b.h / 2 < u.y + 1.5).map((b) => `${b.matId}${b.frag ? ' frag' : ''}${g.frac.isRubble(b) ? ' rubble' : ''} ${b.w.toFixed(1)}x${b.h.toFixed(1)}`);
+        // queueing behind a halted vehicle, or held by masonry in the road, is by design (it still fires from there)
+        if (!ahead.length && !blk.length) V('stuck', `${u.kind} halted at ${u.x.toFixed(1)} short of ${u.stopX.toFixed(1)} for 40 s; ahead: ${ahead.join(',') || '-'}; blocks: ${blk.join(',') || '-'}`);
+      }
     }
     const sn = K.seen;
     sn.maxBlocks = Math.max(sn.maxBlocks, g.blocks.filter((b) => !b.dead).length);
