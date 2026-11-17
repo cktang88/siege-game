@@ -376,6 +376,34 @@ test('drill_earth', 'drill', 'Earthworks: drills cut them (HE barely scratches t
   return { pass: dr >= 0.5 && he < 0.15, info: `earth berm 3x2: drill ${L.r(dr * 100, 0)}%, HE ${L.r(he * 100, 0)}%` };
 });
 
+test('drill_under', 'drill', 'Drill tunnels under a wall and blows beneath the target behind it', () => {
+  const L = window.__lab;
+  // a masonry curtain wall, then a ground-floor magazine 3 m behind it
+  L.setup([{ x: 33, y: 0, w: 1.2, h: 3, mat: 'stone' }, { x: 37, y: 0, w: 1.4, h: 1.2, mat: 'wood', target: 'workshop' }]);
+  L.shoot('drill', 22, 3, 14, -4); L.step(5);
+  const bl = L.blasts[0];
+  return { pass: L.b(1).dead && bl && bl.x > 36.5, info: `blew at x=${bl && L.r(bl.x, 1)} (wall 33-34.2, target 37-38.4); target ${L.b(1).dead ? 'destroyed' : L.r(L.frac(1) * 100, 0) + '%'}; wall ${L.b(0).dead ? 'destroyed' : L.r(L.frac(0) * 100, 0) + '%'}` };
+});
+
+test('drill_wall', 'drill', 'A drill that strikes a wall instead of earth still goes off in it (no fizzle)', () => {
+  const L = window.__lab;
+  const run = (id, vx) => { L.setup([{ x: 30, y: 0, w: 1, h: 3, mat: 'stone' }]); L.shoot(id, 26, 1.5, vx, 0); L.step(2); return L.b(0).dead ? 1 : L.frac(0); };
+  const dr = run('drill', 30), he = run('he', 30);
+  return { pass: dr >= he * 0.8 && dr > 0.5, info: `masonry wall: drill ${L.r(dr * 100, 0)}%, HE ${L.r(he * 100, 0)}%` };
+});
+
+test('flak_infantry', 'flak', 'Flak bursting among infantry on the ground is no canister (kills only men right beside it)', () => {
+  const L = window.__lab; const g = L.setup([]);
+  for (const x of [26, 28, 30, 32]) g.spawnSoldier(x);
+  L.shoot('flak', 29, 6, 0, -12); L.step(1);
+  const f = g.soldiers.filter((s) => s.dead).length;
+  const g2 = L.setup([]);
+  for (const x of [26, 28, 30, 32]) g2.spawnSoldier(x);
+  L.shoot('he', 29, 6, 0, -12); L.step(1);
+  const h = g2.soldiers.filter((s) => s.dead).length;
+  return { pass: f <= 2 && h >= 3, info: `4 men 2 m apart, burst in the middle: flak ${f} killed, HE ${h}` };
+});
+
 test('canister_infantry', 'canister', 'Canister shreds advancing infantry', () => {
   const L = window.__lab; const g = L.setup([]);
   for (const x of [24, 25.2, 26.4, 27.6, 28.8, 30]) g.spawnSoldier(x);
@@ -524,7 +552,9 @@ const strikeTest = (ord, dive, desc, check) => test(`air_${ord}${dive ? '_dive' 
   ${check}
 }`);
 // (the test body is assembled as a string so each variant can carry its own check)
-strikeTest('he', 0, 'GP bomb stick lands across the aim point and wrecks masonry there', `return { pass: sol.ok && hits.length >= 5 && Math.abs(mean - 50) < 1.5 && spread < 5 * 2.4 + 2 && frac > 0.5, info: hits.length + ' bombs, mean x ' + L.r(mean, 1) + ' (aim 50), spread ' + L.r(spread, 1) + ' m; masonry ' + L.r(frac * 100, 0) + '%' };`);
+// (the stick is solved for the ground at x 50: bombs that strike the 2 m block's top burst ~2 m short, and with the
+// bigger GP bomb the block can go after the first bomb, so the mean wanders 0.5-1.5 m short: allow 2 m)
+strikeTest('he', 0, 'GP bomb stick lands across the aim point and wrecks masonry there', `return { pass: sol.ok && hits.length >= 5 && Math.abs(mean - 50) < 2 && spread < 5 * 2.4 + 2 && frac > 0.5, info: hits.length + ' bombs, mean x ' + L.r(mean, 1) + ' (aim 50), spread ' + L.r(spread, 1) + ' m; masonry ' + L.r(frac * 100, 0) + '%' };`);
 strikeTest('incendiary', 0, 'Firebombs land on the aim point and set timber alight', `return { pass: hits.length >= 5 && Math.abs(mean - 50) < 1.5 && lit > 0, info: hits.length + ' firebombs, mean x ' + L.r(mean, 1) + '; timber lit: ' + (lit > 0) };`);
 strikeTest('penetrator', 0, 'AP bombs land on the aim point and crack concrete from above', `return { pass: Math.abs(mean - 50) < 2 && frac >= 1, info: 'mean x ' + L.r(mean, 1) + '; concrete 2x2 ' + L.r(frac * 100, 0) + '%' };`);
 strikeTest('he', 50, 'Dive-bombing still lands on the aim point (tighter stick)', `return { pass: sol.ok && hits.length >= 5 && Math.abs(mean - 50) < 1.5 && frac > 0.5, info: hits.length + ' bombs, mean x ' + L.r(mean, 1) + ', spread ' + L.r(spread, 1) + ' m; masonry ' + L.r(frac * 100, 0) + '%' };`);
@@ -556,7 +586,7 @@ test('air_flak_aim', 'airstrike', 'Flak in reach of the release point throws the
       g.selected = 'airstrike'; g.fire();
       L.step(8);
       // GP bomb bursts only (not the wreck of a downed bomber)
-      for (const b of L.blasts) if (b.r === 3.2 && b.d === 120) errs.push(Math.abs(b.x - 60));
+      for (const b of L.blasts) if (b.r === L.cfg.AMMO_BY_ID.bomb_he.blastRadius && b.d === L.cfg.AMMO_BY_ID.bomb_he.blastDamage) errs.push(Math.abs(b.x - 60));
     }
     return errs.reduce((s, e) => s + e, 0) / Math.max(1, errs.length);
   };

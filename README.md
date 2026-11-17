@@ -69,11 +69,11 @@ Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a muniti
 | Cluster Shell | scatters bomblets: tap in flight, or set an airburst timer | single hard points |
 | Delayed Fuse | bouncing or rolling into rooms; blows 3 s after impact | — |
 | Sticky Charge | gluing onto pillars; too slow to set off reactive armor | wind |
-| Burrowing Drill | landing short, tunnelling forward and blowing the foundations (or an earthwork) from below | high targets |
+| Burrowing Drill | landing short and tunnelling up to 12 m under the walls: it blows beneath the first target it reaches (or under the last wall it passed) | high targets |
 | Canister Shot | shredding infantry | buildings |
 | Smoke Screen | blinding the counter-battery guns for 15 s | — |
-| Scout Drone | revealing disguised armor, true HP and load-bearing members | flak |
-| Saboteur | running in to plant a charge at the wall base | enemy infantry |
+| Scout Drone | opening walled-up rooms along its flight path, revealing disguised armor and load-bearing members | flak |
+| Saboteur | running in to tamp a demolition charge against the wall base (casemates, reactive walls) | enemy infantry |
 | Air Strike | a planned bomb run: heading, altitude, dive, interval, ordnance | flak (bombs released within its reach scatter; it downs the bomber) |
 
 Castles stand on hills, 3.5–11 m above the plain depending on the operation (star forts hug the ground), so most shots go level or upward; the gun is re-placed per level so every objective stays in range at the muzzle velocity you're expected to have there. Your gun sits on a raised earthen redoubt, about 3.5 m up. Elevation goes down to −30°, so you can fire down on infantry that halt at the foot of the slope. Canister pellets each pass through up to two men, and solid shot (round shot, heavy shell) ploughs through a whole file. In the armory, press and hold + or − to keep buying or selling.
