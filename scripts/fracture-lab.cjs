@@ -338,27 +338,31 @@ async function shots(page, dir) {
   fs.mkdirSync(dir, { recursive: true });
   await page.addStyleTag({ content: 'body > *:not(canvas) { display: none !important; } canvas { display: block !important; }' });
   const scenes = [
-    ['ap_cut_beam', () => { const L = window.__flab; L.setup([{ x: 29, y: 0, w: 0.6, h: 2, mat: 'rock' }, { x: 33.4, y: 0, w: 0.6, h: 2, mat: 'rock' }, { x: 28.6, y: 2, w: 5.8, h: 0.5, mat: 'stone' }, { x: 31.3, y: 0, w: 0.5, h: 2, mat: 'stone' }, { x: 31.3, y: 2.5, w: 0.5, h: 2.5, mat: 'wood' }]);
-      L.shoot('ap', 26, 1.1, 34, 0); L.shoot('ap', 26, 3.6, 34, 0); L.step(0.12); return { x: 31.5, y: 2.5, h: 8 }; }],
+    ['ap_cut_beam', () => { const L = window.__flab;
+      L.setup([{ x: 28, y: 0, w: 0.6, h: 1.6, mat: 'rock' }, { x: 34.4, y: 0, w: 0.6, h: 1.6, mat: 'rock' }, { x: 28, y: 1.6, w: 7, h: 0.5, mat: 'stone' }, { x: 37, y: 0, w: 0.5, h: 3.2, mat: 'stone' }]);
+      const a = -35 * Math.PI / 180; L.shoot('ap', 31.2 - Math.cos(a) * 3, 1.85 - Math.sin(a) * 3, Math.cos(a) * 34, Math.sin(a) * 34);
+      L.shoot('ap', 35.3, 1.2, 34, 0); L.step(0.5); return { x: 32.8, y: 2, h: 7 }; }],
     ['he_shatter_stone', () => { const L = window.__flab; const w = []; for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) w.push({ x: 30 + x * 1.2, y: y * 1.2, w: 1.2, h: 1.2, mat: 'stone' });
-      L.setup(w); L.shoot('he', 27, 2.2, 28, 1); L.step(0.18); return { x: 32, y: 2.6, h: 9 }; }],
+      L.setup(w); L.shoot('he', 27, 2.2, 28, 1); L.step(0.3); return { x: 32, y: 2.6, h: 9 }; }],
     ['timber_splinter', () => { const L = window.__flab; L.setup([{ x: 29, y: 0, w: 0.6, h: 1.2, mat: 'rock' }, { x: 33.4, y: 0, w: 0.6, h: 1.2, mat: 'rock' }, { x: 29, y: 1.2, w: 5, h: 0.6, mat: 'wood' }, { x: 29, y: 1.8, w: 5, h: 0.6, mat: 'wood' }]);
-      L.shoot('heavy', 31.5, 5, 0, -24); L.step(0.2); return { x: 31.5, y: 1.8, h: 6 }; }],
-    ['marks_wall', () => { const L = window.__flab; L.setup([{ x: 30, y: 0, w: 3, h: 3.2, mat: 'stone' }, { x: 33.05, y: 0, w: 1, h: 4, mat: 'rock' }]);
-      L.shoot('shell', 27, 2.4, 28, 1); L.step(1.2); L.shoot('he', 30.6, 6, 0, -8); L.step(0.8); L.shoot('ap', 26, 0.6, 34, 0); L.step(0.3);
-      for (let k = 0; k < 12; k++) L.shoot('canister', 26, 1.2 + k * 0.08, 30, 0, { pellet: true });
-      L.step(0.4); L.shoot('shell', 27, 1.5, 22, 0.5); L.step(2); return { x: 31.5, y: 1.8, h: 6 }; }],
-    ['steel_dents', () => { const L = window.__flab; L.setup([{ x: 30, y: 0, w: 1.4, h: 3, mat: 'steel' }, { x: 31.45, y: 0, w: 1, h: 3, mat: 'rock' }]);
+      L.shoot('heavy', 31.5, 5, 0, -24); L.step(0.4); for (const p of L.g.projectiles) L.g.removeProjectile(p); return { x: 31.5, y: 1.8, h: 6 }; }],
+    ['marks_wall', () => { const L = window.__flab; L.setup([{ x: 30, y: 0, w: 3, h: 3.2, mat: 'stone' }]);
+      L.shoot('shell', 27, 2.3, 28, 1); L.step(1.2); L.shoot('he', 27.4, 4, 0, -10); L.step(1); L.shoot('ap', 26, 0.7, 34, 0); L.step(0.4);
+      for (let k = 0; k < 12; k++) L.shoot('canister', 26, 1.4 + k * 0.1, 30, 0, { pellet: true });
+      L.step(0.4); L.shoot('shell', 28.6, 1.5, 8, 0.5); L.step(3); return { x: 31.5, y: 1.8, h: 5.5 }; }],
+    ['steel_dents', () => { const L = window.__flab; L.setup([{ x: 30, y: 0, w: 1.4, h: 3, mat: 'steel' }, { x: 31.42, y: 0, w: 3, h: 5, mat: 'rock' }, { x: 29.4, y: 0, w: 0.58, h: 0.6, mat: 'rock' }]);
       L.shoot('shell', 27, 0.8, 28, 1); L.step(1); L.shoot('heavy', 27, 2.2, 26, 1); L.step(1); L.shoot('ap', 26, 1.5, 34, 0); L.step(0.6);
-      const a = -18 * Math.PI / 180; L.shoot('shell', 27, 4.2, Math.cos(a) * 28, Math.sin(a) * 28); L.step(1.5); return { x: 31, y: 1.6, h: 5 }; }],
+      L.shoot('shell', 27, 2.7, 28, 0.5); L.step(3); for (const p of L.g.projectiles) L.g.removeProjectile(p); return { x: 31, y: 1.6, h: 4.5 }; }],
   ];
   for (const [name, fn] of scenes) {
     await page.evaluate((src) => {
       const view = (0, eval)('(' + src + ')')();
       const S = window.siege, r = S.renderer;
       S.game.frameCamera = () => { r.cx = view.x; r.cy = view.y; r.viewH = view.h; };
+      // smoke and flame would hide the stonework: clear them for the still
+      r.smoke.parts.length = 0; r.flame.parts.length = 0; r.fire.parts.length = 0; r.debris.chunks.length = 0;
     }, fn.toString());
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(3000);
     await page.screenshot({ path: `${dir}/${name}.png` });
     console.log('saved', `${dir}/${name}.png`);
   }

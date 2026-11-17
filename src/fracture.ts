@@ -371,8 +371,11 @@ export class Fracture {
     const s = this.state(b);
     const [px, py] = world ? this.toPattern(b, x, y) : [x, y];
     // a fresh hit on (nearly) the same spot deepens the old mark instead of taking a slot
+    // pockmarks gather into a peppered patch rather than taking every slot
+    const near = type === MarkType.POCK ? 0.14 : Math.max(r, 0.05) * 0.7;
     for (const m of s.marks) {
-      if (m.type === type && type !== MarkType.BORE && type !== MarkType.BORE_END && type !== MarkType.GOUGE && Math.hypot(m.x - px, m.y - py) < Math.max(m.r, r) * 0.7) {
+      if (m.type === type && type !== MarkType.BORE && type !== MarkType.BORE_END && type !== MarkType.GOUGE && Math.hypot(m.x - px, m.y - py) < Math.max(m.r * 0.7, near)) {
+        if (type === MarkType.POCK) { m.r = Math.min(0.09, m.r + 0.004); this.dirty.add(b); return; }
         m.r = Math.min(Math.max(m.r, r) * 1.12, Math.max(m.r, r) + 0.08, 1.2);
         this.dirty.add(b);
         return;
@@ -384,19 +387,23 @@ export class Fracture {
     this.stats.marks++;
   }
 
-  /** keep at most MAX_MARKS slots: the oldest go first (a bore leaves as a pair) */
+  /** keep at most MAX_MARKS slots: pockmarks go first, then the oldest (a bore or gouge leaves as a pair) */
   private trimMarks(ms: Mark[]) {
     while (ms.length > MAX_MARKS) {
-      const i = ms.findIndex((m) => m.type !== MarkType.BORE_END);
+      const pock = ms.findIndex((m) => m.type === MarkType.POCK);
+      const i = pock >= 0 && ms.filter((m) => m.type === MarkType.POCK).length > 1 ? pock : ms.findIndex((m) => m.type !== MarkType.BORE_END);
       ms.splice(i, ms[i].type === MarkType.BORE || ms[i].type === MarkType.GOUGE ? 2 : 1);
     }
     // a bore start must be followed by its end
     if (ms.length && (ms[ms.length - 1].type === MarkType.BORE || ms[ms.length - 1].type === MarkType.GOUGE)) ms.pop();
   }
 
-  private markHit(b: Block, h: Hit) {
+  private markHit(b: Block, h0: Hit) {
     const cls = clsOf(b);
     if (cls === 'none') return;
+    // hits land on the outline: set the pit a little into the face (along the blow) so it reads as a bite, not half a disc in the air
+    const into = h0.kind === 'shot' ? (h0.r ?? 0.24) * 1.4 : h0.kind === 'blast' || h0.kind === 'apStop' ? 0.18 : 0;
+    const h = into ? { ...h0, x: h0.x + h0.dx * into, y: h0.y + h0.dy * into } : h0;
     const fh = Math.min(1.5, h.e / b.maxHp);
     const steel = cls === 'steel';
     switch (h.kind) {

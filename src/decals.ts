@@ -119,7 +119,7 @@ vec3 blockMarks(vec3 col, vec2 p, float px, bool horiz){
   if (uCrackK > 0.5 && (crackReach > 0.01 || uDamage > 0.02 || spokes > 0.0)) {
     vec2 cp = uCrackK > 1.5 ? (horiz ? vec2(p.x * 0.35, p.y * 4.5) : vec2(p.x * 4.5, p.y * 0.35)) : p * 2.2;
     float ve = voronoiEdge(cp + uSeed * 3.0);
-    float generic = step(fbm(p * 1.7 + uSeed), uDamage * 1.15) * (n > 0 ? 0.55 : 1.0);
+    float generic = n > 0 ? step(fbm(p * 1.7 + uSeed), uDamage * 0.85 - 0.15) * 0.6 : step(fbm(p * 1.7 + uSeed), uDamage * 1.15);
     float local = crackReach * step(0.25, fbm(p * 3.1 + uSeed * 1.7) + crackReach * 0.6);
     float mask = max(generic, local);
     float crack = (1.0 - smoothstep(0.0, 0.03 + px, ve)) * mask;
