@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { audio } from './audio';
 import { AMMO_BY_ID } from './config';
 import { Game } from './game';
-import { gunHit, hideTooltip, rackIds, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
+import { gunHit, hideTooltip, rackIds, requestWithdraw, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
 import { writeSave } from './progress';
 import { Renderer, loadTextures } from './render';
 import { showMap, showResult } from './screens';
@@ -122,6 +122,7 @@ window.addEventListener('keydown', (e) => {
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= 9) { const ids = rackIds(); if (ids[n - 1]) g.selected = ids[n - 1]; }
   if (k === 'r') { g.zoom = 1; g.pan = 0; g.panY = 0; }
+  if (k === 'Escape') requestWithdraw();
   if (k === 't') { S.mouseAim = !S.mouseAim; toast(S.mouseAim ? 'Mouse aim on' : 'Mouse aim off: dials, keys and typed values only'); }
 });
 window.addEventListener('keyup', (e) => { keys.delete(keyName(e)); keys.delete(e.key); });

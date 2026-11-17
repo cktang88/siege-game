@@ -25,7 +25,7 @@ export function buildHud() {
   const hud = $('#hud');
   hud.classList.remove('hidden');
   hud.innerHTML = `
-    <div id="hud-left" class="plate"><div id="lvl-name"></div><div id="timer"></div><ul id="objectives"></ul></div>
+    <div id="hud-left" class="plate"><button id="withdraw" title="Abandon the attack and return to the after-action report (Esc)">Withdraw</button><div id="lvl-name"></div><div id="timer"></div><ul id="objectives"></ul></div>
     <div id="hud-right" class="plate">
       <div class="row"><span class="label">Wind</span><span class="windvane"><svg viewBox="0 0 38 14"><path id="windarrow" d="M2 7 H30 M24 2 L32 7 L24 12" stroke="#ffb347" stroke-width="2.4" fill="none"/></svg><span id="wind" class="readout"></span></span></div>
       <div class="row"><span class="label">Gun</span><div class="meter" id="hp"></div><span id="hpnum" class="readout"></span></div>
@@ -41,6 +41,7 @@ export function buildHud() {
     <div id="floaters"></div>
     <div id="help">mouse aims · click fires · wheel velocity (shift coarse) · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute</div>`;
   $('#lvl-name').textContent = S.game.level.name;
+  $('#withdraw').addEventListener('click', requestWithdraw);
   $('#hp').innerHTML = '<i></i>'.repeat(12);
   buildRack();
   $('#fcp').addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -66,6 +67,20 @@ function buildRack() {
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     el.addEventListener('click', () => { g.selected = el.dataset.a as AmmoId; });
   });
+}
+
+/** Withdraw (or Esc): a first press arms it, a second within 3 s ends the battle as a failure */
+let withdrawArmed = 0;
+export function requestWithdraw() {
+  const g = S.game;
+  const btn = document.querySelector<HTMLElement>('#withdraw');
+  // nothing to abandon once it is over, or while a won battle counts down to its report
+  if (S.mode !== 'battle' || g.ended || g.winT >= 0 || !btn) return;
+  if (performance.now() < withdrawArmed) { g.end(false, 'You withdrew from the field.'); return; }
+  withdrawArmed = performance.now() + 3000;
+  btn.classList.add('armed');
+  btn.textContent = 'Confirm withdraw?';
+  setTimeout(() => { if (performance.now() >= withdrawArmed) { btn.classList.remove('armed'); btn.textContent = 'Withdraw'; } }, 3050);
 }
 
 export function rackIds() { return Array.from(document.querySelectorAll<HTMLElement>('.slot')).map((el) => el.dataset.a as AmmoId); }
