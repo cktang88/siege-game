@@ -443,7 +443,9 @@ function installValue() {
     const a = V.cfg.AMMO_BY_ID[o.id];
     const hp0 = V.hpOf(g.blocks.filter((b) => !b.mat.indestructible));
     let n = 0;
-    for (; n < 8 && tgts.some((b) => !b.dead); n++) {
+    const trace = [];
+    if (o.trace) { const ex = g.explode.bind(g); g.explode = (x, y, r, d, op) => { trace.push([+x.toFixed(1), +y.toFixed(1), r, d]); return ex(x, y, r, d, op); }; }
+    for (; n < (o.max || 8) && tgts.some((b) => !b.dead); n++) {
       const tgt = tgts.find((b) => !b.dead);
       const tc = centre(tgt);
       const j = () => V.gauss() * 0.15;
@@ -452,7 +454,7 @@ function installValue() {
         const lofted = o.id === 'cluster';
         const mid = o.id === 'cluster' ? { x: (tgts[0].def.x + tgts[tgts.length - 1].def.x + 1.4) / 2, y: 0.5 } : tgt;
         const sol = V.solve(a, mid, { lofted, ground: !mid.body });
-        V.fireAt(o.id, mid, { sigma: 0.35, lofted, ground: !mid.body, airburst: lofted && sol ? Math.max(0.2, sol.t - 0.6) : undefined });
+        V.fireAt(o.id, mid, { sigma: 0.35, lofted, ground: !mid.body, airburst: lofted && sol ? Math.max(0.2, sol.t - 1.0) : undefined });
         V.settle(25, 0.6);
         continue;
       }
@@ -465,6 +467,7 @@ function installValue() {
     }
     V.step(o.id === 'incendiary' ? 15 : 2);
     const all = tgts.every((b) => b.dead);
+    if (o.trace) { delete g.explode; return { trace, guns: tgts.map((b) => (b.dead ? 'dead' : +(b.hp / b.maxHp).toFixed(2))) }; }
     return { killed: all, rounds: all ? n : NaN, cost: all ? n * a.price : NaN, hp: hp0 - V.hpOf(g.blocks.filter((b) => !b.mat.indestructible)) };
   };
   V.shoot = (id, x, y, vx, vy) => V.g.spawnProjectile(V.cfg.AMMO_BY_ID[id], x, y, vx, vy, false, {});
