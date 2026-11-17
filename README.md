@@ -47,14 +47,36 @@ Every fortress stands on its own hill, so most shots go level or upward. Only th
 2. **Research.** War funds come from missions: a first clear, each new star, and any score above your previous best pay out. Replaying for the same result pays nothing; a failed attempt pays a little salvage for objectives knocked out beyond your best previous attempt. Spend them across five branches: Ordnance, Gunnery, Air Wing, Special Ops and Logistics. Research unlocks munitions and upgrades muzzle velocity, reload, elevation, trajectory preview, wind readout, gun armour, bomb loads, dive bombing, bomb types, drone endurance, saboteur teams and budgets. Click an owned card to refund it (the top of a branch first), or refund everything at once. Refunds are free.
 3. **Armory.** Buy rounds within the mission budget. Unspent money and unfired rounds count toward your score. **Survey** lets you hover blocks to read their material and HP.
 4. **Battle.** Every shot is fully controllable:
-   - **Gun:** set elevation (degrees) and muzzle velocity (m/s). The barrel follows the mouse over the battlefield and a click fires. How far the cursor is from the gun sets muzzle velocity: right by the gun is the slowest charge, about 60% of the screen width away is full charge, and a readout by the cursor shows velocity and elevation. Hold Shift to keep the velocity while you change only the elevation; the mouse wheel trims velocity on top of the distance (Shift+wheel in coarse steps). You can also drag the needles on the quadrant and gauge, type exact values, or step by ±0.1 / ±1. Arrow keys adjust too (hold Shift for fine steps). `T` (or the *Mouse aim* switch) turns mouse aiming off when you want typed values to stay put. The delayed fuse and the cluster airburst have their own timers.
+   - **Gun:** set elevation (degrees) and muzzle velocity (m/s). The barrel follows the mouse over the battlefield and a click fires. How far the cursor is from the gun sets muzzle velocity: right by the gun is the slowest charge, about 60% of the screen width away (a setting) is full charge, and a readout by the cursor shows velocity and elevation. Hold Shift to keep the velocity while you change only the elevation; the mouse wheel trims velocity on top of the distance (Shift+wheel in coarse steps). You can also drag the needles on the quadrant and gauge, type exact values, or step by ±0.1 / ±1. Arrow keys adjust too (hold Shift for fine steps). `T` (or the *Mouse aim* switch) turns mouse aiming off when you want typed values to stay put. The delayed fuse and the cluster airburst have their own timers.
    - **Air strike:** set the approach (from west or east), release altitude, dive angle (needs Dive Bombing research), drop interval and ordnance (GP, firebombs or AP bombs). Click the field to set the aim point. The bomb run is solved against gravity and wind, and the preview draws the flight path, release points and predicted impacts. Fly too low or too steep and the bomber hits the ground.
    - **Drone and saboteur:** click the field to choose where the drone loiters or where the team plants its charge.
 5. **Win** by destroying every ◆ objective. Stars come from time against par, budget left over, secondary targets, gun condition and collateral damage.
 
-**Dev mode:** the `Dev` button on the map, or `?dev` in the URL, opens every castle and every technology for the current browser session. Dev mode is never written to the save, and dev battles pay no funds and record no stars. It also adds 12 procedurally generated proving grounds and an unlimited-budget toggle in the armory.
+**Settings** (the *Settings* button on the operations map, or *Menu* → *Settings* in battle) are stored in this browser under their own key (`siege-settings-v1`), apart from the campaign save, and apply at once:
 
-Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a munition, the mouse wheel sets velocity (zooms outside battle), `Ctrl`+wheel or `Q`/`E` zoom, any drag pans, `R` resets the view, `T` toggles mouse aim, `M` mutes and `Esc` (or the *Withdraw* button, pressed twice) abandons the attack. Click an objective in the list, or an objective marker pinned to the screen edge, to look at it. Shortcuts are ignored while you type in a number field.
+| Setting | What it does |
+|---|---|
+| Master / Music / Effects volume | levels of the master, music and effects sound buses |
+| Mute all | silences everything (`M` toggles it in battle) |
+| Mouse aim | whether the barrel follows the cursor when a battle starts (`T` still toggles it in battle) |
+| Distance sets velocity | on: the cursor's distance from the gun sets muzzle velocity; off: the mouse sets elevation only, and velocity comes from the wheel, ← → or the dial |
+| Full-charge distance | how far from the gun, as a share of the screen width (25–90%, default 60%), the cursor gives a full charge |
+| Trajectory dots | shows or hides the preview arc in front of the gun |
+| Pan speed | WASD scrolling speed (0.4–2.5×) |
+| Screen shake | 0–150% of the shake from the gun and from blasts |
+| Effects quality | High: full particle pools, bloom, pixel ratio up to 2. Medium: 60% pools, bloom, up to 1.5. Low: 35% pools, no bloom, 1×, coarser fire and smoke fields |
+| UI scale | 90%, 100% or 115% for the plates, panels and screens |
+| Controls line | the one-line key reminder along the bottom of the battle screen |
+| Reset progress | wipes stars, records, war funds and research (press twice to confirm); settings are kept |
+
+**Dev mode:** the `Dev` button on the map, the switch on the settings page, or `?dev` in the URL turns it on for the current browser tab only. It is never written to the save, and a battle begun in dev mode pays no funds, records no stars and is marked *dev · not scored* in the after-action report, even if dev mode is switched off during it. In dev mode:
+
+- every castle and every technology are open;
+- the armory issues a **sandbox rack**: every munition, researched or not, unlimited (∞) and free. The rack never runs down. Untick *sandbox rack* to buy rounds as normal (optionally with an unlimited budget);
+- a **castle picker** (*Castles* in the top bar) lists every campaign operation, the off-campaign themed fortresses, 12 seeded proving grounds and 4 grand proving grounds, and generates new ones from a generator (fortress or grand), theme, seed and difficulty;
+- a **dev sandbox panel** in battle (`` ` `` folds it) spawns enemy infantry, shield infantry, armoured cars, light tanks, gyrocopters and airships, ×1, ×5 or ×10 at a time, at the foot of the fortress (aircraft over it). Switches: *Freeze enemy* (no counter-battery fire, reinforcements, repairs, air raids or motor-pool sorties), *God-mode gun*, *Instant reload*, *Slow-mo ¼*, plus *Reveal rooms* (opens every concealed room) and *Clear field*. The only limit is a frame-time guard of 300 infantry, 80 vehicles and 80 aircraft alive at once (units are sprites, not physics bodies; only their shells and bombs are).
+
+Keys: `Space` fires (or triggers the in-flight special), `1`–`9` pick a munition, the mouse wheel sets velocity (zooms outside battle), `Ctrl`+wheel or `Q`/`E` zoom, any drag pans, `WASD` scrolls, `R` resets the view, `T` toggles mouse aim, `M` mutes and `Esc` (or the *Menu* button) halts the battle behind a menu: *Resume*, *Settings*, *Withdraw* (press twice). The *Withdraw* button on the objectives plate also abandons the attack when pressed twice. In dev mode `` ` `` folds the sandbox panel. Click an objective in the list, or an objective marker pinned to the screen edge, to look at it. Shortcuts are ignored while you type in a number field.
 
 ## Munitions (15)
 
