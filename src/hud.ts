@@ -391,7 +391,6 @@ export function updateHud() {
     el.querySelector('.ct')!.textContent = String(n);
     el.classList.toggle('sel', g.selected === id);
     el.classList.toggle('empty', n <= 0);
-    el.classList.toggle('low', n === 1);
     (el.querySelector('.reload') as HTMLElement).style.width = g.selected === id ? `${(g.reload / g.stats.reload) * 100}%` : '0';
   });
   shownSel = g.selected;

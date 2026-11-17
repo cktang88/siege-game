@@ -316,13 +316,13 @@ button { font: inherit; color: inherit; }
 .aar .objtally tr.done td { color: #3f7a2a; }
 .aar .objtally tr.left td { color: #9a2a1a; font-weight: 700; }
 /* ammo state on the rack; objectives can be clicked to look at them */
-.slot.low .ct { color: var(--bad); }
 .slot.empty .ct { color: var(--bad); }
 .slot .key { color: #9a968a; }
 #objectives li[data-k] { cursor: pointer; }
 #objectives li[data-k]:not(.done):hover { color: var(--amber); }
 /* narrow screens: rack slots shrink to fit before the rack scrolls (with a visible scrollbar) */
-#rack .slot { width: auto; flex: 0 1 68px; min-width: 50px; }
+#rack .slot { width: auto; flex: 0 1 68px; min-width: 46px; }
+@media (max-width: 1400px) { #rack { gap: 2px; padding: 8px 8px 6px; } }
 #rack .slot img { width: min(46px, 100%); height: auto; aspect-ratio: 1; }
 #rack { scrollbar-width: thin; scrollbar-color: var(--signal) rgba(0, 0, 0, 0.3); }
 /* target labels: hit pulse, numbers off them, and objectives pinned to the view edge */
@@ -340,3 +340,5 @@ button { font: inherit; color: inherit; }
 /* armory: the rack only takes the height it needs, so the fortress shows below it */
 .armory .rack { align-self: start; max-height: 100%; }
 #hud #coach { pointer-events: none; }
+.node:hover .pin { transform: rotate(45deg) scale(1.15); }
+.node:hover .nm { background: #fff6dc; box-shadow: 0 0 0 1px var(--paper-ink); }
