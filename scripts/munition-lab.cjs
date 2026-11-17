@@ -529,15 +529,15 @@ strikeTest('incendiary', 0, 'Firebombs land on the aim point and set timber alig
 strikeTest('penetrator', 0, 'AP bombs land on the aim point and crack concrete from above', `return { pass: Math.abs(mean - 50) < 2 && frac >= 1, info: 'mean x ' + L.r(mean, 1) + '; concrete 2x2 ' + L.r(frac * 100, 0) + '%' };`);
 strikeTest('he', 50, 'Dive-bombing still lands on the aim point (tighter stick)', `return { pass: sol.ok && hits.length >= 5 && Math.abs(mean - 50) < 1.5 && frac > 0.5, info: hits.length + ' bombs, mean x ' + L.r(mean, 1) + ', spread ' + L.r(spread, 1) + ' m; masonry ' + L.r(frac * 100, 0) + '%' };`);
 
-test('air_flak', 'airstrike', 'Flak defending the aim point shoots the bomber down on its run', () => {
-  const L = window.__lab; const g = L.setup([{ x: 51, y: 0, w: 1.5, h: 1.5, mat: 'stone', target: 'flak' }]);
+test('air_flak', 'airstrike', 'Flak defending the aim point shoots the bomber down on its run (battery made indestructible: this tests the flak, not the bombs)', () => {
+  const L = window.__lab; const g = L.setup([{ x: 51, y: 0, w: 1.5, h: 1.5, mat: 'rock', target: 'flak' }]);
   Object.assign(g.strike, { x: 50, dir: 1, alt: 24, dive: 0, spacing: 2.4, ordnance: 'he' });
   g.selected = 'airstrike'; g.fire();
   const pl = g.planes[0];
   let down = -1;
   L.step(14, (i) => { if (pl.down) { down = pl.x; return true; } });
   // with Chaff & Jammers it gets through
-  const g2 = L.setup([{ x: 51, y: 0, w: 1.5, h: 1.5, mat: 'stone', target: 'flak' }], { stats: { ecm: true } });
+  const g2 = L.setup([{ x: 51, y: 0, w: 1.5, h: 1.5, mat: 'rock', target: 'flak' }], { stats: { ecm: true } });
   Object.assign(g2.strike, { x: 50, dir: 1, alt: 24, dive: 0, spacing: 2.4, ordnance: 'he' });
   g2.selected = 'airstrike'; g2.fire();
   const pl2 = g2.planes[0];
@@ -617,6 +617,27 @@ test('ammo_cookoff', 'he', 'A destroyed munitions store detonates (secondary bla
   L.shoot('he', 26, 0.5, 30, 0); L.step(2);
   const big = L.blasts.some((b) => b.src === 'ammo');
   return { pass: L.b(0).dead && big && L.frac(1) > 0.2, info: `store ${L.b(0).dead ? 'destroyed' : 'intact'}; secondary ${big}; stone 2.5 m away ${L.r(L.frac(1) * 100, 0)}%` };
+});
+
+test('objective_direct', 'shell', 'One direct round-shot hit knocks out an objective, whatever it is built of', () => {
+  const L = window.__lab; const out = [];
+  let ok = true;
+  for (const mat of ['wood', 'stone', 'concrete']) {
+    L.setup([{ x: 30, y: 0, w: 1.6, h: 1.4, mat, target: 'barracks' }]);
+    L.shoot('shell', 26, 0.7, 26, 0); L.step(1);
+    out.push(`${mat} ${L.b(0).dead ? 'down' : 'standing'}`);
+    ok = ok && L.b(0).dead;
+  }
+  return { pass: ok, info: out.join(', ') };
+});
+
+test('objective_near', 'he', 'Two near misses (HE landing beside it) knock out an objective; one does not', () => {
+  const L = window.__lab;
+  L.setup([{ x: 30, y: 0, w: 1.6, h: 1.4, mat: 'stone', target: 'barracks' }, { x: 26, y: 0, w: 0.6, h: 0.3, mat: 'rock' }]);
+  L.g.explode(28.4, 0.4, 4.2, 115, { source: 'he' }); L.step(0.5);
+  const one = L.b(0).dead;
+  L.g.explode(28.4, 0.4, 4.2, 115, { source: 'he' }); L.step(0.5);
+  return { pass: !one && L.b(0).dead, info: `after one: ${one ? 'down' : 'standing'}; after two: ${L.b(0).dead ? 'down' : 'standing'}` };
 });
 
 // ───────────────────────── runner ─────────────────────────
