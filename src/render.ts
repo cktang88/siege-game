@@ -265,19 +265,21 @@ void main(){
     float n = fbm(p * 1.6 + uSeed * 1.7);
     float front = uBurn * 1.35 - 0.15;
     float charM = smoothstep(n - 0.06, n + 0.06, front);
+    float ve = voronoiEdge(p * 3.2 + uSeed * 5.0);
+    // alligatored charcoal: each cell a block with a sheen toward its middle, dark seams between
     vec3 charCol = uColor * 0.16 + vec3(0.035, 0.03, 0.028);
-    charCol *= 0.8 + 0.35 * step(0.55, vnoise(p * vec2(9.0, 3.0) + uSeed));
+    charCol *= 0.75 + 0.55 * smoothstep(0.04, 0.16, ve);
     col = mix(col, charCol, charM);
     // scorch halo ahead of the front
     col *= 1.0 - 0.45 * (1.0 - smoothstep(0.0, 0.18, n - front)) * (1.0 - charM);
-    float ve = voronoiEdge(p * 3.2 + uSeed * 5.0);
     float crack = (1.0 - smoothstep(0.015, 0.045 + px.x, ve)) * charM;
     float pulse = 0.55 + 0.45 * sin(uTime * 2.7 + n * 14.0 + uSeed);
     float edgeGlow = (1.0 - smoothstep(0.0, 0.07, abs(n - front))) * uAlight;
     float glow = clamp(crack * uAlight * pulse + edgeGlow * 0.9, 0.0, 1.0);
     vec3 hot = mix(vec3(0.75, 0.16, 0.04), vec3(1.15, 0.62, 0.14), step(0.72, glow));
     col = mix(col, hot, step(0.28, glow));
-    col = mix(col, vec3(0.44, 0.42, 0.4), step(0.8, vnoise(p * 13.0 + uSeed)) * charM * (1.0 - uAlight) * 0.7);
+    // once cold, a little pale ash settles on the cell tops
+    col = mix(col, vec3(0.4, 0.38, 0.36), step(0.84, vnoise(p * 16.0 + uSeed)) * step(0.1, ve) * charM * (1.0 - uAlight) * 0.6);
   }
   // outline
   float edge = dmin / mpp;

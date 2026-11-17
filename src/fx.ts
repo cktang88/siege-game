@@ -195,7 +195,7 @@ void main(){
   float r = length(vQ);
   if (r > 1.0) discard;
   float n = fxFbm(vQ * 1.5 + vec2(vSeed * 23.0 + vT * 0.9, vSeed * 7.0 - vT * 0.7));
-  float m = clamp((1.0 - r) * 1.6 - (n - 0.5) * (0.35 + 0.7 * r) - vT * vT * n * 1.1, 0.0, 1.0);
+  float m = clamp((1.0 - r) * 1.6 - (n - 0.5) * (0.35 + 0.7 * r) - vT * vT * (n + 0.25) * 1.5, 0.0, 1.0);
   m *= smoothstep(0.0, 0.08, vT); // ease in: no popping (and as it ages, noise eats it into wisps)
   float d = m * vCol.a;
   gl_FragColor = vec4(vCol.rgb * d, d);
