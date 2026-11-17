@@ -82,16 +82,27 @@ export function updateObjectives() {
   }).join('');
 }
 
+const toastTimers = new WeakMap<HTMLElement, number[]>();
 export function toast(text: string, tone = 'info') {
   const box = $('#toasts');
   if (!box) return;
-  const el = document.createElement('div');
-  el.className = `toast ${tone}`;
-  el.textContent = text;
-  box.appendChild(el);
-  while (box.children.length > 4) box.firstElementChild!.remove();
-  setTimeout(() => { el.style.opacity = '0'; }, 2600);
-  setTimeout(() => el.remove(), 3200);
+  // the same message again while it is still up (two gyrocopters, a second barrage) counts up instead of stacking
+  let el = Array.from(box.children as HTMLCollectionOf<HTMLElement>).find((t) => t.dataset.text === text && t.style.opacity !== '0');
+  if (el) {
+    const n = +(el.dataset.n ?? 1) + 1;
+    el.dataset.n = String(n);
+    el.textContent = `${text} ×${n}`;
+    toastTimers.get(el)?.forEach((t) => clearTimeout(t));
+  } else {
+    el = document.createElement('div');
+    el.className = `toast ${tone}`;
+    el.dataset.text = text;
+    el.textContent = text;
+    box.appendChild(el);
+    while (box.children.length > 4) box.firstElementChild!.remove();
+  }
+  const t = el;
+  toastTimers.set(t, [setTimeout(() => { t.style.opacity = '0'; }, 2600), setTimeout(() => t.remove(), 3200)]);
 }
 
 // ───────────────────────── dials ─────────────────────────
