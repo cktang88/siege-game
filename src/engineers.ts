@@ -52,7 +52,7 @@ interface Eng {
   gone: boolean;
 }
 
-const WALK = 1.35, CARRY_WALK = 1.05, CLIMB = 0.95;
+const WALK = 1.55, CARRY_WALK = 1.15, CLIMB = 0.95;
 /** repair per second at full crew effect, as a share of max HP (the old crew's 2.8%/s, with time lost to fetching) */
 const RATE = 0.034;
 /** hands at work → effect: 0.6, 0.96, 1.18, 1.31 */
@@ -85,6 +85,12 @@ export class Crew {
     return L.blocks.some((b) => b.mat === 'concrete' || b.mat === 'steel' || b.mat === 'reactive') ? 'modern' : 'medieval';
   }
   get alive() { return this.list.filter((e) => !e.s.dead && !e.gone); }
+  /** meshes this crew keeps directly under the battle root besides the men (a standing scaffold's group; a fallen one's sticks) */
+  get rootChildren() {
+    let n = this.scaf && this.scaf.standing ? 1 : 0;
+    for (const f of this.fallen) n += f.members.filter((m) => m.mesh.parent === this.g.root).length;
+    return n;
+  }
   /** men at work at the block right now */
   get working() { return this.list.filter((e) => !e.s.dead && e.mode === 'work').length; }
 
@@ -254,6 +260,8 @@ export class Crew {
 
   /** what this man should be doing now */
   private rethink(e: Eng) {
+    // still on the way down from the workshop through the rooms: finish that first (arrival rethinks)
+    if (e.on === 'abs' && e.path.length) { e.goal = 'none'; return; }
     const sc = this.scaf;
     if (sc && sc.standing) {
       const footX = sc.wx(sc.plan.pileX) + (sc.plan.pileX < sc.plan.ladderX ? 0.55 : -0.55);
@@ -312,6 +320,7 @@ export class Crew {
     if (wp.on === 'scaf' && e.on !== 'scaf') this.toScaf(e);
     if (wp.on !== 'scaf' && e.on === 'scaf') { e.on = wp.on; s.y = wp.on === 'ground' ? g.groundY(s.x) : wp.y; }
     if (wp.on === 'abs') e.on = 'abs';
+    else if (wp.on === 'ground' && e.on === 'abs') { e.on = 'ground'; s.y = g.groundY(s.x); }
     const v = (e.carrying ? CARRY_WALK : WALK) * (e.goal === 'flee' ? 1.6 : 1);
     let done = false;
     if (wp.climb) {

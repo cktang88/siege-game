@@ -80,7 +80,7 @@ function installSoak() {
     const covers = ga.rooms.list.filter((r) => r.cover).length;
     return 9 + live + g.enemyGuns.size + g.mastSprites.size + g.backdrops.length + g.houses.length + ga.list.length + ga.rooms.ladders.length + covers
       + g.projectiles.filter((p) => !p.dead).length + g.soldiers.length + g.planes.length + g.drones.length + g.saboteurs.length
-      + g.motor.units.length * 2 + g.air.units.length + g.incoming.length + (g.frac.fx ? g.frac.fx.length : 0);
+      + g.motor.units.length * 2 + g.air.units.length + g.incoming.length + (g.frac.fx ? g.frac.fx.length : 0) + (g.crew ? g.crew.rootChildren : 0);
   };
 
   K.start = (idx, seed, o) => {
