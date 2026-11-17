@@ -588,7 +588,8 @@ const sections = {
     await ev(page, async () => { window.siege.save.funds = 777; window.siege.save.stars = { outpost: 2 }; (await window.__mod('progress.ts')).writeSave(window.siege.save); (await window.__mod('screens.ts')).showSettings(); });
     await page.click('[data-act="reset"]');
     check('settings: first Reset press only arms', (await saveNow(page)).funds === 777);
-    await page.click('[data-act="reset"]', { force: true });
+    // (dispatched at once: the confirm window is 4 s, and a real click can take that long under software GL)
+    await page.$eval('[data-act="reset"]', (b) => b.click());
     const r = await saveNow(page);
     check('settings: second Reset press wipes the campaign', r.funds === 300 && Object.keys(r.stars).length === 0);
     noErrors(page, 'settings');
@@ -893,9 +894,10 @@ const sections = {
         await ev(page, async () => { const S = window.siege; S.save.dev = false; S.save.funds = 2400; S.save.stars = { outpost: 3, millford: 2, cleancut: 1, redhill: 2 }; S.save.best = { outpost: 9200 }; S.save.tech = ['ord_he', 'gun_charge', 'sp_drone', 'log_canister', 'ord_heavy']; (await window.__mod('screens.ts')).showMap(); });
         const screensToCheck = [
           ['map', async () => {}, ['.topbar', '.opmap .sheet', '.dossier']],
-          ['tech', async () => page.click('[data-go="tech"]'), ['.topbar', '.techbar']],
+          // (the research board and the narrow armory scroll: only their fixed parts are checked)
+          ['tech', async () => page.click('[data-go="tech"]'), ['.topbar']],
           ['settings', async () => page.click('[data-go="settings"]'), ['.topbar', '.setbar']],
-          ['armory', async () => { await page.click('[data-go="map"]'); await page.click('.node[data-n="redhill"]'); await page.click('#plan'); await page.click('.munition button[data-a="shell"][data-d="1"]'); }, ['.armory .brief', '.armory .rack']],
+          ['armory', async () => { await page.click('[data-go="map"]'); await page.click('.node[data-n="redhill"]'); await page.click('#plan'); await page.click('.munition button[data-a="shell"][data-d="1"]'); }, w > 900 ? ['.armory .brief', '.armory .rack'] : ['.armory .brief']],
         ];
         for (const [name, go, sels] of screensToCheck) {
           await go();

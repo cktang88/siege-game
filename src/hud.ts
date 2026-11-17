@@ -83,6 +83,8 @@ function buildRack() {
   const g = S.game;
   const ids = (Object.keys(g.inventory) as AmmoId[]).sort((a, b) => AMMO.findIndex((x) => x.id === a) - AMMO.findIndex((x) => x.id === b));
   const rack = $('#rack');
+  // a long rack (the dev sandbox's every munition) squeezes its slots: names are set tighter
+  rack.classList.toggle('many', ids.length > 11);
   const tip = (id: AmmoId, i: number) => { const a = AMMO_BY_ID[id]; return `${a.name}${i < 9 ? ` [${i + 1}]` : ''}: ${a.desc}\n+ ${a.good}\n− ${a.bad}`.replace(/"/g, '&quot;'); };
   rack.innerHTML = ids.map((id, i) => `<button class="slot" data-a="${id}" title="${tip(id, i)}"><span class="key">${i < 9 ? i + 1 : ''}</span><img src="${icon(id)}" alt=""><div class="nm">${AMMO_BY_ID[id].name}</div><span class="ct"></span><div class="reload"></div></button>`).join('');
   rack.querySelectorAll<HTMLElement>('.slot').forEach((el) => {
