@@ -239,7 +239,7 @@ export class Game {
     this.cannonHp = 100;
     this.time = 0; this.battleTime = 0;
     this.ended = false; this.running = false; this.revealed = false;
-    this.artilleryShots = 0; this.bracket = 0; this.artT = 10; this.barT = 12; this.repT = 5; this.rebT = 14;
+    this.artilleryShots = 0; this.bracket = 0; this.artT = 10; this.barT = 12; this.repT = 5; this.rebT = 14; this.repairing = null; this.repairToast = false;
     this.collateral = 0; this.enemyBlind = 0; this.winT = -1; this.idleT = 0;
     this.targetsDestroyed = {}; this.targetsTotal = {}; this.shieldsSeen = false;
     this.lastPath = [];
@@ -2072,47 +2072,42 @@ export class Game {
         }
       }
     }
-    // engineers
-    if (this.liveTargets('workshop').length) {
-      this.repT -= dt;
-      if (this.repT <= 0) {
-        this.repT = 5;
-        const dmg = this.blocks.filter((b) => !b.dead && b.hp < b.maxHp * 0.98 && !b.mat.indestructible).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp).slice(0, 3);
-        for (const b of dmg) {
-          b.hp = Math.min(b.maxHp, b.hp + 40);
-          // engineers douse what they patch: it smoulders on with ~5 s less fire (the unburnt fuel can catch again)
-          if (b.burning > 0) b.burning = Math.max(0, b.burning - 5);
-          const t = b.body.translation();
-          for (let i = 0; i < 8; i++) this.r.fire.spawn({ x: t.x + (Math.random() - 0.5) * b.w, y: t.y + (Math.random() - 0.5) * b.h, vy: 1.5, max: 0.8, size0: 0.25, size1: 0.05, c0: [0.4, 1.6, 2.4], c1: [0.2, 0.6, 1.2], a0: 1, a1: 0 });
-        }
-        if (dmg.length && Math.random() < 0.35) this.toast('Enemy engineers are repairing.', 'info');
-      }
-      this.rebT -= dt;
-      if (this.rebT <= 0) {
-        this.rebT = 13;
-        for (let i = 0; i < this.destroyedSlots.length; i++) {
-          const s = this.destroyedSlots[i];
-          if (this.battleTime - s.t < 6) continue;
-          const d = s.def;
-          let blocked = false;
-          this.world.intersectionsWithShape({ x: d.x + d.w / 2, y: d.y + d.h / 2 }, 0, new RAPIER.Cuboid(d.w / 2 - 0.02, d.h / 2 - 0.02), () => { blocked = true; return false; });
-          // nor onto the garrison or a saboteur standing in the gap
-          if (!blocked) blocked = this.garrison.list.some((p) => p.state !== 'dead' && p.x > d.x - 0.2 && p.x < d.x + d.w + 0.2 && p.y + p.h > d.y && p.y < d.y + d.h)
-            || this.saboteurs.some((p) => !p.dead && p.x > d.x - 0.3 && p.x < d.x + d.w + 0.3 && p.y + 1.3 > d.y && p.y < d.y + d.h);
-          if (blocked) continue;
-          // needs support directly below
-          let supported = d.y - this.groundY(d.x + d.w / 2) < 0.1;
-          if (!supported) this.world.intersectionsWithShape({ x: d.x + d.w / 2, y: d.y - 0.05 }, 0, new RAPIER.Cuboid(d.w / 2 - 0.05, 0.04), (c) => { if (this.owners.get(c.handle)?.t === 'block') supported = true; return !supported; });
-          if (!supported) continue;
-          this.destroyedSlots.splice(i, 1);
-          const nb = this.addBlock(d, true);
-          nb.hp = nb.maxHp * 0.6;
-          this.toast('Enemy engineers rebuilt a wall section.', 'bad');
-          break;
-        }
-      }
-    }
+    // engineers: one crew, one block at a time, working from the bottom of the work up. They patch
+    // cracked blocks still standing in place; anything shattered, burning or knocked loose is beyond them.
+    if (this.liveTargets('workshop').length) this.updateEngineers(dt);
+    else this.repairing = null;
   }
+
+  repairing: Block | null = null;
+  updateEngineers(dt: number) {
+    const ok = (b: Block) => !b.dead && !b.mat.indestructible && b.burning <= 0 && b.hp < b.maxHp * 0.97 && b.hp > b.maxHp * 0.15 && !b.target
+      && Math.abs(b.body.rotation()) < 0.08 && Math.hypot(b.body.linvel().x, b.body.linvel().y) < 0.05;
+    if (this.repairing && !ok(this.repairing)) this.repairing = null;
+    if (!this.repairing) {
+      // the crew takes a while to move to the next job
+      this.repT -= dt;
+      if (this.repT > 0) return;
+      this.repT = 4;
+      let best: Block | null = null, by = Infinity;
+      for (const b of this.blocks) {
+        if (!ok(b)) continue;
+        const y = b.body.translation().y - b.h / 2;
+        if (y < by - 0.05) { by = y; best = b; }
+      }
+      if (!best) return;
+      this.repairing = best;
+      if (!this.repairToast) { this.repairToast = true; this.toast('Enemy engineers are patching a cracked wall. Knock out the engineers to stop them.', 'info'); }
+    }
+    const b = this.repairing;
+    // ~30 s to make good a badly cracked block
+    b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.028 * dt);
+    if (Math.random() < dt * 4) {
+      const t = b.body.translation();
+      this.r.fire.spawn({ x: t.x + (Math.random() - 0.5) * b.w, y: t.y + (Math.random() - 0.5) * b.h, vy: 1, max: 0.6, size0: 0.16, size1: 0.04, c0: [0.4, 1.6, 2.4], c1: [0.2, 0.6, 1.2], a0: 1, a1: 0 });
+    }
+    if (b.hp >= b.maxHp * 0.97) this.repairing = null;
+  }
+  repairToast = false;
 
   /** later operations field shield infantry: from difficulty 4, a growing share of each draft */
   get shieldChance() { const d = this.level.difficulty ?? 0; return d >= 4 ? Math.min(0.55, 0.25 + (d - 4) * 0.08) : 0; }
