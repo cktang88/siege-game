@@ -4,6 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { DECAL_GLSL, markUniforms } from './decals';
 
 // ───────────────────────── Shaders ─────────────────────────
 const NOISE = /* glsl */ `
@@ -133,17 +134,21 @@ const blockFrag = /* glsl */ `
 uniform vec3 uColor; uniform vec2 uSize; uniform float uKind; uniform float uDamage; uniform float uBurn;
 uniform float uFlash; uniform float uHighlight; uniform float uSeed; uniform float uTime; uniform float uTarget; uniform vec3 uTargetColor;
 uniform float uFade;
+// pattern space: a fractured piece draws the part of the original block it came from (uOff = its place in it, uFull = the original's size)
+uniform vec2 uOff; uniform vec2 uFull;
 varying vec2 vUv; varying vec2 vWorld; varying vec4 vDA; varying vec4 vDB;
 ${NOISE}
 ${LIGHT_GLSL}
+${DECAL_GLSL}
 void main(){
-  vec2 p = vUv * uSize;            // meters
+  vec2 p = vUv * uSize + uOff;     // meters
+  vec2 fullSz = uFull.x > 0.0 ? uFull : uSize;
   vec2 px = fwidth(p);             // meters per pixel
   vec3 col = uColor;
   float line = 0.0;                // seams (0..1)
   float k = uKind;
   if (k < 0.5) {                   // wood planks
-    bool horiz = uSize.x >= uSize.y;
+    bool horiz = fullSz.x >= fullSz.y;
     vec2 q = horiz ? p : p.yx;
     float pw = 0.28; float row = floor(q.y / pw);
     float grain = fbm(vec2(q.x * 1.2, q.y * 14.0 + row * 7.0 + uSeed));
@@ -187,21 +192,21 @@ void main(){
     line = max(line, 1.0 - smoothstep(0.01, 0.01 + px.x * 1.5, min(d.x, d.y)));
   } else if (k < 6.5) {            // munitions crates
     float slat = fract(p.y / 0.22); col *= 0.9 + 0.1 * step(0.5, slat);
-    vec2 d2 = min(vUv, 1.0 - vUv) * uSize;
+    vec2 d2 = min(p, fullSz - p);
     float frame = step(min(d2.x, d2.y), 0.09);
     col = mix(col, col * 0.7, frame);
     // diagonal brace
-    vec2 n = normalize(vec2(uSize.y, -uSize.x));
+    vec2 n = normalize(vec2(fullSz.y, -fullSz.x));
     float diag = abs(dot(p - vec2(0.0), n));
     col = mix(col * 0.75, col, smoothstep(0.05, 0.06, diag));
     // hazard stencil
-    vec2 c = p - uSize * .5; float stencil = step(abs(c.x), 0.22) * step(abs(c.y), 0.13);
+    vec2 c = p - fullSz * .5; float stencil = step(abs(c.x), 0.22) * step(abs(c.y), 0.13);
     col = mix(col, vec3(0.85, 0.65, 0.2), stencil * step(0.5, fract((c.x + c.y) * 6.0)));
   } else if (k < 8.5) {            // earthworks: rammed strata with stones and a turf cap
     col *= 0.86 + 0.22 * fbm(p * 2.5 + uSeed);
     col *= 0.93 + 0.07 * step(0.5, fract(p.y * 2.2 + fbm(p) * 0.6));
     col = mix(col, col * 1.35, step(0.86, vnoise(p * 7.0)));
-    if (uSize.y - p.y < 0.22) col = vec3(0.38, 0.47, 0.25) * (0.9 + 0.2 * fbm(p * 8.0));
+    if (fullSz.y - p.y < 0.22) col = vec3(0.38, 0.47, 0.25) * (0.9 + 0.2 * fbm(p * 8.0));
   } else if (k < 9.5) {            // clay roof tiles: scalloped courses
     float row = floor(p.y / 0.24);
     float fx = fract(p.x / 0.32 + mod(row, 2.0) * 0.5);
@@ -211,7 +216,7 @@ void main(){
     col *= mix(0.7, 1.08, smoothstep(0.0, 0.3, scallop));
   } else if (k < 10.5) {           // plaster over timber framing
     col *= 0.96 + 0.06 * fbm(p * 4.0 + uSeed);
-    vec2 d2 = min(vUv, 1.0 - vUv) * uSize;
+    vec2 d2 = min(p, fullSz - p);
     float post = step(abs(fract(p.x / 1.4) - 0.5) * 1.4, 0.09);
     float frame = max(post, step(min(d2.y, 9.0), 0.16));
     col = mix(col, vec3(0.24, 0.17, 0.12), frame);
@@ -219,15 +224,15 @@ void main(){
     col *= 0.9 + 0.14 * smoothstep(0.0, 1.0, sin(p.x * 2.0 + uSeed) * 0.5 + 0.5);
     float seam = step(abs(fract(p.y / 1.2) - 0.5) * 1.2, 0.02);
     col *= 1.0 - seam * 0.35;
-    float band = step(abs(p.y - uSize.y * 0.6), 0.18);
+    float band = step(abs(p.y - fullSz.y * 0.6), 0.18);
     col = mix(col, mix(vec3(0.85, 0.65, 0.12), vec3(0.12), step(0.5, fract((p.x + p.y) * 2.5))), band);
   } else {                         // bedrock
     col *= 0.85 + 0.25 * fbm(p * 2.0);
   }
   // target tint band
   if (uTarget > 0.5) {
-    vec2 c = p - uSize * .5;
-    float band = step(abs(c.y - uSize.y * 0.18), 0.12);
+    vec2 c = p - fullSz * .5;
+    float band = step(abs(c.y - fullSz.y * 0.18), 0.12);
     col = mix(col, uTargetColor, band * 0.85);
   }
   col *= 1.0 - line * 0.45;
@@ -244,17 +249,11 @@ void main(){
   float bev = 0.07;
   float lit = 1.0;
   if (dmin < bev) { float k = dot(nrm, normalize(vec2(-0.6, 0.8))); lit = k > 0.3 ? 1.18 : k < -0.3 ? 0.72 : 1.0; }
-  lit *= mix(0.9, 1.0, step(0.45, vUv.y));
+  lit *= mix(0.9, 1.0, step(0.45, p.y / fullSz.y));
   col *= lit;
 
-  // cracks
-  if (uDamage > 0.02) {
-    float ve = voronoiEdge(p * 2.2 + uSeed * 3.0);
-    float mask = step(fbm(p * 1.7 + uSeed), uDamage * 1.15);
-    float crack = (1.0 - smoothstep(0.0, 0.035 + px.x, ve)) * mask;
-    col = mix(col, col * 0.25, crack);
-    col *= 1.0 - uDamage * 0.18;
-  }
+  // marks (craters, scorch, holes, dents) and cracks: src/decals.ts
+  col = blockMarks(col, p, px.x, fullSz.x >= fullSz.y);
   // charring + embers
   if (uBurn > 0.01) {
     float n = fbm(p * 3.0 + vec2(0.0, -uTime * 0.6));
@@ -295,6 +294,9 @@ export function makeBlockMaterial(color: [number, number, number], w: number, h:
       uTarget: { value: 0 },
       uTargetColor: { value: new THREE.Color(1, 0, 0) },
       uFade: { value: 1 },
+      uOff: { value: new THREE.Vector2(0, 0) },
+      uFull: { value: new THREE.Vector2(0, 0) },
+      ...markUniforms(kind),
       ...LIGHTS,
     },
   });

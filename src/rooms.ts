@@ -236,6 +236,45 @@ export class Rooms {
     for (let i = 0; i < 10; i++) g.r.debris.spawn(p.x + (Math.random() - 0.5) * w, p.y + (Math.random() - 0.3) * h, (Math.random() - 0.5) * 2, Math.random() * 1.5, 0.08 + Math.random() * 0.14, col.clone().multiplyScalar(0.7 + Math.random() * 0.4));
   }
 
+  /**
+   * Block `old` split into `pieces` (src/fracture.ts); `heir` carries its role, `ot` is where `old` stood.
+   * Frames, floors and contents follow the pieces (home = where the piece would be had the old block
+   * not drifted), so a split member still fails the room once it moves; a split in the frame of a
+   * concealed room breaks it open.
+   */
+  relink(old: Block, pieces: Block[], heir: Block | null, ot: V2) {
+    const homeOf = (p: Block, h: V2) => { const t = p.body.translation(); return { x: t.x - (ot.x - h.x), y: t.y - (ot.y - h.y) }; };
+    const swap = (list: Block[], homes: V2[] | null) => {
+      const i = list.indexOf(old);
+      if (i < 0) return false;
+      const h = homes ? homes[i] : null;
+      list.splice(i, 1); homes?.splice(i, 1);
+      for (const p of pieces) { list.push(p); if (homes && h) homes.push(homeOf(p, h)); }
+      return true;
+    };
+    for (const r of this.list) {
+      if (r.floor === old) {
+        // the piece under the middle of the room, else the heir
+        const cx = (r.x0 + r.x1) / 2;
+        let best = heir, bd = Infinity;
+        for (const p of pieces) { const t = p.body.translation(); const d = Math.abs(t.x - cx) - p.w / 2; if (d < bd) { bd = d; best = p; } }
+        if (best) {
+          const bt = best.body.translation();
+          // keep the room's drift continuous: fx/fy is where the floor body stood when the room settled
+          r.fx = bt.x - (ot.x - r.fx); r.fy = bt.y - (ot.y - r.fy);
+        }
+        r.floor = best;
+      }
+      swap(r.deps, r.home);
+      const framed = swap(r.bound, r.boundHome);
+      swap(r.inside, null);
+      if (r.target === old) r.target = heir && heir.target ? heir : null;
+      if (framed && r.hidden) this.uncover(r, 'breach');
+    }
+    const room = this.insideOf.get(old);
+    if (room) { this.insideOf.delete(old); if (room.hidden) for (const p of pieces) this.insideOf.set(p, room); }
+  }
+
   /** a scout drone at (x, y) sees into rooms within its radius (looking down: twice as far below as across) */
   scan(x: number, y: number, radius: number) {
     for (const r of this.list) {

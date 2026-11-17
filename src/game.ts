@@ -10,6 +10,7 @@ import { Garrison } from './dwellers';
 import { AirForce } from './aircraft';
 import { elevate } from './elevate';
 import { MotorPool } from './vehicles';
+import { Fracture } from './fracture';
 
 type V2 = { x: number; y: number };
 
@@ -42,6 +43,10 @@ export interface Block {
   highlight: number;
   spreadT: number;
   rebuilt: number;
+  /** a piece of a fractured block (src/fracture.ts): engineers do not rebuild it */
+  frag?: boolean;
+  /** set when this block split: the piece that carries on its role (target, room frame, floor) */
+  heir?: Block;
 }
 
 interface House { def: HouseDef; hp: number; maxHp: number; mesh: THREE.Mesh; collider: RAPIER.Collider; body: RAPIER.RigidBody; dead: boolean }
@@ -212,6 +217,8 @@ export class Game {
   garrison = new Garrison(this);
   air = new AirForce(this);
   motor = new MotorPool(this);
+  /** block splitting and marks */
+  frac = new Fracture(this);
   /** flak burst timer, seconds after launch */
   flakFuse = 2.5;
   mastSprites = new Map<Block, THREE.Mesh>();
@@ -348,6 +355,7 @@ export class Game {
     this.garrison.clear();
     this.air.clear();
     this.motor.clear();
+    this.frac.clear();
     this.mastSprites.clear();
     this.blocks = []; this.houses = []; this.backdrops = []; this.projectiles = []; this.soldiers = []; this.planes = []; this.drones = []; this.saboteurs = [];
     this.pending = []; this.embers = []; this.owners.clear(); this.destroyedSlots = []; this.enemyGuns.clear(); this.gunElev.clear(); this.events = [];
@@ -735,6 +743,7 @@ export class Game {
 
   destroyBlock(b: Block, _cause = '') {
     if (b.dead) return;
+    this.frac.onDestroy(b);
     b.dead = true;
     const t = b.body.translation();
     const rot = b.body.rotation();
@@ -779,7 +788,7 @@ export class Game {
       if (b.target === 'ammo') {
         this.pending.push({ x: t.x, y: t.y, r: 5, dmg: 200, delay: 0.05, opts: { ignite: 6, visual: 1.8, source: 'ammo' } });
       }
-    } else if (!b.def.target && b.rebuilt >= 1) {
+    } else if (!b.def.target && b.rebuilt >= 1 && !b.frag) {
       this.destroyedSlots.push({ def: b.def, t: this.battleTime });
     }
   }
@@ -855,7 +864,9 @@ export class Game {
       // a tank blast spends itself mostly on air: the next tank along is holed and set alight, and cooks off on its own
       const bonus = opts.bonus?.[b.matId] ?? (opts.fuelChain && b.mat.volatile ? 0.5 : 1);
       // flak shells are thin-walled fragmentation rounds: little effect on masonry
-      this.damageBlock(b, dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1), opts.source);
+      const bd = dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1);
+      this.frac.hit(b, { kind: 'blast', x: qx, y: qy, dx: d > 0.01 ? (qx - x) / d : 0, dy: d > 0.01 ? (qy - y) / d : 1, e: bd, fire: !!opts.ignite, quiet: opts.source === 'shot' || opts.smoke });
+      this.damageBlock(b, bd, opts.source);
       // the fireball does not lick round a wall: a firebrick (or other non-flammable) wall in the way keeps the flames off
       if (opts.ignite && b.mat.flammable && f > 0.25 && !shielded) this.ignite(b, opts.ignite * 2.5);
       // burning fuel sprays over neighbouring tanks: they catch even behind pipework, and cook off
@@ -1149,7 +1160,9 @@ export class Game {
       const crit = RICOCHET[block.matId];
       if (crit && cosI < crit && !['sticky', 'delayed', 'smoke'].includes(a.id) && !p.bomblet) {
         this.ricochet(t.x, t.y, block);
-        this.damageBlock(block, a.kinetic * (speed / 30) ** 2 * block.mat.kinetic * cosI * 0.5);
+        const rd = a.kinetic * (speed / 30) ** 2 * block.mat.kinetic * cosI * 0.5;
+        this.frac.hit(block, { kind: 'shot', x: t.x, y: t.y, dx: v.x / speed, dy: v.y / speed, e: rd, ammo: a.id, r: a.radius * 0.6 });
+        this.damageBlock(block, rd);
         p.impacted = true;
         p.inert = 2;
         return;
@@ -1157,7 +1170,10 @@ export class Game {
     }
     if (speed > 6 && !p.impacted) this.garrison.blast(t.x, t.y, 0.7);
     const kin = a.kinetic * (speed / 30) ** 2 * cosI;
-    if (block && !p.impacted) this.damageBlock(block, kin * block.mat.kinetic);
+    if (block && !p.impacted) {
+      if (speed > 1) this.frac.hit(block, { kind: 'shot', x: t.x, y: t.y, dx: v.x / speed, dy: v.y / speed, e: kin * block.mat.kinetic, ammo: a.id, r: p.bomblet ? 0.16 : a.radius });
+      this.damageBlock(block, kin * block.mat.kinetic);
+    }
     if (house && !p.impacted) this.damageHouse(house, kin * 0.6);
 
     if (p.bomblet) {
@@ -1168,7 +1184,7 @@ export class Game {
     switch (a.id) {
       case 'shell':
       case 'heavy':
-        if (!p.impacted) this.boom(p, t.x, t.y, a.blastRadius, a.blastDamage, { push: a.id === 'heavy' ? 1.6 : 1 });
+        if (!p.impacted) this.boom(p, t.x, t.y, a.blastRadius, a.blastDamage, { push: a.id === 'heavy' ? 1.6 : 1, source: 'shot' });
         p.impacted = true;
         p.inert = 2.5;
         break;
@@ -1290,7 +1306,10 @@ export class Game {
       const o = this.owners.get(hit.collider.handle);
       if (p.pellet) {
         this.garrison.blast(p.x, p.y, 0.55);
-        if (o?.t === 'block') this.damageBlock(o.b, a.kinetic * o.b.mat.kinetic * p.dmgMul);
+        if (o?.t === 'block') {
+          this.frac.hit(o.b, { kind: 'pellet', x: p.x, y: p.y, dx: dir.x, dy: dir.y, e: a.kinetic * o.b.mat.kinetic * p.dmgMul });
+          this.damageBlock(o.b, a.kinetic * o.b.mat.kinetic * p.dmgMul);
+        }
         if (o?.t === 'house') this.damageHouse(o.h, 3 * p.dmgMul);
         this.sparks(p.x, p.y, 4);
         this.removeProjectile(p);
@@ -1331,12 +1350,14 @@ export class Game {
         const deep = a.fuse && Math.hypot(p.x - p.entry.x, p.y - p.entry.y) > 2.6;
         if (p.pen >= eff && !b.mat.indestructible && !deep) {
           p.pen -= eff;
-          this.destroyBlock(b, 'ap');
+          // a slender member is cut in two along the shot, a thick one bored through (src/fracture.ts); otherwise it is holed out
+          if (!this.frac.apThrough(b, p.x, p.y, dir, a.id)) this.destroyBlock(b, 'ap');
           exclude.add(hit.collider.handle);
           p.vx *= 0.88; p.vy *= 0.88;
           p.x += dir.x * 0.01; p.y += dir.y * 0.01;
           continue;
         }
+        this.frac.hit(b, { kind: 'apStop', x: p.x, y: p.y, dx: dir.x, dy: dir.y, e: p.pen * b.mat.pierce * cosI, ammo: a.id });
         this.damageBlock(b, p.pen * b.mat.pierce * cosI);
         if (b.matId === 'steel' && a.id === 'ap') this.toast('Armor plate stopped the AP round.', 'info');
         // never hand a destroyed block (its Rapier body is freed) to the embed code
@@ -1416,6 +1437,8 @@ export class Game {
     this.air.update(dt, this.running && !this.ended);
     this.updateProjectiles(dt);
     this.updatePending(dt);
+    // splits and marks from this frame's hits (outside the physics step and the event drain)
+    this.frac.update(dt);
     this.updateSoldiers(dt);
     this.motor.update(dt, this.running && !this.ended);
     this.updateAir(dt);
@@ -1496,7 +1519,12 @@ export class Game {
       const v = b.body.linvel();
       if (settle && !b.body.isSleeping()) {
         const dv = Math.hypot(v.x - b.lastVel.x, v.y - b.lastVel.y);
-        if (dv > 4.5) this.damageBlock(b, Math.pow(dv - 4.5, 1.5) * 3 * b.mat.kinetic, 'impact');
+        if (dv > 4.5) {
+          const id = Math.pow(dv - 4.5, 1.5) * 3 * b.mat.kinetic;
+          const t = b.body.translation();
+          this.frac.hit(b, { kind: 'impact', x: t.x, y: t.y, dx: (v.x - b.lastVel.x) / dv, dy: (v.y - b.lastVel.y) / dv, e: id });
+          this.damageBlock(b, id, 'impact');
+        }
         // crush soldiers
         if (!b.dead && Math.hypot(v.x, v.y) > 2.5) {
           const t = b.body.translation();
@@ -1595,7 +1623,11 @@ export class Game {
           // a tamped charge: the block sitting over the drill takes the focused blast (like a planted charge);
           // earthworks are dirt like the ground, so the drill cuts them where shells only soak in
           const over = hit ? this.owners.get(hit.collider.handle) : undefined;
-          if (over?.t === 'block' && !over.b.dead) this.damageBlock(over.b, p.dmgMul * a.blastDamage * over.b.mat.blast * (a.bonus?.[over.b.matId] ?? 1));
+          if (over?.t === 'block' && !over.b.dead) {
+            const od = p.dmgMul * a.blastDamage * over.b.mat.blast * (a.bonus?.[over.b.matId] ?? 1);
+            this.frac.hit(over.b, { kind: 'charge', x: p.x, y: gy + 0.05, dx: 0, dy: 1, e: od, ammo: a.id });
+            this.damageBlock(over.b, od);
+          }
           this.boom(p, p.x, gy - 0.4, a.blastRadius, a.blastDamage, { under: true, push: 1.4, bonus: a.bonus });
           this.removeProjectile(p);
           continue;
@@ -1633,7 +1665,11 @@ export class Game {
           const a = p.ammo;
           // charges in contact with (or buried in) a block hit it with the full, focused blast
           const host = p.stuck?.block;
-          if (host && !host.dead) this.damageBlock(host, p.dmgMul * a.blastDamage * (a.id === 'bunker' || a.id === 'bomb_pen' ? 1.6 : 0.8) * host.mat.blast * (a.bonus?.[host.matId] ?? 1));
+          if (host && !host.dead) {
+            const hd = p.dmgMul * a.blastDamage * (a.id === 'bunker' || a.id === 'bomb_pen' ? 1.6 : 0.8) * host.mat.blast * (a.bonus?.[host.matId] ?? 1);
+            this.frac.hit(host, { kind: 'charge', x: p.x, y: p.y, dx: 0, dy: 0, e: hd, ammo: a.id });
+            this.damageBlock(host, hd);
+          }
           this.boom(p, p.x, p.y, a.blastRadius, a.blastDamage, { bonus: a.bonus, push: a.id === 'bunker' ? 1.3 : 1 });
           this.removeProjectile(p);
           continue;
