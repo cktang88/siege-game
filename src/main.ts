@@ -2,9 +2,9 @@ import './style.css';
 import RAPIER from '@dimforge/rapier2d-compat';
 import * as THREE from 'three';
 import { audio } from './audio';
-import { AMMO_BY_ID } from './config';
+import { AMMO_BY_ID, PHYS } from './config';
 import { Game } from './game';
-import { gunHit, hideTooltip, rackIds, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
+import { gunHit, hideTooltip, onFired, rackIds, requestWithdraw, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
 import { writeSave } from './progress';
 import { Renderer, loadTextures } from './render';
 import { showMap, showResult } from './screens';
@@ -31,8 +31,25 @@ const typing = (t: EventTarget | null) => {
   return el.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes((el as HTMLInputElement).type);
 };
 
-/** point the barrel at the cursor */
-function aimAtMouse() {
+/*
+  Point the barrel at the cursor; how far the cursor is from the gun sets muzzle velocity. Distance is
+  measured on screen, so it feels the same at any zoom: right by the gun is the slowest charge, about
+  60% of the screen width away is full charge for the loaded round. The wheel trims on top of that,
+  and holding Shift keeps the velocity while only the elevation follows the mouse.
+*/
+let trim = 0;
+const NEAR_PX = 40;
+const fullPx = () => Math.max(320, S.renderer.width * 0.6);
+function speedFor(px: number) {
+  const g = S.game;
+  if (g.time < 0.1) trim = 0; // a fresh battle starts untrimmed
+  const t = Math.max(0, Math.min(1, (px - NEAR_PX) / (fullPx() - NEAR_PX)));
+  return Math.round((PHYS.minSpeed + t * (g.maxSpeedFor - PHYS.minSpeed) + trim) * 10) / 10;
+}
+const tip = document.createElement('div');
+tip.id = 'aimtip';
+document.body.appendChild(tip);
+function aimAtMouse(fromMove = false) {
   const g = S.game;
   const w = S.renderer.screenToWorld(mouse.x, mouse.y);
   const p = g.barrel.position;
@@ -41,7 +58,24 @@ function aimAtMouse() {
   // behind the gun: pin to the nearest stop instead of flipping across the arc
   const deg = dx >= 0 ? (Math.atan2(dy, dx) * 180) / Math.PI : dy >= 0 ? 90 : -90;
   g.setAngleDeg(deg);
+  if (!(fromMove && shiftHeld)) {
+    const s = S.renderer.worldToScreen(p.x, p.y);
+    g.setSpeed(Math.min(g.maxSpeedFor, Math.max(PHYS.minSpeed, speedFor(Math.hypot(mouse.x - s.x, mouse.y - s.y)))));
+  }
+  showTip();
 }
+let shiftHeld = false;
+window.addEventListener('keydown', (e) => { if (e.key === 'Shift') shiftHeld = true; });
+window.addEventListener('keyup', (e) => { if (e.key === 'Shift') shiftHeld = false; });
+window.addEventListener('blur', () => { shiftHeld = false; });
+function showTip() {
+  const g = S.game;
+  tip.style.display = 'block';
+  tip.style.left = `${mouse.x + 18}px`; tip.style.top = `${mouse.y + 14}px`;
+  const frac = (g.launchSpeed - PHYS.minSpeed) / Math.max(1, g.maxSpeedFor - PHYS.minSpeed);
+  tip.innerHTML = `<b>${g.launchSpeed.toFixed(1)}</b> m/s · <b>${((g.angle * 180) / Math.PI).toFixed(1)}</b>°${shiftHeld ? ' <i>held</i>' : ''}<span class="bar"><span style="width:${Math.round(frac * 100)}%"></span></span>`;
+}
+const hideTip = () => { tip.style.display = 'none'; };
 
 // audio can only start from a gesture
 const wake = () => { audio.unlock(); audio.startMusic(); };
@@ -52,7 +86,7 @@ window.addEventListener('keydown', (e) => { if ((e.key === 'm' || e.key === 'M')
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointerenter', () => { overField = true; });
-canvas.addEventListener('pointerleave', () => { overField = false; });
+canvas.addEventListener('pointerleave', () => { overField = false; hideTip(); });
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   // clicking the field takes focus away from any HUD control, so keyboard shortcuts work again
@@ -62,7 +96,7 @@ canvas.addEventListener('pointerdown', (e) => {
 canvas.addEventListener('pointermove', (e) => {
   mouse = { x: e.clientX, y: e.clientY };
   overField = true;
-  if (mouseAiming() && (!down || !down.dragged)) aimAtMouse();
+  if (mouseAiming() && (!down || !down.dragged)) aimAtMouse(true); else hideTip();
   if (!down) return;
   const g = S.game, r = S.renderer;
   const dx = e.clientX - down.x, dy = e.clientY - down.y;
@@ -83,7 +117,7 @@ canvas.addEventListener('pointerup', (e) => {
   if (g.triggerAbility()) return;
   const mode = AMMO_BY_ID[g.selected].mode;
   if (!isTargeting()) {
-    if (S.mouseAim) aimAtMouse();
+    if (S.mouseAim) aimAtMouse(true);
     g.fire();
     return;
   }
@@ -101,7 +135,11 @@ canvas.addEventListener('wheel', (e) => {
   if (isGun() && !e.ctrlKey && !e.metaKey) {
     const step = e.shiftKey ? 1 : 0.2;
     const notches = Math.max(-5, Math.min(5, -delta / (e.deltaMode === 1 ? 3 : 100)));
-    g.setSpeed(Math.min(g.maxSpeedFor, Math.round((g.launchSpeed + notches * step) * 10) / 10));
+    const v = Math.min(g.maxSpeedFor, Math.round((g.launchSpeed + notches * step) * 10) / 10);
+    // with mouse aim on, the wheel trims the distance-set velocity (and the trim sticks as the mouse moves)
+    if (mouseAiming()) trim = Math.max(-8, Math.min(8, trim + v - g.launchSpeed));
+    g.setSpeed(v);
+    if (mouseAiming()) showTip();
     return;
   }
   zoomBy(Math.exp(-delta * (e.ctrlKey ? 0.006 : 0.0012)));
@@ -122,6 +160,7 @@ window.addEventListener('keydown', (e) => {
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= 9) { const ids = rackIds(); if (ids[n - 1]) g.selected = ids[n - 1]; }
   if (k === 'r') { g.zoom = 1; g.pan = 0; g.panY = 0; }
+  if (k === 'Escape') requestWithdraw();
   if (k === 't') { S.mouseAim = !S.mouseAim; toast(S.mouseAim ? 'Mouse aim on' : 'Mouse aim off: dials, keys and typed values only'); }
 });
 window.addEventListener('keyup', (e) => { keys.delete(keyName(e)); keys.delete(e.key); });
@@ -178,6 +217,7 @@ function frame(now: number) {
       if (ev.type === 'toast') toast(ev.text, ev.tone);
       else if (ev.type === 'target') updateObjectives();
       else if (ev.type === 'gunhit') gunHit(ev.dmg);
+      else if (ev.type === 'fired') onFired();
       else if (ev.type === 'end') showResult(ev.win, ev.reason);
     }
     g.events.length = 0;
@@ -210,6 +250,9 @@ function frame(now: number) {
   audio.lx = S.renderer.cx;
   audio.half = S.renderer.viewW / 2;
   audio.intensity = S.mode !== 'battle' ? 0 : g.soldiers.some((x) => !x.dead) || g.liveTargets('artillery').length ? 2 : 1;
+  // the field reads as a gun sight in battle, a hand while dragging the view
+  const cur = S.mode !== 'battle' ? '' : down?.dragged ? 'grabbing' : 'crosshair';
+  if (canvas.style.cursor !== cur) canvas.style.cursor = cur;
   S.renderer.render(dt, now / 1000);
   requestAnimationFrame(frame);
 }

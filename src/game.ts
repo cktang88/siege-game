@@ -242,6 +242,8 @@ export class Game {
     this.targetsDestroyed = {}; this.targetsTotal = {}; this.shieldsSeen = false;
     this.lastPath = [];
     this.zoom = 1; this.pan = 0; this.panY = 0; this.gunFlash = 0; this.gunCritical = false; this.incoming = [];
+    // per-battle clocks and timers: `time` restarts at 0, so toast cooldowns stamped in the last battle would mute these for minutes
+    this.reload = 0; this.airMarker = null; this.lastCollateralToast = -10; this.lastRicochetToast = -10;
 
     // ground
     const ground = this.withRedoubt(level);
@@ -722,6 +724,17 @@ export class Game {
   // ───────────────────────── Damage ─────────────────────────
   toast(text: string, tone: 'good' | 'bad' | 'info' = 'info') { this.events.push({ type: 'toast', text, tone }); }
 
+  /**
+    Objectives are the soft heart of a work (a map table, a powder store, a radio room), not its walls:
+    a real shell striking one squarely knocks it out. Glancing hits (ricochets go elsewhere), canister
+    pellets and spent rounds (under 9 m/s) do their ordinary damage.
+  */
+  objectiveHit(b: Block, p: Projectile, speed: number) {
+    if (!b.target || p.enemy || p.pellet || speed < 9) return 0;
+    if (p.ammo.id === 'smoke' || p.ammo.id === 'flak') return 0;
+    return b.maxHp * 1.05;
+  }
+
   damageBlock(b: Block, dmg: number, cause = '') {
     if (b.dead || b.mat.indestructible || dmg <= 0) return;
     b.hp -= dmg;
@@ -853,7 +866,10 @@ export class Game {
       // a tank blast spends itself mostly on air: the next tank along is holed and set alight, and cooks off on its own
       const bonus = opts.bonus?.[b.matId] ?? (opts.fuelChain && b.mat.volatile ? 0.5 : 1);
       // flak shells are thin-walled fragmentation rounds: little effect on masonry
-      this.damageBlock(b, dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1), opts.source);
+      let bd = dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1);
+      // a shell bursting close to an objective (not behind a wall) takes half its strength: two near misses finish it
+      if (b.target && !opts.enemy && !opts.flak && !opts.smoke && dmg >= 20 && f > 0.25) bd = Math.max(bd, b.maxHp * (shielded ? 0.3 : 0.55));
+      this.damageBlock(b, bd, opts.source);
       // the fireball does not lick round a wall: a firebrick (or other non-flammable) wall in the way keeps the flames off
       if (opts.ignite && b.mat.flammable && f > 0.25 && !shielded) this.ignite(b, opts.ignite * 2.5);
       // burning fuel sprays over neighbouring tanks: they catch even behind pipework, and cook off
@@ -1155,7 +1171,7 @@ export class Game {
     }
     if (speed > 6 && !p.impacted) this.garrison.blast(t.x, t.y, 0.7);
     const kin = a.kinetic * (speed / 30) ** 2 * cosI;
-    if (block && !p.impacted) this.damageBlock(block, kin * block.mat.kinetic);
+    if (block && !p.impacted) this.damageBlock(block, Math.max(kin * block.mat.kinetic, this.objectiveHit(block, p, speed)));
     if (house && !p.impacted) this.damageHouse(house, kin * 0.6);
 
     if (p.bomblet) {
@@ -1335,7 +1351,7 @@ export class Game {
           p.x += dir.x * 0.01; p.y += dir.y * 0.01;
           continue;
         }
-        this.damageBlock(b, p.pen * b.mat.pierce * cosI);
+        this.damageBlock(b, Math.max(p.pen * b.mat.pierce * cosI, this.objectiveHit(b, p, Math.hypot(p.vx, p.vy))));
         if (b.matId === 'steel' && a.id === 'ap') this.toast('Armor plate stopped the AP round.', 'info');
         // never hand a destroyed block (its Rapier body is freed) to the embed code
         this.penetratorStop(p, dir, b.dead ? undefined : b);
@@ -2190,6 +2206,8 @@ export class Game {
     if (shown && fcp) {
       const rc = fcp.getBoundingClientRect();
       if (rc.height > 0 && rc.left < this.r.width * 0.25) f = Math.min(0.4, Math.max(0.2, (this.r.height - rc.top + 6) / this.r.height));
+      // the plate is filled in on the HUD's first frame: measure again next frame rather than 20 frames on with the gun hidden
+      if (rc.height < 120) this.hudPoll = 1;
     }
     this.groundFrac = f;
     return f;

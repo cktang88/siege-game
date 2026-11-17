@@ -341,6 +341,13 @@ export function showResult(win: boolean, reason: string) {
     : !id ? '' : earned ? ''
     : win ? 'No new stars or record: replays pay only for improvements.'
     : (S.save.stars[id] ?? 0) > 0 ? 'Failed replays pay nothing.' : 'No salvage: knock out more objectives than last time to earn some.';
+  // a failed attempt scores nothing: show what still stands instead of a points table
+  const objRows = g.level.objectives.map((k) => {
+    const tot = g.targetsTotal[k] ?? 0, d = Math.min(tot, g.targetsDestroyed[k] ?? 0);
+    return `<tr class="${d >= tot ? 'done' : 'left'}"><td>${d >= tot ? '✓' : '✗'} ${targetName(k)}</td><td>${d}/${tot}</td></tr>`;
+  }).join('');
+  const standing = g.level.objectives.filter((k) => (g.targetsDestroyed[k] ?? 0) < (g.targetsTotal[k] ?? 0)).map((k) => targetName(k));
+  const why = win || !standing.length ? reason : `${reason} Still standing: ${standing.join(', ')}.`;
   const thresholds = g.level.stars.map((t, i) => `${'★'.repeat(i + 1)} ${t.toLocaleString()}`).join(' · ');
   const nextNames = opened.map((n) => NODE_BY_ID[n].level().name);
   audio.play(win ? 'win' : 'fail');
@@ -352,11 +359,12 @@ export function showResult(win: boolean, reason: string) {
       <div class="stamp ${win ? 'ok' : ''}">${win ? 'Accomplished' : 'Failed'}</div>
       <div class="label">After-action report</div>
       <h2>${esc(g.level.name)}</h2>
-      <p class="mono" style="font-size:13px">${esc(reason)}</p>
+      <p class="mono" style="font-size:13px">${esc(why)}</p>
       ${win ? `<div class="stars">${[0, 1, 2].map((i) => `<span class="${i < stars ? '' : 'off'}">★</span>`).join('')}</div>` : ''}
-      <table>${rows.map(([k, v]) => `<tr><td>${k}</td><td style="color:${v < 0 ? '#9a2a1a' : 'inherit'}">${v.toLocaleString()}</td></tr>`).join('')}
-      <tr><td><b>Total</b>${record && win ? ' <span class="rec">new record</span>' : ''}</td><td><b>${sc.total.toLocaleString()}</b></td></tr></table>
-      <p class="mono" style="font-size:12px;margin:0 0 4px">Time ${Math.floor(g.battleTime / 60)}:${String(Math.floor(g.battleTime % 60)).padStart(2, '0')} · Spent $${g.spentBudget} · Stars at ${thresholds}</p>
+      ${win ? '' : `<div class="label">Objectives</div><table class="objtally">${objRows}</table>`}
+      ${!win ? '' : `<table>${rows.map(([k, v]) => `<tr><td>${k}</td><td style="color:${v < 0 ? '#9a2a1a' : 'inherit'}">${v.toLocaleString()}</td></tr>`).join('')}
+      <tr><td><b>Total</b>${record && win ? ' <span class="rec">new record</span>' : ''}</td><td><b>${sc.total.toLocaleString()}</b></td></tr></table>`}
+      <p class="mono" style="font-size:12px;margin:0 0 4px">Time ${Math.floor(g.battleTime / 60)}:${String(Math.floor(g.battleTime % 60)).padStart(2, '0')} · Spent $${g.spentBudget}${win ? ` · Stars at ${thresholds}` : ''}</p>
       ${earned ? `<p class="earn">+${earned.toLocaleString()} war funds <span>${reward.lines.map(([k, v]) => `${k} +${v}`).join(' · ')}</span></p>` : ''}
       ${payNote ? `<p class="mono" style="font-size:12px;opacity:.75">${payNote}</p>` : ''}
       ${nextNames.length ? `<p class="mono opened">New operation${nextNames.length > 1 ? 's' : ''} open: <b>${nextNames.map(esc).join(', ')}</b></p>` : ''}
