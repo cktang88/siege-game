@@ -25,7 +25,7 @@ export function buildHud() {
   const hud = $('#hud');
   hud.classList.remove('hidden');
   hud.innerHTML = `
-    <div id="hud-left" class="plate"><div id="lvl-name"></div><div id="timer"></div><ul id="objectives"></ul></div>
+    <div id="hud-left" class="plate"><div id="lvl-name"></div><div id="timer"></div><ul id="objectives"></ul><button id="withdraw" title="Abandon the attack and go to the after-action report (Esc)">Withdraw</button></div>
     <div id="hud-right" class="plate">
       <div class="row"><span class="label">Wind</span><span class="windvane"><svg viewBox="0 0 38 14"><path id="windarrow" d="M2 7 H30 M24 2 L32 7 L24 12" stroke="#ffb347" stroke-width="2.4" fill="none"/></svg><span id="wind" class="readout"></span></span></div>
       <div class="row"><span class="label">Gun</span><div class="meter" id="hp"></div><span id="hpnum" class="readout"></span></div>
@@ -41,6 +41,15 @@ export function buildHud() {
     <div id="floaters"></div>
     <div id="help">mouse aims · click fires · wheel velocity (shift coarse) · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute</div>`;
   $('#lvl-name').textContent = S.game.level.name;
+  $('#withdraw').addEventListener('click', requestWithdraw);
+  // a new commander (no stars yet) gets the controls spelled out until the first shot
+  if (!S.save.dev && !Object.values(S.save.stars).some((n) => n > 0)) {
+    const c = document.createElement('div');
+    c.id = 'coach';
+    c.className = 'plate';
+    c.innerHTML = '<b>Point</b> at the field to aim · <b>click</b> to fire · <b>wheel</b> sets muzzle velocity · the dots trace the start of the arc, the dashed line your last shot';
+    hud.appendChild(c);
+  }
   $('#hp').innerHTML = '<i></i>'.repeat(12);
   buildRack();
   $('#fcp').addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -61,11 +70,26 @@ function buildRack() {
   const g = S.game;
   const ids = (Object.keys(g.inventory) as AmmoId[]).sort((a, b) => AMMO.findIndex((x) => x.id === a) - AMMO.findIndex((x) => x.id === b));
   const rack = $('#rack');
-  rack.innerHTML = ids.map((id, i) => `<button class="slot" data-a="${id}" title="${AMMO_BY_ID[id].name}"><span class="key">${i < 9 ? i + 1 : ''}</span><img src="${icon(id)}" alt=""><div class="nm">${AMMO_BY_ID[id].name}</div><span class="ct"></span><div class="reload"></div></button>`).join('');
+  const tip = (id: AmmoId, i: number) => { const a = AMMO_BY_ID[id]; return `${a.name}${i < 9 ? ` [${i + 1}]` : ''}: ${a.desc}\n+ ${a.good}\n− ${a.bad}`.replace(/"/g, '&quot;'); };
+  rack.innerHTML = ids.map((id, i) => `<button class="slot" data-a="${id}" title="${tip(id, i)}"><span class="key">${i < 9 ? i + 1 : ''}</span><img src="${icon(id)}" alt=""><div class="nm">${AMMO_BY_ID[id].name}</div><span class="ct"></span><div class="reload"></div></button>`).join('');
   rack.querySelectorAll<HTMLElement>('.slot').forEach((el) => {
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     el.addEventListener('click', () => { g.selected = el.dataset.a as AmmoId; });
   });
+}
+
+/** Withdraw (or Esc): a first press arms it, a second within 3 s ends the battle as a failure */
+let withdrawArmed = 0;
+export function requestWithdraw() {
+  const g = S.game;
+  const btn = document.querySelector<HTMLElement>('#withdraw');
+  // nothing to abandon once it is over, or while a won battle counts down to its report
+  if (S.mode !== 'battle' || g.ended || g.winT >= 0 || !btn) return;
+  if (performance.now() < withdrawArmed) { g.end(false, 'You withdrew from the field.'); return; }
+  withdrawArmed = performance.now() + 3000;
+  btn.classList.add('armed');
+  btn.textContent = 'Confirm withdraw?';
+  setTimeout(() => { if (performance.now() >= withdrawArmed) { btn.classList.remove('armed'); btn.textContent = 'Withdraw'; } }, 3050);
 }
 
 export function rackIds() { return Array.from(document.querySelectorAll<HTMLElement>('.slot')).map((el) => el.dataset.a as AmmoId); }
@@ -79,20 +103,56 @@ export function updateObjectives() {
     const tot = g.targetsTotal[k] ?? 0, d = g.targetsDestroyed[k] ?? 0;
     const obj = l.objectives.includes(k);
     const unknown = g.garrison.rooms.unknownKind(k) ? ' <span class="label">location unknown</span>' : '';
-    return `<li class="${d >= tot ? 'done' : ''} ${obj ? '' : 'opt'}"><span class="dot" style="background:${TARGETS[k].color}"></span>${targetName(k)}${tot > 1 ? ` ${d}/${tot}` : ''}${obj ? '' : ' <span class="label">secondary</span>'}${unknown}</li>`;
+    return `<li class="${d >= tot ? 'done' : ''} ${obj ? '' : 'opt'}" data-k="${k}" title="${TARGETS[k].desc}${d < tot && !unknown ? '. Click to look at it.' : ''}"><span class="dot" style="background:${TARGETS[k].color}"></span>${targetName(k)}${tot > 1 ? ` ${d}/${tot}` : ''}${obj ? '' : ' <span class="label">secondary</span>'}${unknown}</li>`;
   }).join('');
+  $('#objectives').querySelectorAll<HTMLElement>('li').forEach((li) => li.addEventListener('click', () => lookAtTarget(li.dataset.k as TargetKind)));
 }
 
+/** pan the view to the nearest standing block of this kind (big castles run off the edge of the overview) */
+function lookAtTarget(k: TargetKind) {
+  const g = S.game;
+  const live = g.blocks.filter((b) => !b.dead && b.target === k && !g.garrison.rooms.conceals(b));
+  if (!live.length) return;
+  const cx = S.renderer.cx;
+  const t = live.map((b) => b.body.translation()).sort((a, b) => Math.abs(a.x - cx) - Math.abs(b.x - cx))[0];
+  g.pan = t.x - g.baseCx;
+}
+
+/** called after every shot: last-round and out-of-ammo warnings, and which round the gun switched to */
+let shownSel: AmmoId | null = null;
+export function onFired() {
+  const g = S.game;
+  document.querySelector('#coach')?.remove();
+  const left = Object.values(g.inventory).reduce((s, n) => s + (n ?? 0), 0);
+  const switched = !!shownSel && shownSel !== g.selected && (g.inventory[shownSel] ?? 0) <= 0;
+  if (switched && left > 0) toast(`${AMMO_BY_ID[shownSel!].name} expended. ${AMMO_BY_ID[g.selected].name} loaded.`);
+  if (left === 0) toast('Out of ammunition. Waiting for the last rounds to land…', 'bad');
+  else if (left === 1) toast('Last round in the rack!', 'bad');
+  else if (!switched && (g.inventory[g.selected] ?? 0) === 1) toast(`One ${AMMO_BY_ID[g.selected].name} left.`);
+  shownSel = g.selected;
+}
+
+const toastTimers = new WeakMap<HTMLElement, number[]>();
 export function toast(text: string, tone = 'info') {
   const box = $('#toasts');
   if (!box) return;
-  const el = document.createElement('div');
-  el.className = `toast ${tone}`;
-  el.textContent = text;
-  box.appendChild(el);
-  while (box.children.length > 4) box.firstElementChild!.remove();
-  setTimeout(() => { el.style.opacity = '0'; }, 2600);
-  setTimeout(() => el.remove(), 3200);
+  // the same message again while it is still up (two gyrocopters, a second barrage) counts up instead of stacking
+  let el = Array.from(box.children as HTMLCollectionOf<HTMLElement>).find((t) => t.dataset.text === text && t.style.opacity !== '0');
+  if (el) {
+    const n = +(el.dataset.n ?? 1) + 1;
+    el.dataset.n = String(n);
+    el.textContent = `${text} ×${n}`;
+    toastTimers.get(el)?.forEach((t) => clearTimeout(t));
+  } else {
+    el = document.createElement('div');
+    el.className = `toast ${tone}`;
+    el.dataset.text = text;
+    el.textContent = text;
+    box.appendChild(el);
+    while (box.children.length > 4) box.firstElementChild!.remove();
+  }
+  const t = el;
+  toastTimers.set(t, [setTimeout(() => { t.style.opacity = '0'; }, 2600), setTimeout(() => t.remove(), 3200)]);
 }
 
 // ───────────────────────── dials ─────────────────────────
@@ -312,6 +372,8 @@ export function gunHit(dmg: number) {
 export function updateHud() {
   const g = S.game;
   $('#timer').textContent = `T+${fmtTime(g.battleTime)}  ·  par ${fmtTime(g.level.parTime)}`;
+  // past par the time bonus is gone: the clock turns red
+  $('#timer').classList.toggle('over', g.battleTime > g.level.parTime);
   const w = g.wind;
   $('#wind').textContent = g.stats.windReadout ? `${Math.abs(w).toFixed(1)} m/s` : Math.abs(w) < 1.5 ? 'light' : Math.abs(w) < 3 ? 'moderate' : 'strong';
   $('#windarrow').setAttribute('transform', w < 0 ? 'translate(38 0) scale(-1 1)' : '');
@@ -334,6 +396,7 @@ export function updateHud() {
     el.classList.toggle('empty', n <= 0);
     (el.querySelector('.reload') as HTMLElement).style.width = g.selected === id ? `${(g.reload / g.stats.reload) * 100}%` : '0';
   });
+  shownSel = g.selected;
   updateFcp();
   drawMinimap();
 }
@@ -379,6 +442,13 @@ export function drawMinimap() {
   for (const u of g.air.units) { ctx.fillStyle = u.down ? '#777' : '#e2503a'; const w = u.kind === 'airship' ? 9 : 4; ctx.fillRect(X(u.x) - w / 2, Y(u.y) - 1.5, w, 3); }
   for (const s of g.soldiers) if (!s.dead) { ctx.fillStyle = s.shield > 0 ? '#9fb0c8' : '#c9d6a0'; ctx.fillRect(X(s.x), Y(s.y + 1.3), 1.5, 3); }
   for (const u of g.motor.units) { ctx.fillStyle = u.wreckT >= 0 ? '#5a5650' : '#e2503a'; const w = u.kind === 'tank' ? 7 : 5; ctx.fillRect(X(u.x) - w / 2, Y(u.y + 1.4), w, 4); }
+  for (const bl of g.blocks) {
+    if (bl.dead || !bl.target || !g.level.objectives.includes(bl.target)) continue;
+    const t = bl.body.translation();
+    const x = X(t.x), y = Math.max(6, Y(t.y + bl.h / 2) - 6);
+    ctx.fillStyle = TARGETS[bl.target].color; ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x + 4, y); ctx.lineTo(x, y + 4); ctx.lineTo(x - 4, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
   ctx.strokeStyle = 'rgba(255,179,71,0.9)'; ctx.lineWidth = 1.5;
   ctx.strokeRect(X(r.cx - r.viewW / 2), Y(r.cy + r.viewH / 2), r.viewW * sx, r.viewH * sy);
 }
@@ -393,24 +463,84 @@ export function buildLabels() {
     el.className = `tlabel ${S.game.level.objectives.includes(b.target) ? 'obj' : ''}`;
     el.style.color = t.color;
     el.style.borderColor = t.color;
-    el.innerHTML = `${t.label}<div class="hp"><i></i></div>`;
+    el.innerHTML = `${t.label}<span class="arw"></span><div class="hp"><i></i></div>`;
+    // an objective pinned to the screen edge points the way to it; click it to look there
+    el.addEventListener('click', () => { if (!b.dead && el.classList.contains('edge')) S.game.pan = b.body.translation().x - S.game.baseCx; });
     box.appendChild(el);
     labels.set(b, el);
   }
 }
-export function clearLabels() { labels.forEach((el) => el.remove()); labels.clear(); }
+export function clearLabels() { labels.forEach((el) => el.remove()); labels.clear(); hits.clear(); }
+
+/** damage dealt to each target block since the last frame becomes a number floating off its label */
+const hits = new Map<Block, { hp: number; el: HTMLElement | null; t: number; v: number }>();
+function targetFloater(x: number, y: number, text: string, color: string, big = false) {
+  const box = document.querySelector<HTMLElement>('#floaters');
+  if (!box || x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return null;
+  const el = document.createElement('div');
+  el.className = `floater tgt ${big ? 'big' : ''}`;
+  el.style.color = color;
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  el.textContent = text;
+  box.appendChild(el);
+  setTimeout(() => el.remove(), 1300);
+  return el;
+}
+
+/** the top plates, re-measured now and then: a label that would sit under one drops just below it */
+let plates: DOMRect[] = [];
+let platePoll = 0;
 export function updateLabels() {
+  const W = window.innerWidth, H = window.innerHeight;
+  const pinned = new Set<string>();
+  if (--platePoll <= 0) {
+    platePoll = 30;
+    plates = ['#hud-left', '#hud-right', '#minimap'].map((q) => document.querySelector(q)?.getBoundingClientRect()).filter((r): r is DOMRect => !!r && r.height > 0);
+  }
   labels.forEach((el, b) => {
-    if (b.dead) { el.remove(); labels.delete(b); return; }
+    const color = TARGETS[b.target!].color;
     // a target walled up in a concealed room has no label until the room is found
     const hid = S.game.garrison.rooms.conceals(b);
+    if (b.dead) {
+      if (!hid && el.style.display !== 'none' && !el.classList.contains('edge')) targetFloater(parseFloat(el.style.left), parseFloat(el.style.top) - 18, 'Destroyed', color, true);
+      el.remove(); labels.delete(b); hits.delete(b); return;
+    }
     el.style.display = hid ? 'none' : '';
     if (hid) return;
     const t = b.body.translation();
     const s = S.renderer.worldToScreen(t.x, t.y + b.h / 2 + 0.25);
-    el.style.left = `${s.x}px`;
-    el.style.top = `${s.y}px`;
+    let x = s.x, y = s.y, edge = '';
+    // objectives off the view stay on its edge (below the top plates, above the rack), one marker per kind and side
+    if (el.classList.contains('obj')) {
+      const mx = 58, top = 175, bottom = H - 120;
+      if (x > W - mx) { edge = '▶'; x = W - mx; } else if (x < mx) { edge = '◀'; x = mx; }
+      if (y < 30) { edge = edge || '▲'; y = Math.max(y, top); } else if (y > H - 20) { edge = edge || '▼'; y = bottom; }
+      if (edge) y = Math.max(top, Math.min(bottom, y));
+    }
+    // (labels hang above their point: test the label's own box, about 64 x 26 px)
+    const under = !edge && plates.find((r) => x > r.left - 32 && x < r.right + 32 && y > r.top && y - 26 < r.bottom);
+    if (under) { y = under.bottom + 30; edge = '▲'; }
+    const key = `${b.target}${edge}`;
+    const dup = !!edge && pinned.has(key);
+    if (edge) pinned.add(key);
+    el.classList.toggle('edge', !!edge);
+    el.classList.toggle('dup', dup);
+    if (el.dataset.edge !== edge) { el.dataset.edge = edge; el.querySelector('.arw')!.textContent = edge ? ` ${edge}` : ''; }
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
     (el.querySelector('.hp i') as HTMLElement).style.width = `${Math.max(0, (b.hp / b.maxHp) * 100)}%`;
+    const h = hits.get(b);
+    if (!h) { hits.set(b, { hp: b.hp, el: null, t: 0, v: 0 }); return; }
+    if (b.hp >= h.hp - 0.5) { if (b.hp > h.hp) h.hp = b.hp; return; }
+    const d = h.hp - b.hp;
+    h.hp = b.hp;
+    const now = performance.now();
+    // rapid hits (fire, splinters) add up on one number instead of a stream of them
+    if (h.el?.isConnected && now - h.t < 600) { h.v += d; h.el.textContent = `−${Math.round(h.v)}`; }
+    else if (!edge) { h.v = d; h.el = targetFloater(x + (Math.random() - 0.5) * 16, y - 22, `−${Math.round(d)}`, color); }
+    h.t = now;
+    el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
   });
 }
 

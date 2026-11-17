@@ -242,6 +242,8 @@ export class Game {
     this.targetsDestroyed = {}; this.targetsTotal = {}; this.shieldsSeen = false;
     this.lastPath = [];
     this.zoom = 1; this.pan = 0; this.panY = 0; this.gunFlash = 0; this.gunCritical = false; this.incoming = [];
+    // per-battle clocks and timers: `time` restarts at 0, so toast cooldowns stamped in the last battle would mute these for minutes
+    this.reload = 0; this.airMarker = null; this.lastCollateralToast = -10; this.lastRicochetToast = -10;
 
     // ground
     const ground = this.withRedoubt(level);
@@ -2190,6 +2192,8 @@ export class Game {
     if (shown && fcp) {
       const rc = fcp.getBoundingClientRect();
       if (rc.height > 0 && rc.left < this.r.width * 0.25) f = Math.min(0.4, Math.max(0.2, (this.r.height - rc.top + 6) / this.r.height));
+      // the plate is filled in on the HUD's first frame: measure again next frame rather than 20 frames on with the gun hidden
+      if (rc.height < 120) this.hudPoll = 1;
     }
     this.groundFrac = f;
     return f;

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { audio } from './audio';
 import { AMMO_BY_ID } from './config';
 import { Game } from './game';
-import { gunHit, hideTooltip, rackIds, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
+import { gunHit, hideTooltip, onFired, rackIds, requestWithdraw, toast, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
 import { writeSave } from './progress';
 import { Renderer, loadTextures } from './render';
 import { showMap, showResult } from './screens';
@@ -122,6 +122,7 @@ window.addEventListener('keydown', (e) => {
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= 9) { const ids = rackIds(); if (ids[n - 1]) g.selected = ids[n - 1]; }
   if (k === 'r') { g.zoom = 1; g.pan = 0; g.panY = 0; }
+  if (k === 'Escape') requestWithdraw();
   if (k === 't') { S.mouseAim = !S.mouseAim; toast(S.mouseAim ? 'Mouse aim on' : 'Mouse aim off: dials, keys and typed values only'); }
 });
 window.addEventListener('keyup', (e) => { keys.delete(keyName(e)); keys.delete(e.key); });
@@ -178,6 +179,7 @@ function frame(now: number) {
       if (ev.type === 'toast') toast(ev.text, ev.tone);
       else if (ev.type === 'target') updateObjectives();
       else if (ev.type === 'gunhit') gunHit(ev.dmg);
+      else if (ev.type === 'fired') onFired();
       else if (ev.type === 'end') showResult(ev.win, ev.reason);
     }
     g.events.length = 0;
@@ -210,6 +212,9 @@ function frame(now: number) {
   audio.lx = S.renderer.cx;
   audio.half = S.renderer.viewW / 2;
   audio.intensity = S.mode !== 'battle' ? 0 : g.soldiers.some((x) => !x.dead) || g.liveTargets('artillery').length ? 2 : 1;
+  // the field reads as a gun sight in battle, a hand while dragging the view
+  const cur = S.mode !== 'battle' ? '' : down?.dragged ? 'grabbing' : 'crosshair';
+  if (canvas.style.cursor !== cur) canvas.style.cursor = cur;
   S.renderer.render(dt, now / 1000);
   requestAnimationFrame(frame);
 }

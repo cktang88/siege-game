@@ -309,3 +309,37 @@ button { font: inherit; color: inherit; }
 .aimtoggle { background: var(--gun-2); border: 0; color: var(--bone-dim); font: 700 10.5px var(--ui); letter-spacing: 0.1em; text-transform: uppercase; padding: 4px 7px 3px; cursor: pointer; }
 .aimtoggle.on { background: rgba(255, 90, 31, 0.2); color: var(--amber); box-shadow: inset 0 0 0 1px rgba(255, 90, 31, 0.5); }
 .dossier #plan { position: sticky; bottom: 0; z-index: 1; }
+#withdraw { display: block; margin: 8px 0 0 auto; background: transparent; border: 0; box-shadow: inset 0 0 0 1px rgba(226, 220, 203, 0.22);
+  color: var(--bone-dim); font: 700 10px var(--ui); letter-spacing: 0.12em; text-transform: uppercase; padding: 3px 6px 2px; cursor: pointer; }
+#withdraw:hover { color: var(--bone); box-shadow: inset 0 0 0 1px rgba(226, 220, 203, 0.5); }
+#withdraw.armed { color: #1a1206; background: var(--bad); box-shadow: none; }
+.aar .objtally tr.done td { color: #3f7a2a; }
+.aar .objtally tr.left td { color: #9a2a1a; font-weight: 700; }
+/* ammo state on the rack; objectives can be clicked to look at them */
+.slot.empty .ct { color: var(--bad); }
+.slot .key { color: #9a968a; }
+#objectives li[data-k] { cursor: pointer; }
+#objectives li[data-k]:not(.done):hover { color: var(--amber); }
+/* narrow screens: rack slots shrink to fit before the rack scrolls (with a visible scrollbar) */
+#rack .slot { width: auto; flex: 0 1 68px; min-width: 46px; }
+@media (max-width: 1400px) { #rack { gap: 2px; padding: 8px 8px 6px; } }
+#rack .slot img { width: min(46px, 100%); height: auto; aspect-ratio: 1; }
+#rack { scrollbar-width: thin; scrollbar-color: var(--signal) rgba(0, 0, 0, 0.3); }
+/* target labels: hit pulse, numbers off them, and objectives pinned to the view edge */
+.tlabel.hit { animation: tlhit 0.35s ease-out; }
+@keyframes tlhit { 0% { background: currentColor; } 100% { background: rgba(13, 15, 18, 0.85); } }
+.tlabel.edge { pointer-events: auto; cursor: pointer; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px currentColor, 0 2px 8px rgba(0, 0, 0, 0.6); }
+.tlabel.edge:hover { background: rgba(40, 44, 52, 0.95); }
+.tlabel.dup { display: none; }
+.floater.tgt { font-size: 17px; text-shadow: 0 2px 0 #000, 0 0 6px rgba(0, 0, 0, 0.8); }
+.floater.tgt.big { font-size: 20px; text-transform: uppercase; }
+#coach { position: absolute; left: 444px; bottom: 116px; max-width: min(560px, calc(100vw - 460px)); padding: 9px 22px 8px 14px; font: 13px/1.4 var(--mono); color: var(--bone);
+  border-left: 4px solid var(--signal); animation: tin 0.3s ease-out; }
+#coach b { color: var(--amber); }
+@media (max-width: 1000px) { #coach { bottom: 12px; } }
+/* armory: the rack only takes the height it needs, so the fortress shows below it */
+.armory .rack { align-self: start; max-height: 100%; }
+#hud #coach { pointer-events: none; }
+.node:hover .pin { transform: rotate(45deg) scale(1.15); }
+.node:hover .nm { background: #fff6dc; box-shadow: 0 0 0 1px var(--paper-ink); }
+#timer.over { color: var(--bad); }
