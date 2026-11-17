@@ -65,7 +65,10 @@ export class LightPool {
     for (let k = 0; k < n; k++) {
       const l = ls[k];
       const fade = l.key ? 1 : (l.life / l.max) ** 1.5;
-      const fl = 1 - l.flicker * (0.5 + 0.5 * Math.sin(time * 23 + k * 7.1) * Math.sin(time * 13.7 + k));
+      // phase from the light's position (not its slot, which reshuffles as lights come and go), two
+      // incommensurate rates plus a slow swell: fires gutter rather than strobe
+      const ph = l.x * 1.37 + l.y * 0.71;
+      const fl = 1 - l.flicker * (0.5 + 0.35 * Math.sin(time * 23 + ph) * Math.sin(time * 13.7 + ph * 1.3) + 0.15 * Math.sin(time * 3.1 + ph * 0.5));
       const I = l.i * fade * fl;
       LIGHTS.uLightPos.value[k].set(l.x, l.y, l.r, 0);
       LIGHTS.uLightCol.value[k].set(l.c[0] * I, l.c[1] * I, l.c[2] * I);
