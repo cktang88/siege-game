@@ -136,12 +136,40 @@ export interface Save {
 
 const KEY = 'siege-save-v2';
 const DEV_KEY = 'siege-dev';
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+/** a record of finite numbers, each clamped to [lo, hi] (and rounded when `int`); anything else is dropped */
+function numMap(v: unknown, lo: number, hi: number, int: boolean): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!isObj(v)) return out;
+  for (const [k, x] of Object.entries(v)) {
+    if (typeof x !== 'number' || !Number.isFinite(x)) continue;
+    const c = Math.max(lo, Math.min(hi, int ? Math.round(x) : x));
+    if (c > 0) out[k] = c;
+  }
+  return out;
+}
+
+/** the save as stored, checked field by field: missing, old, corrupt or hand-edited data falls back to a fresh commission */
+export function sanitizeSave(raw: unknown): Omit<Save, 'dev'> {
+  const s = isObj(raw) ? raw : {};
+  const funds = typeof s.funds === 'number' && Number.isFinite(s.funds) ? Math.max(0, Math.min(1e9, Math.round(s.funds))) : 300;
+  const tech = Array.isArray(s.tech) ? s.tech.filter((t): t is string => typeof t === 'string' && !!TECH_BY_ID[t]) : [];
+  return {
+    funds,
+    // the starting HE research is always owned; unknown ids (removed research) and duplicates are dropped
+    tech: [...new Set(['ord_he', ...tech])],
+    stars: numMap(s.stars, 0, 3, true),
+    best: numMap(s.best, 0, 1e9, true),
+    salvage: numMap(s.salvage, 0, 1, false),
+  };
+}
+
 export function loadSave(): Save {
-  let s: Partial<Save> = {};
-  try { s = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { /* storage unavailable */ }
+  let raw: unknown = null;
+  try { raw = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { /* storage unavailable or corrupt */ }
   let dev = false;
   try { dev = sessionStorage.getItem(DEV_KEY) === '1'; } catch { /* storage unavailable */ }
-  return { funds: s.funds ?? 300, tech: s.tech ?? ['ord_he'], stars: s.stars ?? {}, best: s.best ?? {}, salvage: s.salvage ?? {}, dev };
+  return { ...sanitizeSave(raw), dev };
 }
 /** wipe campaign progress (stars, records, funds, research); the session's dev flag stays as it is */
 export function resetSave(s: Save) {
