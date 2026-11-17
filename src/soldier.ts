@@ -130,6 +130,7 @@ export class SoldierRig {
   private thighL = 0.33;
   private shinL = 0.3;
   private lastX: number | null = null;
+  private lastY = 0;
 
   constructor(enemy = true, shield?: ShieldKind) {
     const p = parts();
@@ -181,9 +182,11 @@ export class SoldierRig {
   }
 
   /** x: world x this frame (stride comes from distance moved); facing: -1 left, 1 right */
-  update(dt: number, x: number, y: number, state: 'walk' | 'idle' | 'shoot' | 'dead') {
-    const moved = this.lastX === null ? 0 : Math.abs(x - this.lastX);
+  update(dt: number, x: number, y: number, state: 'walk' | 'idle' | 'shoot' | 'dead' | 'stand' | 'sit' | 'climb') {
+    // a climber's stride comes from height gained; everyone else's from ground covered
+    const moved = this.lastX === null ? 0 : state === 'climb' ? Math.abs(y - this.lastY) : Math.abs(x - this.lastX);
     this.lastX = x;
+    this.lastY = y;
     if (moved > 2) this.phase += 0; // teleport, not a stride
     else this.phase += (moved / 0.55) * Math.PI;
     this.recoil = Math.max(0, this.recoil - dt * 6);
@@ -199,6 +202,24 @@ export class SoldierRig {
       this.body.position.y = 0.72 - 0.45 * Math.min(1, this.deadT * 2.2);
       // the shield is let go and falls flat in front of him
       if (this.shield) { this.shield.rotation.z = Math.min(1.5, this.deadT * 2.5) + this.body.rotation.z * -1; this.shield.position.x = -0.33 - Math.min(0.5, this.deadT * 0.8); }
+    } else if (state === 'stand' || state === 'sit') {
+      // off duty: relaxed and upright (stand), or squatting on the floor at a cot, cask or table (sit)
+      const b = Math.sin(this.phase * 0.05 + performance.now() * 0.0017) * 0.008; // breathing
+      const sit = state === 'sit';
+      front.hip.rotation.z = sit ? -1.25 : -0.05; front.knee.rotation.z = sit ? 2.1 : 0.04; front.ankle.rotation.z = sit ? -0.85 : 0;
+      back.hip.rotation.z = sit ? -0.55 : 0.06; back.knee.rotation.z = sit ? 2.35 : 0.02; back.ankle.rotation.z = sit ? -1.3 : 0;
+      this.body.position.y = (sit ? 0.36 : 0.72) + b;
+      this.body.rotation.z = sit ? 0.06 : -0.015;
+      this.upper.position.x = 0;
+    } else if (state === 'climb') {
+      // hand over hand up a ladder: knees come up in turn, the body rocks a little with each rung
+      const s = Math.sin(this.phase), c = Math.cos(this.phase);
+      const fl = Math.max(0, s), bl = Math.max(0, -s);
+      front.hip.rotation.z = -0.25 - fl * 0.9; front.knee.rotation.z = 0.3 + fl * 1.3; front.ankle.rotation.z = -fl * 0.4;
+      back.hip.rotation.z = -0.25 - bl * 0.9; back.knee.rotation.z = 0.3 + bl * 1.3; back.ankle.rotation.z = -bl * 0.4;
+      this.body.position.y = 0.7 + Math.abs(c) * 0.04;
+      this.body.rotation.z = -0.1 + s * 0.05;
+      this.upper.position.x = s * 0.025;
     } else if (state === 'walk') {
       const s = Math.sin(this.phase), c = Math.cos(this.phase);
       // thighs swing in anti-phase; the knee bends while its leg swings forward
@@ -210,6 +231,7 @@ export class SoldierRig {
       back.ankle.rotation.z = -back.hip.rotation.z * 0.5 - back.knee.rotation.z * 0.6;
       this.body.position.y = 0.72 - Math.abs(c) * 0.035;
       this.body.rotation.z = -0.04 + s * 0.015;
+      this.upper.position.x = 0;
     } else {
       // braced firing stance: feet apart, slight crouch, recoil kicks the torso back
       front.hip.rotation.z = -0.28; front.knee.rotation.z = 0.35; front.ankle.rotation.z = -0.1;

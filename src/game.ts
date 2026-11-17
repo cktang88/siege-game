@@ -1856,6 +1856,8 @@ export class Game {
         if (!hit) this.world.intersectionsWithPoint({ x: d.x, y: d.y }, (c) => { if (this.owners.get(c.handle)?.t === 'block') hit = true; return !hit; });
         if (hit) { d.dead = true; this.burst(d.x, d.y, 0.4); }
       }
+      // its cameras see into walled-up rooms below and around it (src/rooms.ts)
+      if (d.state === 'out' || d.state === 'hover') this.garrison.rooms.scan(d.x, d.y, d.state === 'hover' ? 16 : 9);
       d.mesh.position.set(d.x, d.y + Math.sin(this.time * 9) * 0.05, 14);
       if (d.dead) this.root.remove(d.mesh);
     }

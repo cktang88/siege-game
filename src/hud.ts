@@ -78,7 +78,8 @@ export function updateObjectives() {
   $('#objectives').innerHTML = kinds.map((k) => {
     const tot = g.targetsTotal[k] ?? 0, d = g.targetsDestroyed[k] ?? 0;
     const obj = l.objectives.includes(k);
-    return `<li class="${d >= tot ? 'done' : ''} ${obj ? '' : 'opt'}"><span class="dot" style="background:${TARGETS[k].color}"></span>${targetName(k)}${tot > 1 ? ` ${d}/${tot}` : ''}${obj ? '' : ' <span class="label">secondary</span>'}</li>`;
+    const unknown = g.garrison.rooms.unknownKind(k) ? ' <span class="label">location unknown</span>' : '';
+    return `<li class="${d >= tot ? 'done' : ''} ${obj ? '' : 'opt'}"><span class="dot" style="background:${TARGETS[k].color}"></span>${targetName(k)}${tot > 1 ? ` ${d}/${tot}` : ''}${obj ? '' : ' <span class="label">secondary</span>'}${unknown}</li>`;
   }).join('');
 }
 
@@ -320,7 +321,7 @@ export function updateHud() {
   hp.querySelectorAll('i').forEach((el, i) => el.classList.toggle('on', i < Math.ceil(frac * 12)));
   $('#hpnum').textContent = `${Math.ceil(g.cannonHp)}`;
   $('#collateral').textContent = String(Math.round(g.collateral));
-  $('#garrison').textContent = `${g.garrison.casualties}/${g.garrison.total}`;
+  $('#garrison').textContent = g.garrison.readout;
   $('#collateral').style.color = g.collateral > 0 ? 'var(--bad)' : '';
   const hasGuns = g.liveTargets('artillery').length > 0;
   $('#blind-row').classList.toggle('hidden', !hasGuns);
@@ -365,7 +366,8 @@ export function drawMinimap() {
   for (const bl of g.blocks) {
     if (bl.dead) continue;
     const t = bl.body.translation();
-    ctx.fillStyle = bl.target ? TARGETS[bl.target].color : MAT_COL[g.shownMat(bl)] ?? '#888';
+    const walled = g.garrison.rooms.coverMat(bl); // blocks in a concealed room show as the wall over them
+    ctx.fillStyle = walled ? MAT_COL[walled] ?? '#888' : bl.target ? TARGETS[bl.target].color : MAT_COL[g.shownMat(bl)] ?? '#888';
     ctx.fillRect(X(t.x - bl.w / 2), Y(t.y + bl.h / 2), Math.max(1, bl.w * sx), Math.max(1, bl.h * sy));
   }
   ctx.fillStyle = '#d8c9a8';
@@ -400,6 +402,10 @@ export function clearLabels() { labels.forEach((el) => el.remove()); labels.clea
 export function updateLabels() {
   labels.forEach((el, b) => {
     if (b.dead) { el.remove(); labels.delete(b); return; }
+    // a target walled up in a concealed room has no label until the room is found
+    const hid = S.game.garrison.rooms.conceals(b);
+    el.style.display = hid ? 'none' : '';
+    if (hid) return;
     const t = b.body.translation();
     const s = S.renderer.worldToScreen(t.x, t.y + b.h / 2 + 0.25);
     el.style.left = `${s.x}px`;
@@ -418,7 +424,9 @@ export function updateTooltip(mouse: { x: number; y: number }, hide: boolean) {
   const b = S.game.pickBlock(w.x, w.y);
   if (!b) { tip.classList.add('hidden'); return; }
   const known = S.game.revealed || !b.def.disguise;
-  tip.innerHTML = blockTip(S.game.shownMat(b), known, b.hp, b.maxHp, b.target ? TARGETS[b.target].label : undefined, !!b.highlight, b.burning > 0);
+  const walled = S.game.garrison.rooms.coverMat(b);
+  if (walled) tip.innerHTML = blockTip(walled, false, 0, 0, undefined, false, false);
+  else tip.innerHTML = blockTip(S.game.shownMat(b), known, b.hp, b.maxHp, b.target ? TARGETS[b.target].label : undefined, !!b.highlight, b.burning > 0);
   tip.classList.remove('hidden');
   tip.style.left = `${Math.min(mouse.x + 16, window.innerWidth - tip.offsetWidth - 8)}px`;
   tip.style.top = `${mouse.y + 18 + tip.offsetHeight > window.innerHeight - 8 ? mouse.y - tip.offsetHeight - 10 : mouse.y + 18}px`;

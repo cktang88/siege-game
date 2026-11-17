@@ -690,3 +690,48 @@ export class Renderer {
     this.composer.render(dt);
   }
 }
+
+// ───────────────────────── Ladders ─────────────────────────
+const RUNG = 0.32;
+const ladderTex = new Map<string, THREE.Texture>();
+/** one rung period of a ladder, tiled vertically: two rails and a rung, cel-banded with a dark ink line (timber or steel) */
+function ladderTexture(kind: 'wood' | 'steel') {
+  let t = ladderTex.get(kind);
+  if (t) return t;
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 40;
+  const g = c.getContext('2d')!;
+  const base = kind === 'wood' ? [138, 96, 58] : [104, 112, 122];
+  const rgb = (k: number) => `rgb(${base.map((v) => Math.round(Math.min(255, v * k))).join(',')})`;
+  const ink = '#1c1f26';
+  // rung (drawn first so the rails overlap its ends)
+  g.fillStyle = ink; g.fillRect(8, 14, 48, 12);
+  g.fillStyle = rgb(1); g.fillRect(8, 16, 48, 8);
+  g.fillStyle = rgb(1.22); g.fillRect(8, 16, 48, 3);
+  g.fillStyle = rgb(0.72); g.fillRect(8, 22, 48, 2);
+  // rails: full height so they tile into continuous stiles
+  for (const x of [2, 50]) {
+    g.fillStyle = ink; g.fillRect(x, 0, 12, 40);
+    g.fillStyle = rgb(1); g.fillRect(x + 2, 0, 8, 40);
+    g.fillStyle = rgb(1.25); g.fillRect(x + 2, 0, 3, 40);
+    g.fillStyle = rgb(0.7); g.fillRect(x + 8, 0, 2, 40);
+    if (kind === 'steel') { g.fillStyle = rgb(1.4); g.fillRect(x + 4, 18, 3, 3); }
+  }
+  t = new THREE.CanvasTexture(c);
+  t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  ladderTex.set(kind, t);
+  return t;
+}
+
+/** a ladder standing in a room, `height` metres tall, bottom at the origin (backdrop layer: behind furniture and people) */
+export function makeLadder(height: number, kind: 'wood' | 'steel') {
+  const geo = new THREE.PlaneGeometry(0.5, height);
+  geo.translate(0, height / 2, 0);
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * (height / RUNG));
+  const mat = new THREE.MeshBasicMaterial({ map: ladderTexture(kind), transparent: true, depthWrite: false, alphaTest: 0.05 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.z = 2.8;
+  return mesh;
+}

@@ -1,5 +1,6 @@
 import type { MatId, TargetKind } from './config';
 import { cannonFor, rng } from './fortgen';
+import { concealRooms } from './conceal';
 import type { BlockDef, HouseDef, LevelDef } from './levels';
 import { flare, roof, wedge } from './shapes';
 
@@ -23,7 +24,7 @@ export interface GrandSpec {
   brief?: string;
 }
 
-interface Room { x0: number; x1: number; y0: number; y1: number; floor: number; col: number; bldg: string; deps: number[]; mat: MatId }
+interface Room { x0: number; x1: number; y0: number; y1: number; floor: number; col: number; bldg: string; deps: number[]; mat: MatId; floorIdx: number }
 
 export function generateGrand(spec: GrandSpec): LevelDef {
   const R = rng(spec.seed);
@@ -44,6 +45,7 @@ export function generateGrand(spec: GrandSpec): LevelDef {
     mats: (f: number) => { col: MatId; slab: MatId; disguise?: MatId }) {
     const cx = (c: number) => x0 + c * (roomW + colW); // left edge of column c
     let y = y0;
+    let under: number[] = [];
     for (let f = 0; f < floors; f++) {
       const m = mats(f);
       const colIdx: number[][] = [];
@@ -54,13 +56,16 @@ export function generateGrand(spec: GrandSpec): LevelDef {
       }
       const fy = y;
       y += floorH;
+      const slabsHere: number[] = [];
       for (let c = 0; c < cols; c++) {
         const a = c === 0 ? cx(0) - 0.15 : cx(c) + colW / 2;
         const b = c === cols - 1 ? cx(cols) + colW + 0.15 : cx(c + 1) + colW / 2;
         const slabIdx = blocks.length;
         add(a, y, b - a, SLAB, m.slab);
-        rooms.push({ x0: cx(c) + colW, x1: cx(c + 1), y0: fy, y1: fy + floorH, floor: f, col: c, bldg, deps: [...colIdx[c], ...colIdx[c + 1], slabIdx], mat: m.col === 'wood' || m.col === 'steel' ? (m.col === 'wood' ? 'wood' : heavy) : m.col });
+        rooms.push({ x0: cx(c) + colW, x1: cx(c + 1), y0: fy, y1: fy + floorH, floor: f, col: c, bldg, deps: [...colIdx[c], ...colIdx[c + 1], slabIdx], mat: m.col === 'wood' || m.col === 'steel' ? (m.col === 'wood' ? 'wood' : heavy) : m.col, floorIdx: under[c] ?? -1 });
+        slabsHere.push(slabIdx);
       }
+      under = slabsHere;
       y += SLAB;
     }
     return { top: y, x1: cx(cols) + colW };
@@ -203,7 +208,7 @@ export function generateGrand(spec: GrandSpec): LevelDef {
   const nRooms = rooms.length;
   const objectives: TargetKind[] = ['command', 'ammo'];
 
-  return {
+  return concealRooms({
     elevation: 6 + d * 0.5, gunCap: 44,
     id: spec.id, name: spec.name,
     brief: spec.brief ?? `A great fortress of ${nRooms} rooms behind ${d >= 7 ? 'double' : 'a'} curtain wall. Command sits mid-keep; the munitions are spread through the works.`,
@@ -221,5 +226,6 @@ export function generateGrand(spec: GrandSpec): LevelDef {
     ground, cannonX: cannonFor(blocks, ground, objectives, [-2 - d * 0.4, 2 + d * 0.4], 44, x0 - 34, Math.min(x0 - 20, Math.min(...blocks.map((b) => b.x)) - 24)), blocks, houses, objectives,
     stars: [4000, 9000 + d * 600, 14000 + d * 900], collateralMult: 1, difficulty: d,
     backdrops: rooms.map((r) => ({ x: r.x0, y: r.y0, w: r.x1 - r.x0, h: r.y1 - r.y0 + SLAB * 0.5, mat: r.mat, deps: r.deps })),
-  };
+    rooms: rooms.map((r) => ({ x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1, floorIdx: r.floorIdx, deps: r.deps })),
+  }, spec.seed);
 }

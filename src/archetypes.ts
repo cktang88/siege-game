@@ -1,6 +1,7 @@
 import type { MatId, TargetKind } from './config';
 import type { BlockDef, HouseDef, LevelDef } from './levels';
 import { cannonFor } from './fortgen';
+import { concealRooms } from './conceal';
 import { arch, beam, flare, polyBlock, roof, trap, wedge } from './shapes';
 
 /*
@@ -557,7 +558,7 @@ export function compose(c: Composition): LevelDef {
   const firstX = Math.min(...s.blocks.map((b) => b.x));
   const gunCap = c.gun ?? (d <= 3 ? 30 : d <= 5 ? 36 : 44);
   const cannonX = cannonFor(s.blocks, s.ground, objectives, wind, gunCap, x0 - 32 - d * 2, Math.min(x0 - 16, firstX - 24));
-  return {
+  return concealRooms({
     id: c.id, name: c.name, brief: c.brief,
     // the castle stands on a hill: the gun fires level or upward at it
     elevation: c.elevation ?? 5.4 + d * 0.5, siteX: x0 - 12, gunCap,
@@ -570,7 +571,7 @@ export function compose(c: Composition): LevelDef {
     rooms: s.rooms.map((r) => ({ x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1, floorIdx: r.floorIdx, deps: r.deps })),
     era: c.era ?? 'medieval',
     difficulty: d,
-  };
+  }, c.seed);
 }
 
 /** the themed operations */

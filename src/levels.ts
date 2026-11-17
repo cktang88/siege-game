@@ -33,8 +33,9 @@ export interface LevelDef {
   collateralMult: number;
   /** non-colliding interior back walls (cutaway view); each disappears when any block in deps fails */
   backdrops?: { x: number; y: number; w: number; h: number; mat: MatId; deps: number[] }[];
-  /** rooms for the garrison: interior bounds, the floor block under it (-1 = ground) and its frame */
-  rooms?: { x0: number; x1: number; y0: number; y1: number; floorIdx: number; deps: number[] }[];
+  /** rooms for the garrison: interior bounds, the floor block under it (-1 = ground) and its frame;
+   *  hidden rooms are walled over until scouted or broken open (src/conceal.ts) */
+  rooms?: { x0: number; x1: number; y0: number; y1: number; floorIdx: number; deps: number[]; hidden?: boolean }[];
   era?: 'medieval' | 'modern';
   /** castle sits on a hill this many metres above the plain (applied at load: src/elevate.ts) */
   elevation?: number;
