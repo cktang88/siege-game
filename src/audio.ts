@@ -72,6 +72,7 @@ class AudioEngine {
   setVolumes(master: number, music: number, sfx: number, muted: boolean) {
     this.vol = { master, music, sfx };
     this.muted = muted;
+    if (muted) this.cancelPending();
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     this.master.gain.setTargetAtTime(muted ? 0 : master, t, 0.05);
@@ -100,7 +101,20 @@ class AudioEngine {
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   }
 
-  private voice(l: Layer, out: AudioNode, k: number, t: number) {
+  /**
+    World cues scheduled ahead (the incoming-shell whistle starts seconds after it is queued): they belong to
+    the battle that queued them, so a level reload, the end of the battle, the pause menu or mute cancels them.
+  */
+  pending = new Set<{ srcs: AudioScheduledSourceNode[]; out: AudioNode[] }>();
+  cancelPending() {
+    for (const p of this.pending) {
+      for (const s of p.srcs) { try { s.stop(); } catch { /* not started */ } }
+      for (const n of p.out) n.disconnect();
+    }
+    this.pending.clear();
+  }
+
+  private voice(l: Layer, out: AudioNode, k: number, t: number): AudioScheduledSourceNode {
     const ctx = this.ctx!;
     const t0 = t + (l.delay ?? 0) / 1000, t1 = t0 + l.ms / 1000;
     const env = ctx.createGain();
@@ -129,6 +143,7 @@ class AudioEngine {
     this.voices++;
     src.onended = () => { this.voices--; env.disconnect(); };
     src.stop(t1 + 0.02);
+    return src;
   }
 
   /** play a cue at world x (undefined = UI, centred); gain and pitch multipliers optional */
@@ -159,9 +174,11 @@ class AudioEngine {
     lp.type = 'lowpass'; lp.frequency.value = dull;
     g.connect(lp).connect(p).connect(this.sfx);
     const t = ctx.currentTime + 0.005 + delayMs / 1000;
-    for (const l of recipe) this.voice(l, g, k, t);
+    const srcs = recipe.map((l) => this.voice(l, g, k, t));
     const longest = Math.max(...recipe.map((l) => (l.delay ?? 0) + l.ms));
-    setTimeout(() => { g.disconnect(); lp.disconnect(); p.disconnect(); }, longest + delayMs + 200);
+    const entry = x !== undefined && delayMs > 0 ? { srcs, out: [g, lp, p] } : null;
+    if (entry) this.pending.add(entry);
+    setTimeout(() => { if (entry) this.pending.delete(entry); g.disconnect(); lp.disconnect(); p.disconnect(); }, longest + delayMs + 200);
   }
 
   // ───────────────────────── music ─────────────────────────

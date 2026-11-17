@@ -875,6 +875,26 @@ const sections = {
     await page.click('[data-b="muted"]');
     const u = await ev(page, async () => { const { audio } = await window.__mod('audio.ts'); await new Promise((r) => setTimeout(r, 400)); return { muted: audio.muted, gain: audio.master.gain.value }; });
     check('audio: unmute restores the master level', !u.muted && u.gain > 0.5, JSON.stringify(u));
+    // a delayed world cue (the incoming-shell whistle) is cancelled by pause, battle end, level reload and mute
+    await startOp(page, 'outpost', { shell: 2 });
+    const queue = () => ev(page, async () => { const { audio } = await window.__mod('audio.ts'); audio.play('whistle', 40, 1, 1, 5000); audio.play('coins', undefined, 1, 1, 5000); return audio.pending.size; });
+    const pend = () => ev(page, async () => (await window.__mod('audio.ts')).audio.pending.size);
+    check('audio: a delayed world cue is tracked (a delayed UI cue is not)', (await queue()) === 1);
+    await page.keyboard.press('Escape');
+    check('audio: pausing cancels queued world cues', (await pend()) === 0);
+    await page.keyboard.press('Escape');
+    await queue();
+    await ev(page, () => window.siege.game.end(false, 'test'));
+    await waitReport(page);
+    check('audio: the end of the battle cancels queued world cues', (await pend()) === 0);
+    await startOp(page, 'outpost', { shell: 2 });
+    await queue();
+    await ev(page, async () => (await window.__mod('screens.ts')).showMap());
+    check('audio: leaving for the map (level reload) cancels queued world cues', (await pend()) === 0);
+    await queue();
+    await ev(page, async () => (await window.__mod('settings.ts')).setSetting('muted', true));
+    check('audio: muting cancels queued world cues', (await pend()) === 0);
+    await ev(page, async () => (await window.__mod('settings.ts')).setSetting('muted', false));
     // muted before the first gesture: the context starts silent
     const p2 = await open({ init: () => localStorage.setItem('siege-settings-v1', JSON.stringify({ muted: true })) });
     await p2.click('[data-go="tech"]');
