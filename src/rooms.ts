@@ -66,6 +66,7 @@ export class Rooms {
   /** block → hidden room it stands inside (for tooltips, labels and the minimap) */
   private insideOf = new Map<Block, RoomRT>();
   private checkT = 0;
+  private announceT = 0;
   /** rooms uncovered since the last toast, and what found them */
   private found: { r: RoomRT; by: 'drone' | 'breach' | 'fire' }[] = [];
   /** bumped whenever a cover comes off (HUD readouts can watch it) */
@@ -193,6 +194,7 @@ export class Rooms {
     r.hidden = false;
     this.version++;
     this.found.push({ r, by });
+    if (by === 'drone') this.announceT = 1;
     for (const b of r.inside) this.insideOf.delete(b);
     if (r.target) this.g.events.push({ type: 'target', kind: r.target.target as TargetKind });
     const c = r.cover;
@@ -259,7 +261,9 @@ export class Rooms {
         if (c.fade <= 0) { c.mesh.parent?.remove(c.mesh); c.mesh.geometry.dispose(); r.cover = null; }
       }
     }
-    if (this.found.length) this.announce();
+    // a drone sweeping in finds rooms one after another: tell of them together once it has settled
+    this.announceT -= dt;
+    if (this.found.length && this.announceT <= 0) this.announce();
   }
 
   /** one toast per batch of rooms found: what was in them */
@@ -272,13 +276,14 @@ export class Rooms {
       if (k === 'command') return 'command post';
       if (k === 'barracks') return 'barracks';
       if (k === 'workshop') return 'workshop';
+      if (k === 'depot') return 'motor pool';
       if (k) return 'emplacement';
       if (r.spawnPop > 0) return 'guardroom';
       if (r.inside.some((b) => b.def.mat === 'crate')) return 'storeroom';
       return 'room';
     };
     const names: string[] = found.map((f) => what(f.r));
-    const order = ['magazine', 'command post', 'barracks', 'workshop', 'emplacement', 'guardroom', 'storeroom', 'room'];
+    const order = ['magazine', 'command post', 'barracks', 'workshop', 'motor pool', 'emplacement', 'guardroom', 'storeroom', 'room'];
     const key = order.find((n) => names.includes(n)) ?? 'room';
     const by = found[0].by;
     const text = found.length > 1

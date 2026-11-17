@@ -31,5 +31,7 @@ export function concealRooms(level: LevelDef, seed: number): LevelDef {
   const keyed = rooms.map((r) => ({ r, k: R() * (roomTarget(level.blocks, r) ? 0.55 : 1) * (r.x1 - r.x0 < 1.4 ? 3 : 1) }));
   keyed.sort((a, b) => a.k - b.k);
   for (const { r } of keyed.slice(0, n)) r.hidden = true;
+  const note = `${n} of the ${rooms.length} rooms are walled up. A scout drone sees into them; a breach or a fire opens them.`;
+  if (!level.intel.includes(note)) level.intel.push(note);
   return level;
 }
