@@ -43,12 +43,17 @@ export const SOUNDS = {
   fail: [tone('triangle', [392, 392], 400, 0.14), tone('triangle', [349, 349], 400, 0.12, 300), tone('triangle', [294, 290], 900, 0.12, 600)],
   win: [tone('square', [523, 523], 160, 0.06), tone('square', [659, 659], 160, 0.06, 170), tone('square', [784, 784], 160, 0.06, 340), tone('square', [1046, 1046], 700, 0.07, 510)],
   shovel: [noise('bandpass', [1600, 1100], 120, 0.18, 1.5), noise('bandpass', [1300, 900], 100, 0.14, 1.5, 180)],
+  // the machine-gun post (src/mg.ts): a short hard crack with a little chest per round, so a burst reads as a stutter
+  mgShot: [snap(5500, 0.45), crack(2100, 55, 0.5), thump(130, 70, 0.35), noise('lowpass', [2600, 500], 120, 0.12)],
+  ribShot: [snap(4200, 0.5), crack(1300, 120, 0.55), thump(110, 200, 0.5), noise('lowpass', [1800, 200], 500, 0.25)],
+  mgBelt: [tone('square', [900, 860], 30, 0.05), noise('bandpass', [2400, 1800], 60, 0.25, 2), noise('bandpass', [1800, 1400], 80, 0.22, 2, 260), tone('triangle', [700, 680], 60, 0.08, 280)],
+  mgHiss: [noise('highpass', [3500, 2500], 1400, 0.18, 0.7, 0, 120), noise('bandpass', [5000, 4000], 900, 0.08, 1, 200)],
 } satisfies Record<string, Layer[]>;
 
 export type SoundId = keyof typeof SOUNDS;
 
-const GAP_MS: Partial<Record<SoundId, number>> = { fire: 90, rifle: 40, thud: 50, crumble: 70, splinter: 60, clang: 80, blastSmall: 30, click: 20, shovel: 300 };
-const VARY: Partial<Record<SoundId, number>> = { rifle: 0.12, thud: 0.15, crumble: 0.12, splinter: 0.15, clang: 0.05, blastSmall: 0.1, blast: 0.06, fire: 0.25 };
+const GAP_MS: Partial<Record<SoundId, number>> = { mgShot: 60, ribShot: 70, mgHiss: 1500, fire: 90, rifle: 40, thud: 50, crumble: 70, splinter: 60, clang: 80, blastSmall: 30, click: 20, shovel: 300 };
+const VARY: Partial<Record<SoundId, number>> = { mgShot: 0.08, ribShot: 0.12, rifle: 0.12, thud: 0.15, crumble: 0.12, splinter: 0.15, clang: 0.05, blastSmall: 0.1, blast: 0.06, fire: 0.25 };
 const CAP = 56;
 /** music bus gain at full music volume (the default 0.6 gives the original 0.32) */
 const MUSIC_LEVEL = 0.53;

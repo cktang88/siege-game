@@ -5,7 +5,7 @@ import { audio } from './audio';
 import { AMMO_BY_ID, PHYS } from './config';
 import { Game } from './game';
 import { toggleDevPanel } from './devpanel';
-import { gunHit, helpText, hideTooltip, onFired, rackIds, toast, togglePause, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
+import { gunHit, helpText, hideTooltip, onFired, rackIds, switchWeapon, toast, togglePause, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
 import { writeSave } from './progress';
 import { updateWatch } from './watch';
 import { Renderer, loadTextures } from './render';
@@ -22,7 +22,9 @@ let down: { x: number; y: number; btn: number; pan: number; dragged: boolean } |
 let mouse = { x: 0, y: 0 };
 /** the pointer is over the open battlefield (not over a HUD panel, which sits above the canvas) */
 let overField = false;
-const isTargeting = () => { const m = AMMO_BY_ID[S.game.selected].mode; return m === 'airstrike' || m === 'drone' || m === 'saboteur'; };
+/** the machine-gun post has the player's attention (G / Tab): the mouse and Space work it instead of the cannon */
+const mgOn = () => S.mode === 'battle' && S.game.mg.active;
+const isTargeting = () => { if (mgOn()) return false; const m = AMMO_BY_ID[S.game.selected].mode; return m === 'airstrike' || m === 'drone' || m === 'saboteur'; };
 /** gun-type munitions are aimed by pointing the mouse */
 const isGun = () => S.mode === 'battle' && !isTargeting();
 const mouseAiming = () => isGun() && S.mouseAim && overField;
@@ -56,6 +58,7 @@ document.body.appendChild(tip);
 function aimAtMouse(fromMove = false) {
   const g = S.game;
   const w = S.renderer.screenToWorld(mouse.x, mouse.y);
+  if (g.mg.active) { g.mg.aimAt(w.x, w.y); showTip(); return; }
   const p = g.barrel.position;
   const dx = w.x - p.x, dy = w.y - p.y;
   if (Math.hypot(dx, dy) < 0.6) return;
@@ -76,6 +79,11 @@ function showTip() {
   const g = S.game;
   tip.style.display = 'block';
   tip.style.left = `${mouse.x + 18}px`; tip.style.top = `${mouse.y + 14}px`;
+  if (g.mg.active) {
+    const m = g.mg;
+    tip.innerHTML = `<b>${m.spec.name}</b> · <b>${((m.angle * 180) / Math.PI).toFixed(0)}</b>° · ${m.reloadT > 0 ? 'reloading' : `${m.rounds}/${m.spec.mag}`}${m.spec.heatPer ? `<span class="bar heat"><span style="width:${Math.round(m.heat * 100)}%"></span></span>` : ''}`;
+    return;
+  }
   const frac = (g.launchSpeed - PHYS.minSpeed) / Math.max(1, g.maxSpeedFor - PHYS.minSpeed);
   tip.innerHTML = `<b>${g.launchSpeed.toFixed(1)}</b> m/s · <b>${((g.angle * 180) / Math.PI).toFixed(1)}</b>°${shiftHeld && SET.aimDistance ? ' <i>held</i>' : ''}<span class="bar"><span style="width:${Math.round(frac * 100)}%"></span></span>`;
 }
@@ -112,26 +120,30 @@ canvas.addEventListener('pointerdown', (e) => {
   // clicking the field takes focus away from any HUD control, so keyboard shortcuts work again
   (document.activeElement as HTMLElement | null)?.blur?.();
   down = { x: e.clientX, y: e.clientY, btn: e.button, pan: S.game.pan, dragged: false };
+  // the machine gun fires while the left button is held (and a left drag aims it instead of panning)
+  if (mgOn() && e.button === 0 && !S.paused) { if (S.mouseAim) aimAtMouse(); S.game.mg.trigger = true; }
 });
 canvas.addEventListener('pointermove', (e) => {
   mouse = { x: e.clientX, y: e.clientY };
   overField = true;
   if (mouseAiming() && (!down || !down.dragged)) aimAtMouse(true); else hideTip();
+  if (mgOn() && down?.btn === 0) return;
   if (!down) return;
   const g = S.game, r = S.renderer;
   const dx = e.clientX - down.x, dy = e.clientY - down.y;
-  if (!down.dragged && (down.btn !== 0 || Math.hypot(dx, dy) > 12)) down.dragged = true;
+  if (!down.dragged && (down.btn !== 0 || Math.hypot(dx, dy) > 12) && !(down.btn === 0 && mgOn())) down.dragged = true;
   // any drag pans the view (left, middle or right button)
   if (down.dragged) g.pan = down.pan - (dx / r.width) * r.viewW;
 });
-const release = () => { down = null; };
+const release = () => { down = null; if (S.game) S.game.mg.trigger = false; };
 canvas.addEventListener('pointercancel', release);
 canvas.addEventListener('lostpointercapture', release);
 canvas.addEventListener('pointerup', (e) => {
   if (!down) return;
   const d = down;
   down = null;
-  if (S.mode !== 'battle' || d.btn !== 0 || d.dragged) return;
+  if (d.btn === 0) S.game.mg.trigger = false;
+  if (S.mode !== 'battle' || d.btn !== 0 || d.dragged || mgOn()) return;
   const g = S.game;
   // a click bursts a cluster shell in flight; otherwise it fires the gun or places a planned strike
   if (g.triggerAbility()) return;
@@ -152,7 +164,7 @@ canvas.addEventListener('wheel', (e) => {
   const g = S.game;
   const delta = e.deltaY || e.deltaX; // shift+wheel scrolls sideways on some systems
   // over the battlefield with a gun selected the wheel sets muzzle velocity; Ctrl+wheel (or pinch) zooms
-  if (isGun() && !e.ctrlKey && !e.metaKey) {
+  if (isGun() && !mgOn() && !e.ctrlKey && !e.metaKey) {
     const step = e.shiftKey ? 1 : 0.2;
     const notches = Math.max(-5, Math.min(5, -delta / (e.deltaMode === 1 ? 3 : 100)));
     const v = Math.min(g.maxSpeedFor, Math.round((g.launchSpeed + notches * step) * 10) / 10);
@@ -172,30 +184,44 @@ window.addEventListener('keydown', (e) => {
   const g = S.game;
   const k = keyName(e);
   // Esc opens (and closes) the pause menu; while it is up the battle keys are off
-  if (k === 'Escape') { togglePause(); return; }
+  if (k === 'Escape') { togglePause(); g.mg.trigger = false; return; }
   if (S.paused) return;
   if (k === '`') { toggleDevPanel(); return; }
   // Space must not also "click" a focused HUD button
-  if (k === ' ') { e.preventDefault(); if (!e.repeat && !g.triggerAbility()) g.fire(); return; }
+  if (k === ' ') {
+    e.preventDefault();
+    if (g.mg.active) { g.mg.trigger = true; return; }
+    if (!e.repeat && !g.triggerAbility()) g.fire();
+    return;
+  }
+  // G or Tab: switch between the cannon and the machine-gun post
+  if (k === 'g' || k === 'Tab') { e.preventDefault(); if (!e.repeat) switchWeapon(); return; }
+  if (k === 'b' && g.mg.active) { g.mg.reload(); return; }
   // arrows on a focused slider move the slider only
   if ((e.target as HTMLInputElement).type === 'range' && k.startsWith('Arrow')) return;
   if (k.startsWith('Arrow')) e.preventDefault();
   keys.add(k);
   const n = parseInt(e.key, 10);
-  if (n >= 1 && n <= 9) { const ids = rackIds(); if (ids[n - 1]) g.selected = ids[n - 1]; }
+  if (n >= 1 && n <= 9) { const ids = rackIds(); if (ids[n - 1]) { g.selected = ids[n - 1]; g.mg.active = false; g.mg.trigger = false; } }
   if (k === 'r') g.cam.recenter();
   if (k === 't') { S.mouseAim = !S.mouseAim; toast(S.mouseAim ? 'Mouse aim on' : 'Mouse aim off: dials, keys and typed values only'); }
 });
-window.addEventListener('keyup', (e) => { keys.delete(keyName(e)); keys.delete(e.key); });
+window.addEventListener('keyup', (e) => { keys.delete(keyName(e)); keys.delete(e.key); if (e.key === ' ' && S.game) S.game.mg.trigger = false; });
 // keys held while the window loses focus would otherwise stay "down" forever
-window.addEventListener('blur', () => { keys.clear(); down = null; });
+window.addEventListener('blur', () => { keys.clear(); down = null; if (S.game) S.game.mg.trigger = false; });
 
 function handleKeys(dt: number) {
   const g = S.game;
   const fine = keys.has('Shift') ? 0.15 : 1;
   const deg = (g.angle * 180) / Math.PI;
-  if (keys.has('ArrowUp')) g.setAngleDeg(deg + dt * 20 * fine);
-  if (keys.has('ArrowDown')) g.setAngleDeg(deg - dt * 20 * fine);
+  if (g.mg.active) {
+    const md = (g.mg.angle * 180) / Math.PI;
+    if (keys.has('ArrowUp')) g.mg.setAngleDeg(md + dt * 30 * fine);
+    if (keys.has('ArrowDown')) g.mg.setAngleDeg(md - dt * 30 * fine);
+  } else {
+    if (keys.has('ArrowUp')) g.setAngleDeg(deg + dt * 20 * fine);
+    if (keys.has('ArrowDown')) g.setAngleDeg(deg - dt * 20 * fine);
+  }
   if (keys.has('ArrowRight')) g.setSpeed(Math.min(g.maxSpeedFor, g.launchSpeed + dt * 8 * fine));
   if (keys.has('ArrowLeft')) g.setSpeed(g.launchSpeed - dt * 8 * fine);
   if (keys.has('e')) zoomBy(Math.exp(dt * 1.5));
@@ -257,7 +283,7 @@ function frame(now: number) {
   g.frameCamera(false, dt);
   const a = AMMO_BY_ID[g.selected];
   if (S.mode === 'battle') {
-    g.updatePreview(SET.trajectory && a.mode !== 'airstrike' && a.mode !== 'drone' && a.mode !== 'saboteur' && (mouseAiming() || !g.focus));
+    g.updatePreview(!g.mg.active && SET.trajectory && a.mode !== 'airstrike' && a.mode !== 'drone' && a.mode !== 'saboteur' && (mouseAiming() || !g.focus));
     g.updateStrikePreview(a.mode === 'airstrike' && g.planes.length === 0);
     const tgt = a.mode === 'drone' ? g.droneTarget?.x : a.mode === 'saboteur' ? g.sabTarget : null;
     g.aimMarker.visible = tgt !== null && tgt !== undefined;

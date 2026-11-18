@@ -13,6 +13,7 @@ import { elevate } from './elevate';
 import { MotorPool } from './vehicles';
 import { Fracture } from './fracture';
 import { FieldCamera } from './camera';
+import { MachineGun } from './mg';
 import { Crew } from './engineers';
 
 type V2 = { x: number; y: number };
@@ -228,6 +229,8 @@ export class Game {
   frac = new Fracture(this);
   /** the enemy repair crew and its scaffolding (src/engineers.ts) */
   crew = new Crew(this);
+  /** the machine-gun post beside the cannon (src/mg.ts) */
+  mg = new MachineGun(this);
   /** flak burst timer, seconds after launch */
   flakFuse = 2.5;
   mastSprites = new Map<Block, THREE.Mesh>();
@@ -333,6 +336,7 @@ export class Game {
     this.root.add(this.hpBar);
     this.hpLag = 1;
     this.root.add(this.carriage, this.barrel);
+    this.mg.build();
 
     // aim preview dots
     this.previewDots = new THREE.InstancedMesh(new THREE.CircleGeometry(0.11, 10), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }), 60);
@@ -1490,6 +1494,7 @@ export class Game {
     this.updateGunFx(dt);
     this.air.update(dt, this.running && !this.ended);
     this.updateProjectiles(dt);
+    this.mg.update(dt);
     this.updatePending(dt);
     // splits and marks from this frame's hits (outside the physics step and the event drain)
     this.frac.update(dt);
@@ -1850,6 +1855,8 @@ export class Game {
         if (s.deadT > 2.2) s.rig.fade(Math.max(0, 1 - (s.deadT - 2.2) / 1.5));
         continue;
       }
+      // pinned down by machine-gun fire: flat in cover, neither moving nor firing (src/mg.ts)
+      if (this.mg.pinned(s, dt)) { s.rig.update(dt, s.x, s.y, 'sit'); continue; }
       let shooting = false;
       // saboteur engagement
       for (const sb of this.saboteurs) {
