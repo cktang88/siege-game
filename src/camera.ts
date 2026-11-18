@@ -29,7 +29,13 @@ import { SET } from './settings';
 export type CamMode = 'base' | 'threat' | 'air';
 
 const SMOOTH = 0.2; // spring time constant, s
-const THREAT_IN = 27, THREAT_OUT = 33; // metres in front of the gun
+/**
+  How close attackers must be before the camera drops everything for them. Infantry halt to fire 13–20 m
+  in front of the gun (Soldier.stopX), so the radius never drops below 22 m; castle fronts stand 27–35 m
+  out, so it scales to ~70% of that gap, which keeps men just leaving the castle from tripping it.
+  Leaving takes 5 m more (hysteresis).
+*/
+const THREAT_MAX = 27, THREAT_MIN = 22, THREAT_HYST = 5;
 const MANUAL_HOLD = 8;
 
 interface Rect { left: number; right: number; top: number; bottom: number }
@@ -150,7 +156,9 @@ export class FieldCamera {
     const auto = SET.autoCam && this.manualT <= 0;
 
     // ── which framing: hysteresis on entering and leaving each mode
-    const near = this.threats(this.mode === 'threat' ? THREAT_OUT : THREAT_IN);
+    const gap = Math.max(0, fb.x0 - gunX);
+    const threatIn = Math.max(THREAT_MIN, Math.min(THREAT_MAX, gap * 0.7));
+    const near = this.threats(this.mode === 'threat' ? threatIn + THREAT_HYST : threatIn);
     if (near.length) { this.threatT += dt; this.threatGone = 0; } else { this.threatGone += dt; this.threatT = 0; }
     const air = this.aircraft();
     if (air.length) { this.airT += dt; this.airGone = 0; } else { this.airGone += dt; this.airT = 0; }
