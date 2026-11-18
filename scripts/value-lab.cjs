@@ -7,7 +7,8 @@
 
     npx vite --port 5193 --host 127.0.0.1 --strictPort &      # then:
     BASE=http://127.0.0.1:5193 NODE_PATH=$(npm root -g) node scripts/value-lab.cjs [sections] [trials]
-      sections: comma list of struct,niche,campaign,infantry,air,smoke,drone,pen (default: all)
+      sections: comma list of struct,niche,campaign,infantry,air,smoke,drone,pen,difficulty,material,shot
+                (default: all but difficulty, material and shot)
       trials:   seeds per cell (default 3)
     VALUE_JSON=out.json also writes the raw rows.
 
@@ -41,16 +42,17 @@ function installValue() {
     delete g.checkEnd; // undo a previous trial's override
     const lvl = V.camp.NODE_BY_ID[nodeId].level();
     S.level = lvl;
-    g.stats = Object.assign(V.prog.baseStats(), { reload: 1 }, o.stats || {});
+    // o.tech: the research a player owns (real stats, real gun); otherwise the lab's base tree with a fast reload and a gun that reaches
+    g.stats = o.tech ? V.prog.computeStats({ tech: o.tech, dev: false }) : Object.assign(V.prog.baseStats(), { reload: 1 }, o.stats || {});
     g.load(lvl);
-    g.stats.maxSpeed = (o.stats && o.stats.maxSpeed) || (g.level.gunCap || 36) + 4;
+    if (!o.tech) g.stats.maxSpeed = (o.stats && o.stats.maxSpeed) || (g.level.gunCap || 36) + 4;
     const inv = {};
     for (const a of V.cfg.SHOP_AMMO()) inv[a.id] = 999;
     V.hud.startBattle(inv, 0, 999999);
     S.mode = 'map'; // park the page's frame loop: the lab steps the battle itself
     g.wind = 0;
     g.reload = 0;
-    g.cannonHp = 1e6; // the lab never loses its gun
+    g.cannonHp = o.tech ? g.stats.cannonHp : 1e6; // the lab never loses its gun (the difficulty run does)
     V.g = g;
     V.live = o.live || {};
     V.off();
@@ -66,9 +68,9 @@ function installValue() {
     const g = V.g, L = V.live;
     if (!L.art) g.artT = 999;
     if (!L.bar) g.barT = 999;
-    g.repT = g.rebT = 999;
+    if (!L.rep) g.repT = g.rebT = 999;
     if (!L.air) g.air.spawnT = 999;
-    g.motor && (g.motor.spawnT = 999);
+    if (!L.motor) g.motor && (g.motor.spawnT = 999);
   };
   V.step = (secs, each) => {
     const g = V.g, n = Math.round(secs * 60);
@@ -503,6 +505,160 @@ function installValue() {
     const b = g.blocks;
     return { wallDead: b[0].dead, wallFrac: b[0].dead ? 1 : 1 - b[0].hp / b[0].maxHp, tgtDead: b[1].dead, tgtFrac: b[1].dead ? 1 : 1 - b[1].hp / b[1].maxHp, blewX: blew && +blew.x.toFixed(2), wallHp: Math.round(b[0].maxHp) };
   };
+
+  // ── difficulty: a campaign operation fought by a player with the research they own ──
+  /**
+   * One battle as a player would fight it: real research (stats from o.tech), real gun HP, live enemy
+   * (counter-battery, infantry, aircraft, vehicles, engineers), the budget as the cap. The gunner fires
+   * round o.id at the nearest live objective (aiming error o.sigma m) and, when infantry close on the gun,
+   * spends a canister (or HE) round on them first. Each shot costs at least the reload plus o.aim seconds
+   * of laying the gun. Returns spend, shots, battle time and the score parts.
+   */
+  V.diffTrial = (o) => {
+    const g = V.load(o.level, { seed: o.seed, tech: o.tech, live: { art: true, bar: true, air: true, motor: true, rep: true } });
+    const a = V.cfg.AMMO_BY_ID[o.id];
+    const priceOf = (id) => Math.round(V.cfg.AMMO_BY_ID[id].price * (g.stats.priceMult[id] ?? 1));
+    const budget = Math.round(g.level.budget * g.stats.budgetMult);
+    const own = new Set(V.prog.availableAmmo({ tech: o.tech, dev: false }));
+    const anti = own.has('canister') ? 'canister' : 'shell';
+    let spent = 0, shots = 0, infShots = 0, aimT = 0;
+    const cx = g.level.cannonX;
+    const fireInf = () => {
+      const near = g.soldiers.filter((s) => !s.dead && !s.eng && s.x < cx + 40 && s.x > cx);
+      if (near.filter((s) => s.x < cx + 26).length < 2) return false;
+      if (spent + priceOf(anti) > budget) return false;
+      near.sort((p, q) => p.x - q.x);
+      const lead = near[0], tx = lead.x - (lead.x > lead.stopX ? 1.2 : 0);
+      const ok = V.fireAt(anti, { x: tx, y: g.groundY(tx) + 0.9 }, { sigma: o.sigma });
+      if (!ok) return false;
+      spent += priceOf(anti); infShots++;
+      V.settle(4, 0.3);
+      aimT += 1;
+      return true;
+    };
+    for (let guard = 0; guard < 200 && !g.ended; guard++) {
+      if (V.obj.every((b) => b.dead)) break;
+      if (fireInf()) continue;
+      const t = V.nextObjective();
+      if (!t || spent + priceOf(o.id) > budget) break;
+      if (a.mode === 'saboteur') { g.sabTarget = null; g.selected = 'saboteur'; g.reload = 0; g.fire(); }
+      else if (a.mode === 'airstrike') {
+        Object.assign(g.strike, { x: centre(t).x, dir: 1, alt: 24, dive: 0, spacing: 1.6, ordnance: 'he' });
+        g.selected = 'airstrike'; g.reload = 0; g.fire();
+      } else if (o.id === 'drill') {
+        const pt = V.drillShot(t);
+        if (!pt || !V.fireAt('drill', pt, { ground: true, sigma: o.sigma })) break;
+      } else if (!V.fireAt(o.id, t, { sigma: o.sigma })) break;
+      spent += priceOf(o.id); shots++;
+      // a real gunner waits out the reload and lays the next shot
+      const tt = V.settle(o.id === 'saboteur' || o.id === 'airstrike' ? 30 : 12, 0.6);
+      if (tt < g.stats.reload) V.step(g.stats.reload - tt);
+      aimT += o.aim ?? 3;
+    }
+    V.step(1.5);
+    const won = V.obj.every((b) => b.dead) && g.cannonHp > 0;
+    const time = g.battleTime + aimT;
+    const opt = Object.keys(g.targetsDestroyed).filter((k) => !g.level.objectives.includes(k)).reduce((q, k) => q + (g.targetsDestroyed[k] ?? 0), 0);
+    const parts = {
+      base: 3000, time: Math.max(0, Math.round((g.level.parTime - time) * 60)), budget: Math.round((budget - spent) * 3), optional: opt * 400,
+      garrison: (g.garrison.casualties - V.cas0) * 25, cannon: Math.round(Math.max(0, g.cannonHp) / g.stats.cannonHp * 1000), collateral: -Math.round(g.collateral) || 0,
+    };
+    const score = Math.max(0, Object.values(parts).reduce((q, v) => q + v, 0));
+    const stars = won ? g.level.stars.filter((x) => score >= x).length : 0;
+    return { won, spent, budget, shots, infShots, time, par: g.level.parTime, score, stars, thresholds: g.level.stars, parts, gun: g.cannonHp / g.stats.cannonHp, objKills: V.obj.filter((b) => b.dead).length, objTotal: V.obj.length };
+  };
+
+  /** a flat lab level holding these blocks (an indestructible objective far off keeps it running) */
+  V.labLevel = (blocks, seed) => {
+    const S = window.siege, g = S.game;
+    Math.random = mulberry((seed || 5) * 104729);
+    const lvl = { id: 'lab', name: 'Lab', brief: '', intel: [], budget: 1, wind: [0, 0], parTime: 60, ground: [[-80, 0], [400, 0]], cannonX: 0,
+      blocks: [...blocks, { x: 390, y: 0, w: 1, h: 1, mat: 'rock', target: 'command' }], houses: [], objectives: ['command'], stars: [1, 2, 3], collateralMult: 1 };
+    S.level = lvl;
+    delete g.checkEnd;
+    g.stats = V.prog.baseStats();
+    g.load(lvl);
+    g.checkEnd = () => {};
+    const inv = {}; for (const a of V.cfg.SHOP_AMMO()) inv[a.id] = 99;
+    V.hud.startBattle(inv, 0, 999999); S.mode = 'map'; g.wind = 0; g.cannonHp = 1e6;
+    V.g = g; V.live = {}; V.off();
+    return g;
+  };
+  /** direct hits (square, at the planned gun's 30 m/s x round speed) to break a 1 m course block set in bedrock; 99 = not in o.max */
+  V.hitsLab = (o) => {
+    const g = V.labLevel([{ x: 30, y: 1, w: 1, h: 1, mat: o.mat }, { x: 28, y: 0, w: 7, h: 1, mat: 'rock' }, { x: 31.0, y: 1, w: 3, h: 3, mat: 'rock' }, { x: 29.9, y: 2, w: 1.1, h: 0.6, mat: 'rock' }], o.seed);
+    const b = g.blocks[0], a = V.cfg.AMMO_BY_ID[o.id];
+    for (let k = 1; k <= (o.max || 12); k++) {
+      const t = b.body.translation();
+      if (a.mode === 'saboteur') {
+        // a demolition charge tamped against the face
+        const bd = a.blastDamage * b.mat.blast * (a.bonus?.[b.matId] ?? 1);
+        g.frac.hit(b, { kind: 'charge', x: t.x - 0.5, y: t.y, dx: 1, dy: 0, e: bd, ammo: a.id });
+        g.damageBlock(b, bd);
+        g.explode(t.x - 0.6, t.y, a.blastRadius, a.blastDamage, { bonus: a.bonus });
+      } else V.shoot(o.id, t.x - 3, t.y, 30 * (a.speed || 1), 0);
+      V.step(o.id === 'delayed' || o.id === 'sticky' ? 4 : 1.6);
+      for (const p of g.projectiles) if (!p.dead && p.inert !== undefined) g.removeProjectile(p);
+      if (b.dead) return { hits: k };
+    }
+    return { hits: 99, hp: +(b.hp / b.maxHp).toFixed(2) };
+  };
+  /**
+   * One burst of round o.id's blast o.d metres from the face of a free-standing 1 x 1 m block of o.mat
+   * (on bedrock, open air between). Outcome: share of HP the blast took, and what became of the block.
+   */
+  V.blastLab = (o) => {
+    const g = V.labLevel([{ x: 30, y: 0.5, w: 1, h: 1, mat: o.mat }, { x: 20, y: 0, w: 20, h: 0.5, mat: 'rock' }], o.seed);
+    const b = g.blocks[0], a = V.cfg.AMMO_BY_ID[o.id];
+    const hp0 = b.hp;
+    g.explode(30 - o.d - 0.01, 1.0, a.blastRadius, a.blastDamage, { bonus: a.bonus });
+    V.step(0.1);
+    const live = g.blocks.filter((q) => !q.dead && !q.mat.indestructible && !q.target);
+    const hpLeft = live.reduce((q, x) => q + x.hp, 0);
+    return { frac: 1 - hpLeft / hp0, dead: b.dead, pieces: live.length };
+  };
+
+  /**
+   * Single-shot anatomy on a campaign level: one round at the nearest objective (o.k = 0) or at a block of
+   * the outer works (o.k > 0, counting from the gun side, bottom 8 m). Grades every block the burst
+   * reached by the share of its HP the blast took (nothing < 5%, marked 5-30%, cracked 30-100% and still
+   * standing, burst = shattered or destroyed by the blast itself), then counts the collapse that followed
+   * (blocks that died in the next 8 s) and the share of the structure's HP removed.
+   */
+  V.shotTrial = (o) => {
+    const g = V.load(o.level, { seed: o.seed });
+    g.checkEnd = () => {};
+    const blocks0 = V.start.filter((b) => !b.target);
+    const cand = blocks0.filter((b) => b.def.y - g.groundY(b.def.x) < 8 && b.w * b.h > 0.3).sort((p, q) => p.def.x - q.def.x);
+    const tgt = o.k === 0 ? V.nextObjective() : cand[Math.min(cand.length - 1, Math.floor((o.k * 0.07 + 0.02) * cand.length))];
+    if (!tgt) return null;
+    const hits = new Map();
+    const fh = g.frac.hit.bind(g.frac);
+    g.frac.hit = (b, h) => { if (h.kind === 'blast' || h.kind === 'charge') { const e = hits.get(b) || { e: 0, hp: b.hp }; e.e += h.e; hits.set(b, e); } return fh(b, h); };
+    const sp0 = g.frac.stats.splits;
+    if (!V.fireAt(o.id, tgt, { sigma: 0.35 })) { g.frac.hit = fh; return null; }
+    V.step(6, () => hits.size > 0);
+    V.step(0.15);
+    g.frac.hit = fh;
+    const grade = { none: 0, marked: 0, cracked: 0, burst: 0 };
+    for (const [b, e] of hits) {
+      if (b.target) continue;
+      const f = e.e / Math.max(1, e.hp);
+      if (b.dead) grade.burst++;
+      else if (f < 0.05) grade.none++;
+      else if (f < 0.3) grade.marked++;
+      else grade.cracked++;
+    }
+    const deadNow = new Set(V.start.filter((b) => b.dead));
+    V.step(8);
+    const later = V.start.filter((b) => b.dead && !deadNow.has(b));
+    const hpLeft = V.hpOf(g.blocks.filter((b) => !b.mat.indestructible && !b.target));
+    const hp0 = blocks0.reduce((q, b) => q + b.maxHp, 0);
+    return {
+      grade, splits: g.frac.stats.splits - sp0, collapse: later.length,
+      hpShare: 1 - hpLeft / hp0, blocksDead: V.start.filter((b) => b.dead && !b.target).length, nBlocks: blocks0.length, objKills: V.obj.filter((b) => b.dead).length,
+    };
+  };
 }
 
 // ───────────────────────── runner ─────────────────────────
@@ -641,6 +797,128 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
     }
     const best = scenes.map((scene) => { const e = Object.entries(report.niche[scene]).filter(([, v]) => v.ok === v.n && v.n).sort((a, b) => a[1].cost - b[1].cost)[0]; return e ? `${scene}: ${e[0]}` : `${scene}: -`; });
     console.log('cheapest sure kill: ' + best.join(', '));
+  }
+
+  if (SECTIONS.includes('difficulty')) {
+    /*
+      The campaign as a player meets it: operations in map order, each fought with the research the war
+      funds have bought by then. Start: 300 cr and HE. After each operation the funds earned
+      (first clear 250 + 120 a star + score/25, as missionReward) buy research down a sensible plan, in
+      order, saving up when the next item is out of reach. Each operation is fought with every round the
+      player owns, one type at a time (DIFF_SEEDS seeds, aiming error DIFF_SIGMA m, 3 s to lay each shot);
+      the best by mean score is the player's choice and pays the reward.
+    */
+    const PLAN = ['gun_charge', 'ord_heavy', 'sp_drone', 'ord_ap', 'gun_reload', 'ord_inc', 'sp_sab', 'ord_he2', 'gun_sight', 'log_canister', 'air_strike', 'ord_delay', 'ord_cluster', 'log_budget', 'gun_elev', 'gun_charge2', 'ord_bunker', 'sp_smoke', 'sp_sticky', 'gun_flak', 'ord_ap2', 'log_bulk', 'gun_wind', 'air_bay', 'log_armor', 'gun_shield', 'ord_drill', 'gun_shell2', 'log_budget2', 'sp_charge'];
+    const SIG = +(process.env.DIFF_SIGMA || 0.5), SEEDS = +(process.env.DIFF_SEEDS || 2);
+    const techInfo = await pages[0].evaluate(() => Object.fromEntries(window.__val.prog.TECH.map((t) => [t.id, { cost: t.cost, requires: t.requires }])));
+    const nodes = await pages[0].evaluate(() => window.__val.camp.CAMPAIGN.map((n) => n.id));
+    const only = process.env.DIFF_OPS ? process.env.DIFF_OPS.split(',') : null;
+    let funds = 300;
+    const tech = ['ord_he'];
+    const buy = () => {
+      for (const id of PLAN) {
+        if (tech.includes(id)) continue;
+        const t = techInfo[id];
+        if (!t.requires.every((r) => tech.includes(r))) continue;
+        if (funds < t.cost) break;
+        funds -= t.cost; tech.push(id);
+      }
+    };
+    buy();
+    report.difficulty = [];
+    console.log(`\n## Campaign difficulty: operations in order, research bought from earned funds; aiming error ${SIG} m, ${SEEDS} seeds, live enemy`);
+    console.log('| # | operation | rounds owned | best round | won | shots (+anti-inf) | spent / budget | time / par | score | stars (thresholds) | HE: won, spent %, stars | funds after |');
+    console.log('|---|---|---|---|---|---|---|---|---|---|---|---|');
+    for (let i = 0; i < nodes.length; i++) {
+      const id = nodes[i];
+      if (only && !only.includes(id)) continue;
+      const own = await pages[0].evaluate((t) => window.__val.prog.availableAmmo({ tech: t, dev: false }), tech);
+      const rounds = own.filter((a) => !['canister', 'flak', 'smoke', 'drone'].includes(a));
+      const jobs = [];
+      for (const r of rounds) for (let s = 1; s <= SEEDS; s++) jobs.push({ fn: 'diffTrial', arg: { level: id, id: r, seed: s, sigma: SIG, tech: tech.slice() } });
+      const res = await runAll(pages, jobs);
+      const by = {};
+      for (const r of rounds) {
+        const rs = res.filter((x) => x.r && x.arg.id === r).map((x) => x.r);
+        by[r] = { n: rs.length, won: rs.filter((x) => x.won).length, spent: mean(rs.map((x) => x.spent)), budget: rs[0]?.budget, shots: mean(rs.map((x) => x.shots)), inf: mean(rs.map((x) => x.infShots)),
+          time: mean(rs.map((x) => x.time)), par: rs[0]?.par, score: mean(rs.map((x) => x.score)), stars: mean(rs.map((x) => x.stars)), thr: rs[0]?.thresholds, gun: mean(rs.map((x) => x.gun)) };
+      }
+      const best = Object.entries(by).sort((p, q) => (q[1].won - p[1].won) || (q[1].score - p[1].score))[0];
+      const [bid, b] = best;
+      const stars = b.won ? (b.thr || []).filter((x) => b.score >= x).length : 0;
+      const reward = b.won ? 250 + stars * 120 + Math.round(b.score / 25) : 0;
+      funds += reward;
+      const he = by.he;
+      const row = { op: id, tech: tech.slice(), rounds, best: bid, ...b, starsBest: stars, reward, he, all: by };
+      report.difficulty.push(row);
+      console.log(`| ${i + 1} | ${id} | ${rounds.join(' ')} | ${bid} | ${b.won}/${b.n} | ${b.shots.toFixed(1)} (+${b.inf.toFixed(1)}) | ${Math.round(b.spent)} / ${b.budget} (${Math.round(100 * b.spent / b.budget)}%) | ${Math.round(b.time)} / ${b.par} | ${Math.round(b.score)} | ${stars} (${(b.thr || []).join('/')}) | ${he ? `${he.won}/${he.n}, ${Math.round(100 * he.spent / he.budget)}%, ${he.stars.toFixed(1)}` : '-'} | ${funds} |`);
+      buy();
+      if (process.env.DIFF_ALL) for (const [r, v] of Object.entries(by)) console.log(`|   | | | ${r} | ${v.won}/${v.n} | ${v.shots.toFixed(1)} | ${Math.round(v.spent)} (${Math.round(100 * v.spent / v.budget)}%) | ${Math.round(v.time)} | ${Math.round(v.score)} | ${v.stars.toFixed(1)} | | |`);
+    }
+    console.log('research owned at the end: ' + tech.join(' '));
+  }
+
+  if (SECTIONS.includes('material')) {
+    // hits to break a 1 m course block, per material and round; then one burst at d m from a free block
+    const mats = ['wood', 'plaster', 'tile', 'crate', 'stone', 'fireproof', 'concrete', 'steel', 'reactive', 'earth'];
+    const hitIds = ['shell', 'heavy', 'he', 'ap', 'delayed', 'sticky', 'bunker', 'saboteur'];
+    const jobs = [];
+    for (const mat of mats) for (const id of hitIds) jobs.push({ fn: 'hitsLab', arg: { mat, id, seed: 1, max: 12 }, mat, id });
+    const res = await runAll(pages, jobs);
+    report.hits = {};
+    console.log('\n## Rounds to break a 1 m course block set in a wall (square hit at 30 m/s x round speed; >12 = not broken)');
+    console.log('| material | hp | ' + hitIds.join(' | ') + ' |');
+    console.log('|---|---|' + hitIds.map(() => '---').join('|') + '|');
+    const hpOf = await pages[0].evaluate(() => Object.fromEntries(Object.entries(window.__val.cfg.MATERIALS).map(([k, m]) => [k, m.hp])));
+    for (const mat of mats) {
+      report.hits[mat] = {};
+      const cells = hitIds.map((id) => { const r = res.find((x) => x.mat === mat && x.id === id)?.r; report.hits[mat][id] = r ? r.hits : null; return r ? (r.hits === 99 ? `>12 (${Math.round(r.hp * 100)}%)` : String(r.hits)) : '?'; });
+      console.log(`| ${mat} | ${hpOf[mat]} | ${cells.join(' | ')} |`);
+    }
+    const blastIds = ['he', 'heavy', 'delayed', 'cluster', 'sticky', 'airstrike'];
+    const ds = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4];
+    const bj = [];
+    for (const mat of mats) for (const id of blastIds) for (const d of ds) bj.push({ fn: 'blastLab', arg: { mat, id: id === 'airstrike' ? 'bomb_he' : id === 'cluster' ? 'cluster' : id, d, seed: 1 }, mat, id, d });
+    const br = await runAll(pages, bj);
+    report.blast = {};
+    console.log('\n## One burst at distance d from a free 1 m block: d (m) out to which it is destroyed / shattered | cracked (≥30% HP) | marked (≥5%)');
+    console.log('| material | ' + blastIds.map((id) => id === 'cluster' ? 'cluster bomblet' : id === 'airstrike' ? 'GP bomb' : id).join(' | ') + ' |');
+    console.log('|---|' + blastIds.map(() => '---').join('|') + '|');
+    for (const mat of mats) {
+      report.blast[mat] = {};
+      const cells = blastIds.map((id) => {
+        const rs = ds.map((d) => ({ d, r: br.find((x) => x.mat === mat && x.id === id && x.d === d)?.r })).filter((x) => x.r);
+        const far = (pred) => { const m = rs.filter((x) => pred(x.r)).map((x) => x.d); return m.length ? Math.max(...m) : null; };
+        const kill = far((r) => r.dead), crack = far((r) => r.frac >= 0.3), mark = far((r) => r.frac >= 0.05);
+        report.blast[mat][id] = { kill, crack, mark, contact: rs[0]?.r.frac };
+        const f = (v) => (v === null ? '–' : v.toFixed(1));
+        return `${f(kill)} \\| ${f(crack)} \\| ${f(mark)}`;
+      });
+      console.log(`| ${mat} | ${cells.join(' | ')} |`);
+    }
+  }
+
+  if (SECTIONS.includes('shot')) {
+    // single-shot anatomy on campaign levels: what one round does to a structure
+    const lvls = (process.env.SHOT_LEVELS || 'outpost,millford,redhill,saltworks,bastion,citadel,kestrel').split(',');
+    const ids = (process.env.SHOT_ROUNDS || 'he,shell,heavy,delayed').split(',');
+    const jobs = [];
+    for (const lv of lvls) for (const id of ids) for (let k = 0; k <= 6; k++) jobs.push({ fn: 'shotTrial', arg: { level: lv, id, seed: k + 1, k }, lv, id });
+    const res = await runAll(pages, jobs);
+    report.shot = {};
+    console.log('\n## One round into a campaign structure (7 aim points: the nearest objective and 6 blocks of the outer works); blocks the burst reached, graded');
+    console.log('| level | round | blocks reached | nothing <5% | marked 5–30% | cracked ≥30% (standing) | burst (destroyed/shattered) | blocks dead after 8 s (of total) | collapse after the blast | structure HP removed | objectives killed |');
+    console.log('|---|---|---|---|---|---|---|---|---|---|---|');
+    for (const lv of lvls) for (const id of ids) {
+      const rs = res.filter((x) => x.lv === lv && x.id === id && x.r).map((x) => x.r);
+      if (!rs.length) continue;
+      const g = (k) => mean(rs.map((r) => r.grade[k]));
+      const reached = g('none') + g('marked') + g('cracked') + g('burst');
+      const row = { reached, none: g('none'), marked: g('marked'), cracked: g('cracked'), burst: g('burst'), dead: mean(rs.map((r) => r.blocksDead)), n: rs[0].nBlocks, collapse: mean(rs.map((r) => r.collapse)), hp: mean(rs.map((r) => r.hpShare)), obj: mean(rs.map((r) => r.objKills)) };
+      (report.shot[lv] ??= {})[id] = row;
+      const pc = (v) => `${v.toFixed(1)} (${Math.round(100 * v / Math.max(1e-9, reached))}%)`;
+      console.log(`| ${lv} | ${id} | ${reached.toFixed(1)} | ${pc(row.none)} | ${pc(row.marked)} | ${pc(row.cracked)} | ${pc(row.burst)} | ${row.dead.toFixed(1)} / ${row.n} | ${row.collapse.toFixed(1)} | ${(row.hp * 100).toFixed(1)}% | ${row.obj.toFixed(2)} |`);
+    }
   }
 
   if (SECTIONS.includes('campaign')) {
