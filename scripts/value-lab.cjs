@@ -521,8 +521,12 @@ function installValue() {
     const budget = Math.round(g.level.budget * g.stats.budgetMult);
     const own = new Set(V.prog.availableAmmo({ tech: o.tech, dev: false }));
     const anti = own.has('canister') ? 'canister' : 'shell';
-    let spent = 0, shots = 0, infShots = 0, aimT = 0;
+    let spent = 0, shots = 0, infShots = 0, aimT = 0, ranging = 0, lastX = NaN;
     const cx = g.level.cannonX;
+    // The gun is not lost mid-battle (the run measures what the structure costs): damage is tallied, scored, and a gun that would
+    // have been destroyed is reported. What hurts it, by the size of the blow: rifle 1.1, gyro 0.7, armoured car 0.3/0.1, shells the rest.
+    const dmgBy = {}; let gunDmg = 0;
+    g.damageCannon = (d) => { const k = d === 1.1 ? 'infantry' : d === 0.7 ? 'gyro' : d === 0.3 || d === 0.1 ? 'car' : 'shell'; dmgBy[k] = Math.round((dmgBy[k] || 0) + d); if (d > 0 && !g.ended) { gunDmg += d; g.cannonHp = Math.max(0, g.cannonHp - d); } };
     const fireInf = () => {
       const near = g.soldiers.filter((s) => !s.dead && !s.eng && s.x < cx + 40 && s.x > cx);
       if (near.filter((s) => s.x < cx + 26).length < 2) return false;
@@ -536,19 +540,56 @@ function installValue() {
       aimT += 1;
       return true;
     };
+    // aircraft closing on the gun: one led flak round (HE without the research)
+    const aa = own.has('flak') ? 'flak' : 'he';
+    const fireAir = () => {
+      const u = g.air.units.find((q) => !q.down && Math.abs(q.x - cx) < 45);
+      if (!u || spent + priceOf(aa) > budget) return false;
+      const am = V.cfg.AMMO_BY_ID[aa];
+      let px = u.x, py = u.y, sol = null;
+      for (let k = 0; k < 4; k++) {
+        const vmax = g.stats.maxSpeed * (am.speed || 1), rts = V.roots(vmax, px, py);
+        sol = rts.length ? { a: rts[0], s: vmax, t: (px - V.muzzleAt(rts[0]).x) / (Math.cos(rts[0]) * vmax) } : null;
+        if (!sol) return false;
+        px = u.x + u.vx * sol.t; py = u.y + u.vy * sol.t;
+      }
+      const m = V.muzzleAt(sol.a), dist = Math.hypot(px - m.x, py - m.y);
+      g.selected = aa; g.angle = sol.a + (V.gauss() * (o.sigma + 0.25)) / Math.max(5, dist); g.speed = sol.s; g.flakFuse = sol.t + 0.4; g.reload = 0;
+      if (!g.fire()) return false;
+      spent += priceOf(aa); infShots++; aimT += 1;
+      V.step(Math.max(1, g.stats.reload));
+      return true;
+    };
     for (let guard = 0; guard < 200 && !g.ended; guard++) {
       if (V.obj.every((b) => b.dead)) break;
       if (fireInf()) continue;
-      const t = V.nextObjective();
+      if (fireAir()) continue;
+      // under counter-battery fire: smoke them (if owned, 15 s a round) once the gun is hurt, and silence an
+      // enemy gun that is in reach before the gun is half gone
+      const guns = g.blocks.filter((b) => b.target === 'artillery' && !b.dead);
+      const hurt = g.cannonHp / g.stats.cannonHp;
+      if (guns.length && hurt < 0.85 && own.has('smoke') && g.enemyBlind <= 0.5 && spent + priceOf('smoke') <= budget) {
+        const pt = { x: cx + 25, y: g.groundY(cx + 25) };
+        if (V.fireAt('smoke', pt, { ground: true, sigma: o.sigma })) { spent += priceOf('smoke'); infShots++; V.settle(3, 0.3); aimT += 1; continue; }
+      }
+      let t = V.nextObjective();
+      if (guns.length && hurt < 0.6 && !g.level.objectives.includes('artillery')) {
+        guns.sort((p, q) => Math.abs(centre(p).x - cx) - Math.abs(centre(q).x - cx));
+        t = guns[0];
+      }
       if (!t || spent + priceOf(o.id) > budget) break;
+      // ranging: the first round at a new target goes 2.5x as wide, the second 1.5x, then the gunner has it bracketed
+      const tx = Math.round(centre(t).x);
+      ranging = tx === lastX ? ranging + 1 : 0; lastX = tx;
+      const sig = o.sigma * (o.ranging === false ? 1 : [2.5, 1.5, 1][Math.min(2, ranging)]);
       if (a.mode === 'saboteur') { g.sabTarget = null; g.selected = 'saboteur'; g.reload = 0; g.fire(); }
       else if (a.mode === 'airstrike') {
         Object.assign(g.strike, { x: centre(t).x, dir: 1, alt: 24, dive: 0, spacing: 1.6, ordnance: 'he' });
         g.selected = 'airstrike'; g.reload = 0; g.fire();
       } else if (o.id === 'drill') {
         const pt = V.drillShot(t);
-        if (!pt || !V.fireAt('drill', pt, { ground: true, sigma: o.sigma })) break;
-      } else if (!V.fireAt(o.id, t, { sigma: o.sigma })) break;
+        if (!pt || !V.fireAt('drill', pt, { ground: true, sigma: sig })) break;
+      } else if (!V.fireAt(o.id, t, { sigma: sig })) break;
       spent += priceOf(o.id); shots++;
       // a real gunner waits out the reload and lays the next shot
       const tt = V.settle(o.id === 'saboteur' || o.id === 'airstrike' ? 30 : 12, 0.6);
@@ -556,7 +597,8 @@ function installValue() {
       aimT += o.aim ?? 3;
     }
     V.step(1.5);
-    const won = V.obj.every((b) => b.dead) && g.cannonHp > 0;
+    delete g.damageCannon;
+    const won = V.obj.every((b) => b.dead);
     const time = g.battleTime + aimT;
     const opt = Object.keys(g.targetsDestroyed).filter((k) => !g.level.objectives.includes(k)).reduce((q, k) => q + (g.targetsDestroyed[k] ?? 0), 0);
     const parts = {
@@ -565,7 +607,7 @@ function installValue() {
     };
     const score = Math.max(0, Object.values(parts).reduce((q, v) => q + v, 0));
     const stars = won ? g.level.stars.filter((x) => score >= x).length : 0;
-    return { won, spent, budget, shots, infShots, time, par: g.level.parTime, score, stars, thresholds: g.level.stars, parts, gun: g.cannonHp / g.stats.cannonHp, objKills: V.obj.filter((b) => b.dead).length, objTotal: V.obj.length };
+    return { won, spent, budget, shots, infShots, time, par: g.level.parTime, score, stars, thresholds: g.level.stars, parts, gun: g.cannonHp / g.stats.cannonHp, gunLost: gunDmg >= g.stats.cannonHp, dmgBy, objKills: V.obj.filter((b) => b.dead).length, objTotal: V.obj.length };
   };
 
   /** a flat lab level holding these blocks (an indestructible objective far off keeps it running) */
@@ -814,7 +856,7 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
     const nodes = await pages[0].evaluate(() => window.__val.camp.CAMPAIGN.map((n) => n.id));
     const only = process.env.DIFF_OPS ? process.env.DIFF_OPS.split(',') : null;
     let funds = 300;
-    const tech = ['ord_he'];
+    const tech = process.env.DIFF_TECH ? process.env.DIFF_TECH.split(',') : ['ord_he'];
     const buy = () => {
       for (const id of PLAN) {
         if (tech.includes(id)) continue;
@@ -841,9 +883,9 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
       for (const r of rounds) {
         const rs = res.filter((x) => x.r && x.arg.id === r).map((x) => x.r);
         by[r] = { n: rs.length, won: rs.filter((x) => x.won).length, spent: mean(rs.map((x) => x.spent)), budget: rs[0]?.budget, shots: mean(rs.map((x) => x.shots)), inf: mean(rs.map((x) => x.infShots)),
-          time: mean(rs.map((x) => x.time)), par: rs[0]?.par, score: mean(rs.map((x) => x.score)), stars: mean(rs.map((x) => x.stars)), thr: rs[0]?.thresholds, gun: mean(rs.map((x) => x.gun)) };
+          time: mean(rs.map((x) => x.time)), par: rs[0]?.par, score: mean(rs.map((x) => x.score)), stars: mean(rs.map((x) => x.stars)), thr: rs[0]?.thresholds, gun: mean(rs.map((x) => x.gun)), lost: rs.filter((x) => x.gunLost).length, dmg: rs.map((x) => JSON.stringify(x.dmgBy)).join(" ") };
       }
-      const best = Object.entries(by).sort((p, q) => (q[1].won - p[1].won) || (q[1].score - p[1].score))[0];
+      const best = Object.entries(by).sort((p, q) => (((q[1].won - q[1].lost) * 10 + q[1].won) - ((p[1].won - p[1].lost) * 10 + p[1].won)) || (q[1].score - p[1].score))[0];
       const [bid, b] = best;
       const stars = b.won ? (b.thr || []).filter((x) => b.score >= x).length : 0;
       const reward = b.won ? 250 + stars * 120 + Math.round(b.score / 25) : 0;
@@ -851,9 +893,9 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
       const he = by.he;
       const row = { op: id, tech: tech.slice(), rounds, best: bid, ...b, starsBest: stars, reward, he, all: by };
       report.difficulty.push(row);
-      console.log(`| ${i + 1} | ${id} | ${rounds.join(' ')} | ${bid} | ${b.won}/${b.n} | ${b.shots.toFixed(1)} (+${b.inf.toFixed(1)}) | ${Math.round(b.spent)} / ${b.budget} (${Math.round(100 * b.spent / b.budget)}%) | ${Math.round(b.time)} / ${b.par} | ${Math.round(b.score)} | ${stars} (${(b.thr || []).join('/')}) | ${he ? `${he.won}/${he.n}, ${Math.round(100 * he.spent / he.budget)}%, ${he.stars.toFixed(1)}` : '-'} | ${funds} |`);
+      console.log(`| ${i + 1} | ${id} | ${rounds.join(' ')} | ${bid} | ${b.won}/${b.n}${b.lost ? ` (gun lost ${b.lost})` : ""} | ${b.shots.toFixed(1)} (+${b.inf.toFixed(1)}) | ${Math.round(b.spent)} / ${b.budget} (${Math.round(100 * b.spent / b.budget)}%) | ${Math.round(b.time)} / ${b.par} | ${Math.round(b.score)} | ${stars} (${(b.thr || []).join('/')}) | ${he ? `${he.won}/${he.n}, ${Math.round(100 * he.spent / he.budget)}%, ${he.stars.toFixed(1)}` : '-'} | ${funds} |`);
       buy();
-      if (process.env.DIFF_ALL) for (const [r, v] of Object.entries(by)) console.log(`|   | | | ${r} | ${v.won}/${v.n} | ${v.shots.toFixed(1)} | ${Math.round(v.spent)} (${Math.round(100 * v.spent / v.budget)}%) | ${Math.round(v.time)} | ${Math.round(v.score)} | ${v.stars.toFixed(1)} | | |`);
+      if (process.env.DIFF_ALL) for (const [r, v] of Object.entries(by)) console.log(`|   | | | ${r} | ${v.won}/${v.n} | ${v.shots.toFixed(1)} | ${Math.round(v.spent)} (${Math.round(100 * v.spent / v.budget)}%) | ${Math.round(v.time)} | ${Math.round(v.score)} | ${v.stars.toFixed(1)} | gun ${v.gun.toFixed(2)} ${v.dmg} | |`);
     }
     console.log('research owned at the end: ' + tech.join(' '));
   }
