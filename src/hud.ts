@@ -112,7 +112,7 @@ export function requestWithdraw() {
 
 export function helpText() {
   const aim = SET.aimDistance ? 'mouse aims · distance from gun = velocity · shift holds velocity · wheel trims' : 'mouse sets elevation · wheel sets velocity';
-  return `${aim} · click fires · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute · Esc menu${S.save.dev ? ' · ` dev panel' : ''}`;
+  return `${aim} · click fires · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · G / Tab machine gun (hold to fire, B belt) · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute · Esc menu${S.save.dev ? ' · ` dev panel' : ''}`;
 }
 
 // ───────────────────────── pause menu ─────────────────────────

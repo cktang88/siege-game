@@ -89,6 +89,14 @@ function installLab() {
     }
     return best;
   };
+  /** the machine-gun post: hold the trigger for `secs`, re-aiming at aim() each tick (stop(i) may end it early); returns rounds fired */
+  L.mgFire = (secs, aim, stop) => {
+    const m = L.g.mg; m.active = true; m.trigger = true;
+    const f0 = m.fired;
+    L.step(secs, (i) => { const p = aim(); if (p) m.aimAt(p.x, p.y); return stop ? stop(i) : false; });
+    m.trigger = false;
+    return m.fired - f0;
+  };
 }
 
 // ───────────────────────── tests ─────────────────────────
@@ -764,6 +772,95 @@ test('scaffold_cycle', 'he', 'A scaffold goes up for the job, comes down after i
   const hp = b.hp;
   L.step(25);
   return { pass: up && mended && struck && gone && blown && b.hp === hp && !g.crew.job, info: `up ${up}, block mended ${mended}, struck ${struck}, removed ${gone}; blast knocked it down ${blown}; workshop gone: mended ${L.r(b.hp - hp, 2)} hp after` };
+});
+
+// ───────────────────────── the machine-gun post (src/mg.ts) ─────────────────────────
+// (the lab level has no era: the modern, water-cooled gun; L.step does not touch the MG)
+test('mg_infantry', 'mg', 'The machine gun kills unarmoured infantry, but clearing a file of six takes seconds (mean of three runs)', () => {
+  const L = window.__lab;
+  const runs = [];
+  for (let r = 0; r < 3; r++) {
+    const g = L.setup([], { stats: { cannonHp: 9999 } });
+    for (const x of [14, 15.5, 17, 18.5, 20, 21.5]) g.spawnSoldier(x);
+    L.step(1);
+    let t = 99;
+    const n = L.mgFire(20, () => { const s = g.soldiers.find((q) => !q.dead); return s && { x: s.x, y: s.y + 0.55 }; }, (i) => { if (g.soldiers.every((q) => q.dead)) { t = i / 60; return true; } return false; });
+    runs.push({ k: g.soldiers.filter((s) => s.dead).length, t, n });
+  }
+  const mean = runs.reduce((a, r) => a + r.t, 0) / runs.length;
+  return { pass: runs.every((r) => r.k === 6) && mean >= 1.6 && mean < 12, info: `6/6 killed in ${runs.map((r) => L.r(r.t, 1)).join(', ')} s (${runs.map((r) => r.n).join(', ')} rounds)` };
+});
+
+test('mg_engineer', 'mg', 'Engineers are men in the open too', () => {
+  const L = window.__lab; const g = L.setup([]);
+  g.spawnSoldier(18);
+  const s = g.soldiers[0]; s.eng = true;
+  const n = L.mgFire(6, () => ({ x: s.x, y: s.y + 0.55 }), () => s.dead);
+  return { pass: s.dead, info: `engineer ${s.dead ? 'down' : 'standing'} after ${n} rounds` };
+});
+
+test('mg_shield', 'mg', 'Shields stop machine-gun fire from the front; sustained fire wears the shield through', () => {
+  const L = window.__lab; const g = L.setup([], { stats: { cannonHp: 9999 } });
+  g.spawnSoldier(17, true);
+  const s = g.soldiers[0];
+  L.step(1);
+  const n1 = L.mgFire(1.5, () => ({ x: s.x, y: s.y + 0.6 }));
+  const alive1 = !s.dead, sh1 = s.shield;
+  let n2 = 0;
+  for (let k = 0; k < 6 && !s.dead; k++) { n2 += L.mgFire(4, () => ({ x: s.x, y: s.y + 0.6 }), () => s.dead); L.step(3); }
+  return { pass: alive1 && sh1 < 70 && s.dead, info: `after ${n1} rounds: ${alive1 ? 'alive' : 'dead'}, shield ${L.r(sh1, 0)}/70; down after ${n1 + n2} rounds` };
+});
+
+test('mg_armour', 'mg', 'Machine-gun fire does nothing to armoured cars and tanks (sparks only)', () => {
+  const L = window.__lab; const g = L.setup([], { stats: { cannonHp: 9999 } });
+  g.motor.launch('car', null, 24); g.motor.launch('tank', null, 32);
+  const [car, tank] = g.motor.units;
+  const h0 = [car.hp, tank.hp];
+  const n = L.mgFire(5, () => ({ x: car.x, y: car.y + 1 })) + L.mgFire(5, () => ({ x: tank.x, y: tank.y + 1 }));
+  return { pass: car.hp === h0[0] && tank.hp === h0[1] && car.wreckT < 0 && tank.wreckT < 0, info: `${n} rounds: car ${L.r(car.hp, 0)}/${h0[0]}, tank ${L.r(tank.hp, 0)}/${h0[1]}` };
+});
+
+test('mg_masonry', 'mg', 'Against masonry it only pockmarks (no structural damage)', () => {
+  const L = window.__lab; const g = L.setup([{ x: 26, y: 0, w: 1.5, h: 3, mat: 'stone' }]);
+  const n = L.mgFire(3, () => ({ x: 26.5, y: 1.5 }));
+  L.step(0.2);
+  const marks = g.frac.state(L.b(0)).marks.length;
+  return { pass: L.dealt(0) === 0 && marks > 0, info: `${n} rounds: ${L.r(L.dealt(0), 1)} damage, ${marks} pockmark patch(es)` };
+});
+
+test('mg_air', 'mg', 'Machine-gun fire hurts a gyrocopter a little and an airship next to nothing', () => {
+  const L = window.__lab; const g = L.setup([]);
+  g.air.launch('gyro', null, { x: 22, y: 12 });
+  const u = g.air.units[0];
+  const n1 = L.mgFire(3, () => (u.down ? null : { x: u.x, y: u.y }), () => u.down);
+  const gyro = 1 - Math.max(0, u.hp) / u.maxHp;
+  g.air.launch('airship', null, { x: 30, y: 20 });
+  const a = g.air.units.find((q) => q.kind === 'airship');
+  const n2 = L.mgFire(4, () => ({ x: a.x, y: a.y }));
+  const ship = 1 - a.hp / a.maxHp;
+  return { pass: gyro > 0.1 && ship < 0.05, info: `gyrocopter lost ${L.r(gyro * 100, 0)}% in ${n1} rounds, airship ${L.r(ship * 100, 1)}% in ${n2}` };
+});
+
+test('mg_overheat', 'mg', 'Continuous fire boils the jacket: the gun locks until it cools, then fires again; an empty belt is changed', () => {
+  const L = window.__lab; const g = L.setup([]);
+  const m = g.mg;
+  let hotAt = -1, backAt = -1, reloadAt = -1;
+  const n = L.mgFire(30, () => ({ x: 40, y: 15 }), (i) => {
+    if (m.overheated && hotAt < 0) hotAt = i / 60;
+    if (hotAt >= 0 && backAt < 0 && !m.overheated) backAt = i / 60;
+    if (m.reloadT > 0 && reloadAt < 0) reloadAt = i / 60;
+    return false;
+  });
+  const steady = m.spec.rate * 30;
+  return { pass: hotAt > 3 && hotAt < 12 && backAt > hotAt + 1.5 && reloadAt > 0 && n < steady * 0.85, info: `overheated at ${L.r(hotAt, 1)} s, firing again at ${L.r(backAt, 1)} s, belt change at ${L.r(reloadAt, 1)} s; ${n} rounds in 30 s (${steady} at the cyclic rate)` };
+});
+
+test('mg_cannon_reload', 'mg', 'The cannon keeps reloading while the machine gun is manned', () => {
+  const L = window.__lab; const g = L.setup([]);
+  g.mg.active = true; g.mg.trigger = true; g.reload = 3;
+  for (let i = 0; i < 60; i++) { L.off(); g.update(1 / 60); }
+  g.mg.trigger = false;
+  return { pass: Math.abs(g.reload - 2) < 0.05 && g.mg.fired > 3, info: `cannon reload 3.0 → ${L.r(g.reload, 2)} s over 1 s of MG fire (${g.mg.fired} rounds)` };
 });
 
 // ───────────────────────── runner ─────────────────────────
