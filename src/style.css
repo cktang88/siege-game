@@ -483,7 +483,9 @@ button { font: inherit; color: inherit; }
 #fcp .fold { background: none; border: 1px solid var(--gun-3); color: var(--bone-dim); font: 700 11px/1 var(--ui); padding: 3px 6px 2px; cursor: pointer; }
 #fcp .fold:hover { color: var(--bone); border-color: var(--bone-dim); }
 #fcp .mini { display: none; font: 600 15px var(--mono); color: var(--gold); white-space: nowrap; align-self: center; }
-#fcp.compact { width: 300px; padding: 8px 12px; }
+#fcp.compact { width: 360px; padding: 8px 12px; }
+#fcp.compact .head .stencil { white-space: nowrap; font-size: 14px; }
+#fcp.compact .aimtoggle, #fcp.compact .wpn { white-space: nowrap; }
 #fcp.compact .dials, #fcp.compact .opts, #fcp.compact .hint, #fcp.compact .head > .label { display: none; }
 #fcp.compact .mini { display: block; }
 #fcp.compact .firerow { margin-top: 6px; }
