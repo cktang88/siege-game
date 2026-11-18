@@ -424,6 +424,26 @@ test('canister_infantry', 'canister', 'Canister shreds advancing infantry', () =
   return { pass: k >= 5, info: `${k}/6 killed by one volley` };
 });
 
+test('canister_spread', 'canister', 'One canister volley clears most of a spread-out file at mid range, more than an HE shell does; it thins out at long range; shields stop it from the front (mean of three volleys)', () => {
+  const L = window.__lab;
+  // six men 2.2 m apart centred d m out; one volley laid to graze the ground just beyond them, at chest height through the file
+  const run = (id, d, shields) => {
+    let k = 0;
+    for (let t = 0; t < 3; t++) {
+      const g = L.setup([]);
+      for (let i = 0; i < 6; i++) g.spawnSoldier(d - 5.5 + i * 2.2, shields && i % 2 === 0);
+      for (const s of g.soldiers) s.stopX = s.x - 0.01;
+      g.selected = id; g.speed = 30;
+      g.angle = id === 'canister' ? L.aim(30 * 1.05, d + 7, 0.1) : L.aim(30, d, 0.1);
+      g.fire(); L.step(3);
+      k += g.soldiers.filter((s) => s.dead).length / 3;
+    }
+    return k;
+  };
+  const mid = run('canister', 30, false), he = run('he', 30, false), far = run('canister', 62, false), sh = run('canister', 30, true);
+  return { pass: mid >= 4 && mid > he && far <= mid * 0.6 && sh <= 3.4, info: `6 men at 30 m: canister ${L.r(mid, 1)}, HE ${L.r(he, 1)}; at 62 m: canister ${L.r(far, 1)}; at 30 m, every other man shielded: canister ${L.r(sh, 1)}` };
+});
+
 test('canister_building', 'canister', 'Canister is poor against buildings (well under a round shot)', () => {
   const L = window.__lab;
   const run = (id) => { const g = L.setup([{ x: 26, y: 0, w: 1, h: 2, mat: 'stone' }]); g.selected = id; g.speed = 30; g.angle = L.aim(30 * (id === 'canister' ? 1.05 : 1), 26, 1); g.fire(); L.step(1.5); return L.dealt(0); };

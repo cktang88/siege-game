@@ -134,7 +134,7 @@ export const AMMO: AmmoDef[] = [
     kinetic: 30, blastRadius: 4.2, blastDamage: 170, bonus: { earth: 3 }, desc: 'Lands short and tunnels up to 12 m under the walls: blows beneath the first target it reaches, or under the last wall it passed.',
     good: 'Ground-floor targets behind walls, foundations, earthworks', bad: 'Targets high up' },
   { id: 'canister', name: 'Canister Shot', short: 'CN', price: 30, mode: 'pellets', color: [0.5, 0.5, 0.5], radius: 0.09, density: 10, speed: 1.05, wind: 0.6,
-    kinetic: 2.5, blastRadius: 0, blastDamage: 0, desc: 'Spray of lead balls. Shreds infantry.', good: 'Advancing soldiers', bad: 'Buildings' },
+    kinetic: 2.5, blastRadius: 0, blastDamage: 0, desc: 'A wide spray of 26 lead balls: one shot clears a file of infantry out to ~35 m.', good: 'Groups of soldiers, close in', bad: 'Buildings, long range, shields facing you' },
   { id: 'flak', name: 'Flak Burst', short: 'FK', price: 40, mode: 'physics', color: [0.4, 0.4, 0.22], radius: 0.22, density: 7, speed: 1.1, wind: 0.4,
     kinetic: 20, blastRadius: 4.4, blastDamage: 65, desc: 'Proximity-fuzed AA shell: bursts near aircraft, or on its timer.', good: 'Gyrocopters, airships', bad: 'Walls, troops on the ground' },
   { id: 'smoke', name: 'Smoke Screen', short: 'SM', price: 60, mode: 'physics', color: [0.75, 0.75, 0.72], radius: 0.24, density: 5, speed: 1, wind: 0.6,

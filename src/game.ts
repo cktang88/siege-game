@@ -93,6 +93,10 @@ export interface Projectile {
   harmless?: boolean;
 }
 
+/** canister: balls per round, cone width (rad), and the flight times (s) over which a ball striking a man goes from
+ *  always to never lethal (it loses its punch with range; the trajectory itself stays plain ballistic) */
+const CANISTER = { pellets: 26, cone: 0.22, lethal: [0.8, 1.6] };
+
 export interface Soldier { x: number; y: number; rig: SoldierRig; dead: boolean; shootT: number; stopX: number; phase: number; deadT: number; /** shield hit points (0 = none) */ shield: number; /** a repair-crew engineer (src/engineers.ts moves him) */ eng?: boolean }
 
 interface Plane {
@@ -525,9 +529,11 @@ export class Game {
       const m = this.muzzle;
       const s = this.launchSpeed;
       if (a.mode === 'pellets') {
-        for (let i = 0; i < 14; i++) {
-          const an = this.angle + (Math.random() - 0.5) * 0.14;
-          const sp = s * (0.92 + Math.random() * 0.12);
+        // a canister of 26 balls in a ~13° cone: at 20-30 m it sweeps a file of men from head to foot; the
+        // balls are light and lose speed fast (PELLET_DRAG), so past ~40 m the spray thins and drops short
+        for (let i = 0; i < CANISTER.pellets; i++) {
+          const an = this.angle + (Math.random() - 0.5) * CANISTER.cone;
+          const sp = s * (0.9 + Math.random() * 0.16);
           this.spawnProjectile(a, m.x, m.y, Math.cos(an) * sp, Math.sin(an) * sp, false, { pellet: true });
         }
       } else {
@@ -981,7 +987,8 @@ export class Game {
       if (s.dead) continue;
       // a flak shell is a thin-cased AA round: bursting on the ground it kills only the men right beside it
       // (it used to kill anyone in its full 4.4 m radius, so a 45-credit AA round out-killed canister)
-      const R = (opts.flak ? radius * 0.35 : radius * 1.15) + 0.3, d = Math.hypot(s.x - x, s.y + 0.6 - y);
+      // (and a shell burst kills men within its radius, not 15% beyond it: canister is the round for a crowd)
+      const R = (opts.flak ? radius * 0.35 : radius * 0.9) + 0.3, d = Math.hypot(s.x - x, s.y + 0.6 - y);
       if (d >= R) continue;
       // a shield takes a weak burst in front of it (solid shot striking it); a real blast, fire, or a burst behind or over him kills
       const e = dmg * (1 - d / R);
@@ -1344,6 +1351,8 @@ export class Game {
       const ex = sx0 + p.vx * dt, ey = sy0 + p.vy * dt;
       for (const s of this.soldiers) {
         if (s.dead || !this.sweptHit(s, sx0, sy0, ex, ey, p.pellet ? 0.35 : 0.3)) continue;
+        // light balls lose their punch with range: each ball is sure to drop a man inside ~0.8 s of flight (~25 m), even odds at ~1.2 s (~37 m), spent by ~1.6 s (~50 m)
+        if (p.pellet && !(s.shield > 0 && p.vx > 0) && Math.random() > (CANISTER.lethal[1] - p.age) / (CANISTER.lethal[1] - CANISTER.lethal[0])) { this.removeProjectile(p); return; }
         // a shield stops a pellet; AP goes through shield and man alike
         if (!this.shotSoldier(s, p.vx, p.vy, p.pellet ? 2.5 : 999)) { this.removeProjectile(p); return; }
         p.kills = (p.kills ?? 0) + 1;

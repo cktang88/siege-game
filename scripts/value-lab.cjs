@@ -179,6 +179,7 @@ function installValue() {
         }
         score += f < 1 ? 0.02 * (1 - f) : 0; // prefer full charge on ties
         if (opt.lofted) score += a < 0.7 ? 0.5 : 0;
+        if (opt.flat) score += a > 0.6 ? 0.5 : 0;
         if (!best || score < best.score) best = { a, s, score, t: tr.first.t, hitTarget: tr.first.b === blk && !!blk };
       }
     }
@@ -318,12 +319,14 @@ function installValue() {
     // cluster is lobbed and burst early over the file, as it is meant to be used
     const lofted = o.id === 'cluster';
     let sol = null;
+    // canister and round shot are laid flat to graze the ground just beyond the file (through it at chest height); the rest at its feet
+    const flat = o.id === 'canister' || o.id === 'shell', past = flat ? ((N - 1) * (o.gap || 2.2)) / 2 + 1 : 0;
+    const opt = { ground: true, lofted, flat };
     for (let k = 0; k < 3; k++) {
-      sol = V.solve(a, { x: tx, y: g.groundY(tx) + (o.id === 'canister' || o.id === 'shell' ? 0.9 : 0.15) }, { ground: o.id !== 'canister' && o.id !== 'shell', lofted });
+      sol = V.solve(a, { x: tx + past, y: g.groundY(tx + past) + 0.05 }, opt);
       tx = mid - 1.6 * (sol ? sol.t : 0.8);
     }
-    const aimY = g.groundY(tx) + (o.id === 'canister' || o.id === 'shell' ? 0.9 : 0.15);
-    V.fireAt(o.id, { x: tx, y: aimY }, { sigma: 0.35, ground: o.id !== 'canister' && o.id !== 'shell', lofted, airburst: lofted && sol ? Math.max(0.2, sol.t - 0.9) : undefined });
+    V.fireAt(o.id, { x: tx + past, y: g.groundY(tx + past) + 0.05 }, { ...opt, sigma: 0.35, airburst: lofted && sol ? Math.max(0.2, sol.t - 0.9) : undefined });
     V.settle(6, 0.5);
     return { kills: g.soldiers.filter((s) => s.dead).length, n: N, shields: g.soldiers.filter((s) => s.shield > 0 || s.rig.shieldDropped).length };
   };
@@ -667,6 +670,30 @@ function installValue() {
    * standing, burst = shattered or destroyed by the blast itself), then counts the collapse that followed
    * (blocks that died in the next 8 s) and the share of the structure's HP removed.
    */
+  /**
+   * A group of o.n men (o.gap m apart, o.shields share with shields) standing o.dist m from the gun on flat
+   * ground, firing at it; one round aimed at the middle of the group (canister and round shot at chest
+   * height, the rest at their feet; cluster burst over them). Kills.
+   */
+  V.groupTrial = (o) => {
+    const g = V.labLevel([], o.seed);
+    const cx = g.level.cannonX;
+    const x0 = cx + o.dist - ((o.n - 1) * o.gap) / 2;
+    for (let i = 0; i < o.n; i++) g.spawnSoldier(x0 + i * o.gap, Math.random() < (o.shields ?? 0));
+    for (const s of g.soldiers) s.stopX = s.x - 0.01;
+    V.step(0.5);
+    const mid = cx + o.dist, flat = o.id === 'canister' || o.id === 'shell';
+    const a = V.cfg.AMMO_BY_ID[o.id];
+    // flat rounds are laid to graze the ground just beyond the group (so they pass through it at chest height), the rest at their feet
+    const px = mid + (flat ? (o.n * o.gap) / 2 + 1 : 0), pt = { x: px, y: g.groundY(px) + 0.05 };
+    // a gunner fires flat at men in the open (a lofted shell would land seconds later); cluster is lobbed and burst over them
+    const lofted = o.id === 'cluster', opt = { ground: true, lofted, flat: !lofted };
+    const sol = V.solve(a, pt, opt);
+    V.fireAt(o.id, pt, { ...opt, sigma: o.sigma ?? 0.35, airburst: lofted && sol ? Math.max(0.2, sol.t - 0.6) : undefined });
+    V.settle(5, 0.5);
+    return { kills: g.soldiers.filter((s) => s.dead).length, n: o.n };
+  };
+
   V.shotTrial = (o) => {
     const g = V.load(o.level, { seed: o.seed });
     g.checkEnd = () => {};
@@ -937,6 +964,27 @@ const f1 = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toF
         return `${f(kill)} \\| ${f(crack)} \\| ${f(mark)}`;
       });
       console.log(`| ${mat} | ${cells.join(' | ')} |`);
+    }
+  }
+
+  if (SECTIONS.includes('group')) {
+    // one round (aiming error 0.6 m) at a standing group of 6 men 2.2 m apart (the spacing of a file of infantry) at 20, 30 and 45 m from the gun (close, mid, long: nearer than ~15 m the
+    // redoubt's lip hides them from a flat shot, which is what the machine gun is for); no shields, and a third with shields
+    const ids = ['canister', 'shell', 'he', 'cluster'], dists = [20, 30, 45], sh = [0, 0.35];
+    const jobs = [];
+    for (const id of ids) for (const dist of dists) for (const shields of sh) for (let s = 1; s <= TRIALS * 3; s++) jobs.push({ fn: 'groupTrial', arg: { id, dist, shields, n: 6, gap: 2.2, seed: s, sigma: 0.6 } });
+    const res = await runAll(pages, jobs);
+    report.group = {};
+    console.log(`\n## One round at a group of 6 men 2.2 m apart, standing at 20 / 30 / 45 m (kills per round, ${TRIALS * 3} seeds; aiming error 0.6 m)`);
+    console.log('| round | price | ' + sh.flatMap((x) => dists.map((d) => `${d} m${x ? ', ⅓ shields' : ''}`)).join(' | ') + ' |');
+    console.log('|---|---|' + sh.flatMap(() => dists.map(() => '---')).join('|') + '|');
+    for (const id of ids) {
+      const cells = sh.flatMap((x) => dists.map((d) => {
+        const k = mean(res.filter((r) => r.r && r.arg.id === id && r.arg.dist === d && r.arg.shields === x).map((r) => r.r.kills));
+        (report.group[id] ??= {})[`${d}/${x}`] = k;
+        return k.toFixed(1);
+      }));
+      console.log(`| ${id} | ${price[id]} | ${cells.join(' | ')} |`);
     }
   }
 
