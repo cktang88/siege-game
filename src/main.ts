@@ -7,6 +7,7 @@ import { Game } from './game';
 import { toggleDevPanel } from './devpanel';
 import { gunHit, helpText, hideTooltip, onFired, rackIds, toast, togglePause, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
 import { writeSave } from './progress';
+import { updateWatch } from './watch';
 import { Renderer, loadTextures } from './render';
 import { showMap, showResult } from './screens';
 import { SET, onSettings, setSetting } from './settings';
@@ -182,7 +183,7 @@ window.addEventListener('keydown', (e) => {
   keys.add(k);
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= 9) { const ids = rackIds(); if (ids[n - 1]) g.selected = ids[n - 1]; }
-  if (k === 'r') { g.zoom = 1; g.pan = 0; g.panY = 0; }
+  if (k === 'r') g.cam.recenter();
   if (k === 't') { S.mouseAim = !S.mouseAim; toast(S.mouseAim ? 'Mouse aim on' : 'Mouse aim off: dials, keys and typed values only'); }
 });
 window.addEventListener('keyup', (e) => { keys.delete(keyName(e)); keys.delete(e.key); });
@@ -262,6 +263,7 @@ function frame(now: number) {
     g.aimMarker.visible = tgt !== null && tgt !== undefined;
     if (g.aimMarker.visible) g.aimMarker.position.set(tgt!, a.mode === 'drone' ? g.droneTarget!.y : g.groundY(tgt!) + 0.5, 13);
     updateHud();
+    updateWatch();
   } else {
     g.updatePreview(false);
     g.updateStrikePreview(false);

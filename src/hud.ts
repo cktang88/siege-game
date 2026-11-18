@@ -2,7 +2,7 @@ import { AMMO, AMMO_BY_ID, PHYS, TARGETS, type AmmoId, type TargetKind } from '.
 import type { Block } from './game';
 import { blockTip } from './screens';
 import { audio } from './audio';
-import { SET } from './settings';
+import { SET, setSetting } from './settings';
 import { settingsSheets, wireSettings } from './settingsui';
 import { buildDevPanel, updateDevPanel } from './devpanel';
 import { $, S, icon } from './state';
@@ -279,7 +279,8 @@ function buildFcp() {
   const st = g.stats;
   const fcp = $('#fcp');
   fcpFor = g.selected;
-  let html = `<div class="head"><span class="stencil">${a.mode === 'airstrike' ? 'Bomb run' : a.mode === 'drone' ? 'Recon flight' : a.mode === 'saboteur' ? 'Demolition team' : 'Fire control'}</span><span class="label">${a.name}</span></div>`;
+  fcp.classList.toggle('compact', SET.compactFcp);
+  let html = `<div class="head"><span class="stencil">${a.mode === 'airstrike' ? 'Bomb run' : a.mode === 'drone' ? 'Recon flight' : a.mode === 'saboteur' ? 'Demolition team' : 'Fire control'}</span><span class="label">${a.name}</span><button class="fold" id="fold" title="${SET.compactFcp ? 'Unfold the fire-control panel (dials and settings)' : 'Fold the fire-control panel to one row, so more of the field shows'}">${SET.compactFcp ? '▴' : '▾'}</button></div>`;
   if (a.mode === 'airstrike') {
     const types = st.bombTypes;
     html += `<div class="opts">
@@ -312,11 +313,12 @@ function buildFcp() {
         ${a.id === 'cluster' ? range('o-burst', 'Airburst', 0, 5, 0.1, g.airburst, true, '0 = burst manually with tap/space') : ''}
         ${a.id === 'flak' ? range('o-flak', 'Burst time', 0.5, 6, 0.1, g.flakFuse, true, 'bursts on this timer if no aircraft comes within range of the proximity fuze') : ''}
       </div>
-      <div class="firerow"><button class="btn firebtn" id="fire">Fire</button></div>`;
+      <div class="firerow"><span class="mini" id="fcp-mini"></span><button class="btn firebtn" id="fire">Fire</button></div>`;
   }
   fcp.innerHTML = html;
   fcp.querySelector('#fire')?.addEventListener('click', () => { if (!g.triggerAbility()) g.fire(); });
   fcp.querySelector('#aimtoggle')?.addEventListener('click', () => { S.mouseAim = !S.mouseAim; });
+  fcp.querySelector('#fold')?.addEventListener('click', () => { setSetting('compactFcp', !SET.compactFcp); buildFcp(); });
   fcp.querySelector('#clear-sab')?.addEventListener('click', () => { g.sabTarget = null; });
   fcp.querySelectorAll<HTMLElement>('[data-dir]').forEach((b) => b.addEventListener('click', () => { g.strike.dir = +b.dataset.dir! as 1 | -1; buildFcp(); }));
   fcp.querySelectorAll<HTMLElement>('[data-ord]').forEach((b) => b.addEventListener('click', () => { g.strike.ordnance = b.dataset.ord as 'he'; buildFcp(); }));
@@ -382,6 +384,8 @@ function updateFcp() {
     if (el && document.activeElement !== el) el.value = v.toFixed(d);
   };
   const deg = (g.angle * 180) / Math.PI;
+  const mini = fcp.querySelector('#fcp-mini');
+  if (mini) { const t = `${deg.toFixed(1)}° · ${g.launchSpeed.toFixed(1)} m/s`; if (mini.textContent !== t) mini.textContent = t; }
   setIn('ang', deg);
   setIn('vel', g.launchSpeed);
   setIn('sx', g.strike.x);
