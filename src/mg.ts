@@ -71,6 +71,8 @@ export class MachineGun {
   get pivot() { const gy = this.g.groundY(this.x); return { x: this.x - 0.15, y: gy + this.spec.nestH + 0.12 }; }
   get muzzle() { const p = this.pivot, l = this.spec.len * (1 - this.spec.pivot); return { x: p.x + Math.cos(this.angle) * l, y: p.y + Math.sin(this.angle) * l }; }
   get modern() { return this.spec === SPECS.modern; }
+  /** children this post adds to the battle root (the soak harness counts them) */
+  get rootChildren() { return this.group?.parent ? 1 : 0; }
 
   /** build the emplacement for this level (Game.load; the scene root is cleared between levels) */
   build() {

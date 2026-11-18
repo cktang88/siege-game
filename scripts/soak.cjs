@@ -80,7 +80,7 @@ function installSoak() {
     const covers = ga.rooms.list.filter((r) => r.cover).length;
     return 9 + live + g.enemyGuns.size + g.mastSprites.size + g.backdrops.length + g.houses.length + ga.list.length + ga.rooms.ladders.length + covers
       + g.projectiles.filter((p) => !p.dead).length + g.soldiers.length + g.planes.length + g.drones.length + g.saboteurs.length
-      + g.motor.units.length * 2 + g.air.units.length + g.incoming.length + (g.frac.fx ? g.frac.fx.length : 0) + (g.crew ? g.crew.rootChildren : 0);
+      + g.motor.units.length * 2 + g.air.units.length + g.incoming.length + (g.frac.fx ? g.frac.fx.length : 0) + (g.crew ? g.crew.rootChildren : 0) + (g.mg ? g.mg.rootChildren : 0);
   };
 
   K.start = (idx, seed, o) => {
@@ -156,6 +156,8 @@ function installSoak() {
     }
     if (r < 0.11) { g.devRevealRooms(); return 'reveal'; }
     if (r < 0.115) { g.devClearField(); return 'clear'; }
+    // the machine-gun post: a burst (or a pause) at a random elevation; the trigger stays as set until the next MG action
+    if (r < 0.13 && g.mg) { g.mg.active = true; g.mg.trigger = R() < 0.75; g.mg.setAngleDeg(-35 + R() * 105); if (R() < 0.1) g.mg.reload(); return 'mg'; }
     if (r < 0.15) { g.triggerAbility(); return 'ability'; }
     // fire something from the rack
     const have = Object.keys(g.inventory).filter((k) => (g.inventory[k] || 0) > 0);
