@@ -19,11 +19,11 @@ const crack = (hz: number, ms: number, gain: number, delay = 0) => noise('bandpa
 const thump = (hz: number, ms: number, gain: number, delay = 0) => tone('triangle', [hz, hz * 0.4], ms, gain, delay);
 
 export const SOUNDS = {
-  cannon: [snap(5000, 0.6), crack(1800, 140, 0.7), thump(95, 380, 0.9), tone('sine', [60, 32], 700, 0.7), noise('lowpass', [1600, 120], 1300, 0.45, 0.7, 30)],
-  enemyGun: [crack(1400, 120, 0.5), thump(80, 420, 0.7), noise('lowpass', [1000, 100], 1100, 0.3, 0.7, 20)],
-  blastSmall: [snap(3500, 0.4), thump(120, 260, 0.7), noise('lowpass', [2400, 180], 700, 0.55), noise('bandpass', [900, 300], 300, 0.3, 1)],
-  blast: [snap(3000, 0.6), tone('sine', [85, 30], 900, 0.95), thump(140, 400, 0.8), noise('lowpass', [3000, 120], 1600, 0.7), noise('bandpass', [700, 150], 900, 0.35, 0.9, 40)],
-  blastBig: [snap(2500, 0.8), tone('sine', [70, 22], 1700, 1), thump(110, 700, 0.9), noise('lowpass', [2600, 80], 2800, 0.85), noise('lowpass', [500, 60], 3400, 0.6, 0.7, 120), crack(600, 900, 0.3, 200)],
+  cannon: [snap(4200, 0.35), crack(1300, 150, 0.6), thump(90, 420, 0.9), tone('sine', [58, 28], 1100, 0.85, 0, 6), noise('lowpass', [1100, 70], 1800, 0.5, 1.2, 30, 20), noise('lowpass', [240, 40], 2200, 0.35, 1, 160, 120)],
+  enemyGun: [crack(1100, 130, 0.45), thump(75, 480, 0.75), tone('sine', [52, 26], 1000, 0.6, 0, 8), noise('lowpass', [700, 60], 1500, 0.35, 1.1, 20, 30)],
+  blastSmall: [crack(1300, 70, 0.4), tone('sine', [92, 38], 700, 0.9, 0, 6), thump(110, 320, 0.6), noise('lowpass', [900, 80], 1000, 0.6, 1.2, 0, 10), noise('lowpass', [300, 50], 1300, 0.35, 1, 80, 60)],
+  blast: [crack(1100, 100, 0.45), tone('sine', [72, 26], 1600, 1, 0, 8), tone('sine', [53, 22], 2000, 0.7, 12, 18), thump(120, 500, 0.7), noise('lowpass', [1300, 65], 1900, 0.75, 1.4, 0, 8), noise('lowpass', [320, 45], 2700, 0.6, 1.1, 90, 80), noise('bandpass', [170, 55], 2300, 0.4, 0.8, 220, 220)],
+  blastBig: [crack(850, 160, 0.5), tone('sine', [62, 20], 2800, 1, 0, 10), tone('sine', [45, 17], 3200, 0.8, 20, 25), thump(100, 800, 0.8), noise('lowpass', [1100, 55], 2800, 0.85, 1.5, 0, 10), noise('lowpass', [280, 38], 4200, 0.7, 1.2, 120, 120), noise('lowpass', [160, 32], 4400, 0.5, 1, 450, 400), crack(450, 1300, 0.18, 300)],
   whistle: [tone('sine', [1500, 620], 1300, 0.12, 0, 900), tone('sine', [1520, 640], 1300, 0.06, 0, 900)],
   rifle: [snap(6000, 0.5), crack(2600, 70, 0.4), noise('lowpass', [3000, 400], 220, 0.15)],
   thud: [thump(160, 140, 0.5), noise('lowpass', [900, 200], 160, 0.35)],
@@ -35,7 +35,7 @@ export const SOUNDS = {
   plane: [tone('sawtooth', [78, 82], 3800, 0.09, 0, 900), tone('sawtooth', [118, 121], 3800, 0.05, 0, 900), noise('lowpass', [700, 600], 3800, 0.08, 0.8, 0, 900)],
   dive: [tone('sawtooth', [120, 260], 2200, 0.08, 0, 600), tone('sine', [900, 1700], 2200, 0.05, 0, 900)],
   drone: [tone('sawtooth', [220, 228], 2400, 0.035, 0, 300), tone('square', [440, 452], 2400, 0.015, 0, 300)],
-  flak: [snap(3500, 0.4), crack(900, 260, 0.45), noise('lowpass', [1800, 300], 600, 0.25)],
+  flak: [snap(3000, 0.3), crack(800, 280, 0.45), tone('sine', [110, 50], 500, 0.5, 0, 5), noise('lowpass', [1200, 150], 900, 0.3, 1, 0, 10)],
   click: [tone('square', [1900, 1700], 18, 0.06), noise('highpass', [5000, 4000], 10, 0.08)],
   stamp: [thump(140, 120, 0.6), noise('lowpass', [1200, 300], 120, 0.4), snap(3000, 0.3)],
   coins: [tone('triangle', [1568, 1568], 160, 0.12), tone('triangle', [2093, 2093], 260, 0.1, 90)],
@@ -55,6 +55,12 @@ export type SoundId = keyof typeof SOUNDS;
 const GAP_MS: Partial<Record<SoundId, number>> = { mgShot: 60, ribShot: 70, mgHiss: 1500, fire: 90, rifle: 40, thud: 50, crumble: 70, splinter: 60, clang: 80, blastSmall: 30, click: 20, shovel: 300 };
 const VARY: Partial<Record<SoundId, number>> = { mgShot: 0.08, ribShot: 0.12, rifle: 0.12, thud: 0.15, crumble: 0.12, splinter: 0.15, clang: 0.05, blastSmall: 0.1, blast: 0.06, fire: 0.25 };
 const CAP = 56;
+/**
+  Saturation for the big low cues: a tanh waveshaper adds harmonics of the 20–90 Hz boom, which is
+  what lets a laptop speaker or earbuds (little below ~80 Hz) still hear it as a deep boom rather than
+  a pop. The gain going in sets how hard it drives.
+*/
+const DRIVE: Partial<Record<SoundId, number>> = { blastBig: 3.2, blast: 2.6, blastSmall: 1.8, cannon: 1.6, enemyGun: 1.5, flak: 1.4 };
 /** music bus gain at full music volume (the default 0.6 gives the original 0.32) */
 const MUSIC_LEVEL = 0.53;
 
@@ -151,6 +157,15 @@ class AudioEngine {
     return src;
   }
 
+  private curve: Float32Array<ArrayBuffer> | null = null;
+  private tanhCurve() {
+    if (!this.curve) {
+      const n = 2048; this.curve = new Float32Array(n);
+      for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; this.curve[i] = Math.tanh(x * 2.2) / Math.tanh(2.2); }
+    }
+    return this.curve;
+  }
+
   /** play a cue at world x (undefined = UI, centred); gain and pitch multipliers optional */
   play(id: SoundId, x?: number, gain = 1, pitch = 1, delayMs = 0) {
     const ctx = this.ctx;
@@ -177,13 +192,21 @@ class AudioEngine {
     p.pan.value = pan;
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass'; lp.frequency.value = dull;
-    g.connect(lp).connect(p).connect(this.sfx);
+    const drive = DRIVE[id];
+    let shaper: WaveShaperNode | null = null, pre: GainNode | null = null;
+    if (drive) {
+      pre = ctx.createGain(); pre.gain.value = drive;
+      shaper = ctx.createWaveShaper(); shaper.curve = this.tanhCurve(); shaper.oversample = '2x';
+      g.connect(pre).connect(shaper).connect(lp);
+      g.gain.value *= 0.9;
+    } else g.connect(lp);
+    lp.connect(p).connect(this.sfx);
     const t = ctx.currentTime + 0.005 + delayMs / 1000;
     const srcs = recipe.map((l) => this.voice(l, g, k, t));
     const longest = Math.max(...recipe.map((l) => (l.delay ?? 0) + l.ms));
-    const entry = x !== undefined && delayMs > 0 ? { srcs, out: [g, lp, p] } : null;
+    const entry = x !== undefined && delayMs > 0 ? { srcs, out: [g, lp, p, ...(pre ? [pre, shaper!] : [])] } : null;
     if (entry) this.pending.add(entry);
-    setTimeout(() => { if (entry) this.pending.delete(entry); g.disconnect(); lp.disconnect(); p.disconnect(); }, longest + delayMs + 200);
+    setTimeout(() => { if (entry) this.pending.delete(entry); g.disconnect(); lp.disconnect(); p.disconnect(); pre?.disconnect(); shaper?.disconnect(); }, longest + delayMs + 200);
   }
 
   // ───────────────────────── music ─────────────────────────
