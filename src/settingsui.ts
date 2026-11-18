@@ -9,7 +9,7 @@ import { S } from './state';
 */
 
 type NumKey = 'master' | 'music' | 'sfx' | 'chargeDist' | 'panSpeed' | 'shake';
-type BoolKey = 'muted' | 'mouseAim' | 'aimDistance' | 'trajectory' | 'helpLine';
+type BoolKey = 'muted' | 'mouseAim' | 'aimDistance' | 'trajectory' | 'helpLine' | 'autoCam';
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const FMT: Record<NumKey, (v: number) => string> = {
@@ -53,6 +53,7 @@ export function settingsSheets(inBattle = false) {
     </section>
     <section class="plate sheet-s">
       <header><span class="stencil">Field camera</span><small>view</small></header>
+      ${row('Auto camera', 'frames infantry and vehicles at your gun, and widens for incoming aircraft · panning or zooming hands you the camera for 8 s · R re-centres', sw('autoCam'))}
       ${row('Pan speed', 'WASD scrolling (Shift is faster still)', slider('panSpeed', 0.4, 2.5, 0.1))}
       ${row('Screen shake', 'from the gun and from blasts', slider('shake', 0, 1.5, 0.05))}
     </section>

@@ -17,6 +17,8 @@ export interface Settings {
   aimDistance: boolean;
   /** cursor distance for a full charge, as a fraction of the screen width */
   chargeDist: number;
+  /** the camera frames threats at the gun and incoming aircraft by itself (manual pan or zoom suspends it for a few seconds) */
+  autoCam: boolean;
   /** WASD camera pan speed multiplier */
   panSpeed: number;
   /** screen shake multiplier (0 = none) */
@@ -28,14 +30,16 @@ export interface Settings {
   helpLine: boolean;
   /** UI scale, percent */
   uiScale: 90 | 100 | 115;
+  /** the fire-control panel folded to one row (the dials hidden) */
+  compactFcp: boolean;
 }
 
 export const SETTINGS_KEY = 'siege-settings-v1';
 
 export const DEFAULTS: Settings = {
   master: 0.8, music: 0.6, sfx: 1, muted: false,
-  mouseAim: true, aimDistance: true, chargeDist: 0.6, panSpeed: 1,
-  shake: 1, quality: 'high', trajectory: true, helpLine: true, uiScale: 100,
+  mouseAim: true, aimDistance: true, chargeDist: 0.6, autoCam: true, panSpeed: 1,
+  shake: 1, quality: 'high', trajectory: true, helpLine: true, uiScale: 100, compactFcp: false,
 };
 
 const num = (v: unknown, lo: number, hi: number, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
@@ -53,12 +57,14 @@ export function sanitize(raw: unknown): Settings {
     mouseAim: bool(r.mouseAim, D.mouseAim),
     aimDistance: bool(r.aimDistance, D.aimDistance),
     chargeDist: num(r.chargeDist, 0.25, 0.9, D.chargeDist),
+    autoCam: bool(r.autoCam, D.autoCam),
     panSpeed: num(r.panSpeed, 0.4, 2.5, D.panSpeed),
     shake: num(r.shake, 0, 1.5, D.shake),
     quality: pick(r.quality, ['low', 'medium', 'high'] as const, D.quality),
     trajectory: bool(r.trajectory, D.trajectory),
     helpLine: bool(r.helpLine, D.helpLine),
     uiScale: pick(r.uiScale, [90, 100, 115] as const, D.uiScale),
+    compactFcp: bool(r.compactFcp, D.compactFcp),
   };
 }
 

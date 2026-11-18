@@ -258,7 +258,7 @@ button { font: inherit; color: inherit; }
 
 #minimap { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: min(520px, calc(100vw - 600px)); height: 84px; pointer-events: auto; cursor: crosshair; }
 @media (max-width: 1100px) { #minimap { display: none; } }
-#toasts { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; }
+#toasts { position: absolute; top: 128px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; }
 .toast { font: 600 15px var(--ui); letter-spacing: 0.03em; padding: 7px 16px 6px; background: rgba(16, 18, 22, 0.92); border-left: 4px solid var(--gun-3); animation: tin 0.2s ease-out; transition: opacity 0.5s; }
 .toast.good { border-left-color: var(--ok); }
 .toast.bad { border-left-color: var(--bad); }
@@ -467,3 +467,44 @@ button { font: inherit; color: inherit; }
   .topbar .btn:not(.small) { font-size: 15px; padding-left: 12px; padding-right: 12px; }
   .topbar .chip { padding: 8px 10px; gap: 6px; }
 }
+
+/* attackers off the view or under a plate (src/watch.ts), and the auto camera's cue */
+#watch { position: absolute; inset: 0; pointer-events: none; }
+.wmark { position: absolute; transform: translate(-50%, -50%); font: 700 11px/1 var(--ui); letter-spacing: 0.1em; padding: 4px 7px 3px; background: rgba(13, 15, 18, 0.88); color: var(--bad); border: 1px solid currentColor; white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); animation: wpulse 1.2s ease-in-out infinite; }
+.wmark.veh { color: var(--amber); }
+.wmark.air { color: #8fd0ff; }
+@keyframes wpulse { 50% { box-shadow: 0 0 0 2px rgba(226, 80, 58, 0.35), 0 2px 8px rgba(0, 0, 0, 0.5); } }
+#camcue { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); font: 700 12px/1 var(--ui); letter-spacing: 0.18em; text-transform: uppercase; color: var(--amber); background: rgba(13, 15, 18, 0.7); padding: 4px 10px 3px; border-left: 3px solid var(--amber); opacity: 0; transition: opacity 0.4s; pointer-events: none; zoom: var(--ui-zoom, 1); }
+#camcue.on { opacity: 1; }
+/* the fire-control panel lets the field show through while the gun or an attacker is behind it */
+#fcp { transition: opacity 0.25s; }
+#fcp.seethru:not(:hover) { opacity: 0.55; }
+/* compact fire control: the dials fold away, the readouts sit on the fire row */
+#fcp .fold { background: none; border: 1px solid var(--gun-3); color: var(--bone-dim); font: 700 11px/1 var(--ui); padding: 3px 6px 2px; cursor: pointer; }
+#fcp .fold:hover { color: var(--bone); border-color: var(--bone-dim); }
+#fcp .mini { display: none; font: 600 15px var(--mono); color: var(--gold); white-space: nowrap; align-self: center; }
+#fcp.compact { width: 360px; padding: 8px 12px; }
+#fcp.compact .head .stencil { white-space: nowrap; font-size: 14px; }
+#fcp.compact .aimtoggle, #fcp.compact .wpn { white-space: nowrap; }
+#fcp.compact .dials, #fcp.compact .opts, #fcp.compact .hint, #fcp.compact .head > .label { display: none; }
+#fcp.compact .mini { display: block; }
+#fcp.compact .firerow { margin-top: 6px; }
+#fcp.compact .firerow .btn { font-size: 17px; padding-top: 5px; padding-bottom: 5px; }
+
+/* the machine-gun post on the fire-control panel (src/mg.ts) */
+.wpn { background: rgba(143, 208, 255, 0.12); border: 0; box-shadow: inset 0 0 0 1px rgba(143, 208, 255, 0.5); color: #8fd0ff; font: 700 10.5px var(--ui); letter-spacing: 0.1em; text-transform: uppercase; padding: 4px 7px 3px; cursor: pointer; white-space: nowrap; }
+.wpn:hover { background: rgba(143, 208, 255, 0.25); }
+.wpn i { font-style: normal; opacity: 0.6; margin-left: 2px; }
+.mgpanel { margin-top: 8px; display: grid; gap: 7px; }
+.mgbar { height: 12px; background: #0b0c0e; border: 1px solid #000; position: relative; }
+.mgbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #c9a24a, #ffd34d); }
+.mgbar.heat i { background: linear-gradient(90deg, #8fc46a, #ffb347 60%, #e2503a); }
+.mgbar.warn { box-shadow: 0 0 0 1px var(--bad); }
+#mgstate { cursor: default; }
+#mgstate:disabled { opacity: 1; }
+#mgstate.hot { background: var(--gun-2); color: var(--amber); }
+#mgreload { flex: 0 0 auto; font-size: 13px; }
+#mgreload i { font-style: normal; opacity: 0.6; }
+#fcp.compact .mgpanel { display: none; }
+#rack.mgon .slot.sel { opacity: 0.55; }
+#aimtip .bar.heat span { background: linear-gradient(90deg, #8fc46a, #ffb347 60%, #e2503a); }

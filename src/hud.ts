@@ -2,7 +2,7 @@ import { AMMO, AMMO_BY_ID, PHYS, TARGETS, type AmmoId, type TargetKind } from '.
 import type { Block } from './game';
 import { blockTip } from './screens';
 import { audio } from './audio';
-import { SET } from './settings';
+import { SET, setSetting } from './settings';
 import { settingsSheets, wireSettings } from './settingsui';
 import { buildDevPanel, updateDevPanel } from './devpanel';
 import { $, S, icon } from './state';
@@ -16,7 +16,8 @@ export const targetName = (k: TargetKind) => TARGET_NAME[k] ?? TARGETS[k].desc.s
 
 const fmtTime = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const labels = new Map<Block, HTMLElement>();
-let fcpFor: AmmoId | null = null;
+let fcpFor: string | null = null;
+const fcpKey = () => `${S.game.selected}|${S.game.mg.active}`;
 
 /** `unlimited`: the dev sandbox rack (rounds never run out) */
 export function startBattle(cart: Partial<Record<AmmoId, number>>, spent: number, budget: number, unlimited = false) {
@@ -91,7 +92,7 @@ function buildRack() {
   rack.innerHTML = ids.map((id, i) => `<button class="slot" data-a="${id}" title="${tip(id, i)}"><span class="key">${i < 9 ? i + 1 : ''}</span><img src="${icon(id)}" alt=""><div class="nm">${AMMO_BY_ID[id].name}</div><span class="ct"></span><div class="reload"></div></button>`).join('');
   rack.querySelectorAll<HTMLElement>('.slot').forEach((el) => {
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
-    el.addEventListener('click', () => { g.selected = el.dataset.a as AmmoId; });
+    el.addEventListener('click', () => { g.selected = el.dataset.a as AmmoId; g.mg.active = false; g.mg.trigger = false; });
   });
 }
 
@@ -111,7 +112,7 @@ export function requestWithdraw() {
 
 export function helpText() {
   const aim = SET.aimDistance ? 'mouse aims · distance from gun = velocity · shift holds velocity · wheel trims' : 'mouse sets elevation · wheel sets velocity';
-  return `${aim} · click fires · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute · Esc menu${S.save.dev ? ' · ` dev panel' : ''}`;
+  return `${aim} · click fires · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · G / Tab machine gun (hold to fire, B belt) · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute · Esc menu${S.save.dev ? ' · ` dev panel' : ''}`;
 }
 
 // ───────────────────────── pause menu ─────────────────────────
@@ -278,9 +279,22 @@ function buildFcp() {
   const a = AMMO_BY_ID[g.selected];
   const st = g.stats;
   const fcp = $('#fcp');
-  fcpFor = g.selected;
-  let html = `<div class="head"><span class="stencil">${a.mode === 'airstrike' ? 'Bomb run' : a.mode === 'drone' ? 'Recon flight' : a.mode === 'saboteur' ? 'Demolition team' : 'Fire control'}</span><span class="label">${a.name}</span></div>`;
-  if (a.mode === 'airstrike') {
+  fcpFor = fcpKey();
+  fcp.classList.toggle('compact', SET.compactFcp);
+  let html = `<div class="head"><span class="stencil">${a.mode === 'airstrike' ? 'Bomb run' : a.mode === 'drone' ? 'Recon flight' : a.mode === 'saboteur' ? 'Demolition team' : 'Fire control'}</span><span class="label">${a.name}</span><button class="fold" id="fold" title="${SET.compactFcp ? 'Unfold the fire-control panel (dials and settings)' : 'Fold the fire-control panel to one row, so more of the field shows'}">${SET.compactFcp ? '▴' : '▾'}</button></div>`;
+  const wpn = `<button class="wpn" id="wpn" title="G or Tab: switch between the cannon and the ${g.mg.spec.name.toLowerCase()} post">${g.mg.active ? 'Cannon' : g.mg.spec.name === 'Machine gun' ? 'MG' : 'Volley gun'} <i>G</i></button>`;
+  html = html.replace('<span class="label">', `${wpn}<span class="label">`);
+  if (g.mg.active) {
+    const m = g.mg;
+    html = `<div class="head"><span class="stencil">${m.spec.name}</span>${wpn}<span class="label">${m.modern ? 'water-cooled · tripod' : 'eight barrels · trestle'}</span><button class="fold" id="fold" title="Fold or unfold the panel">${SET.compactFcp ? '▴' : '▾'}</button></div>
+      <div class="mgpanel">
+        <div class="opt"><span class="label">${m.spec.magName}</span><div class="mgbar" id="mg-mag"><i></i></div><span class="readout" id="mg-mag-v"></span></div>
+        ${m.spec.heatPer ? '<div class="opt"><span class="label">Jacket heat</span><div class="mgbar heat" id="mg-heat"><i></i></div><span class="readout" id="mg-heat-v"></span></div>' : ''}
+        <div class="opt"><span class="label">Elevation</span><span class="readout" id="mg-ang" style="grid-column: span 2"></span></div>
+      </div>
+      <div class="hint">Point and hold the mouse (or Space) to fire. Kills men in the open and engineers; shields stop it from the front until they break; it only sparks off armour. ${m.modern ? 'Bursts keep the jacket from boiling.' : 'All eight barrels, then a long reload.'} The cannon keeps reloading meanwhile.</div>
+      <div class="firerow"><span class="mini" id="fcp-mini"></span><button class="btn firebtn" id="mgstate" disabled>Ready</button><button class="btn ghost small" id="mgreload" title="B: ${m.modern ? 'change the belt now' : 'reload the barrels now'}">${m.modern ? 'Belt' : 'Reload'} <i>B</i></button></div>`;
+  } else if (a.mode === 'airstrike') {
     const types = st.bombTypes;
     html += `<div class="opts">
       <div class="opt"><span class="label">Approach</span><div class="seg" style="grid-column: span 2"><button data-dir="1" class="${g.strike.dir === 1 ? 'on' : ''}">From west →</button><button data-dir="-1" class="${g.strike.dir === -1 ? 'on' : ''}">← From east</button></div></div>
@@ -312,11 +326,14 @@ function buildFcp() {
         ${a.id === 'cluster' ? range('o-burst', 'Airburst', 0, 5, 0.1, g.airburst, true, '0 = burst manually with tap/space') : ''}
         ${a.id === 'flak' ? range('o-flak', 'Burst time', 0.5, 6, 0.1, g.flakFuse, true, 'bursts on this timer if no aircraft comes within range of the proximity fuze') : ''}
       </div>
-      <div class="firerow"><button class="btn firebtn" id="fire">Fire</button></div>`;
+      <div class="firerow"><span class="mini" id="fcp-mini"></span><button class="btn firebtn" id="fire">Fire</button></div>`;
   }
   fcp.innerHTML = html;
   fcp.querySelector('#fire')?.addEventListener('click', () => { if (!g.triggerAbility()) g.fire(); });
   fcp.querySelector('#aimtoggle')?.addEventListener('click', () => { S.mouseAim = !S.mouseAim; });
+  fcp.querySelector('#fold')?.addEventListener('click', () => { setSetting('compactFcp', !SET.compactFcp); buildFcp(); });
+  fcp.querySelector('#wpn')?.addEventListener('click', switchWeapon);
+  fcp.querySelector('#mgreload')?.addEventListener('click', () => g.mg.reload());
   fcp.querySelector('#clear-sab')?.addEventListener('click', () => { g.sabTarget = null; });
   fcp.querySelectorAll<HTMLElement>('[data-dir]').forEach((b) => b.addEventListener('click', () => { g.strike.dir = +b.dataset.dir! as 1 | -1; buildFcp(); }));
   fcp.querySelectorAll<HTMLElement>('[data-ord]').forEach((b) => b.addEventListener('click', () => { g.strike.ordnance = b.dataset.ord as 'he'; buildFcp(); }));
@@ -375,13 +392,16 @@ function buildFcp() {
 
 function updateFcp() {
   const g = S.game;
-  if (fcpFor !== g.selected) buildFcp();
+  if (fcpFor !== fcpKey()) buildFcp();
   const fcp = $('#fcp');
   const setIn = (id: string, v: number, d = 1) => {
     const el = fcp.querySelector<HTMLInputElement>(`#in-${id}`);
     if (el && document.activeElement !== el) el.value = v.toFixed(d);
   };
   const deg = (g.angle * 180) / Math.PI;
+  const mini = fcp.querySelector('#fcp-mini');
+  if (g.mg.active) { updateMgPanel(fcp, mini); return; }
+  if (mini) { const t = `${deg.toFixed(1)}° · ${g.launchSpeed.toFixed(1)} m/s`; if (mini.textContent !== t) mini.textContent = t; }
   setIn('ang', deg);
   setIn('vel', g.launchSpeed);
   setIn('sx', g.strike.x);
@@ -412,6 +432,35 @@ function updateFcp() {
     if (fire.textContent !== txt) fire.textContent = txt;
     fire.title = ability ? 'Burst the cluster shell in flight (Space)' : fire.disabled ? '' : `${verb} (Space) · ${g.dev.unlimited ? '∞' : left} left`;
   }
+}
+
+/** G / Tab or the panel button: the cannon or the machine-gun post */
+export function switchWeapon() {
+  const g = S.game;
+  if (S.mode !== 'battle' || g.ended) return;
+  g.mg.active = !g.mg.active;
+  g.mg.trigger = false;
+  toast(g.mg.active ? `${g.mg.spec.name} manned. Hold to fire · G back to the cannon` : 'Back on the cannon');
+}
+
+function updateMgPanel(fcp: HTMLElement, mini: Element | null) {
+  const m = S.game.mg;
+  const set = (id: string, frac: number, txt: string, warn = false) => {
+    const bar = fcp.querySelector<HTMLElement>(`#${id} i`);
+    if (bar) { bar.style.width = `${Math.round(frac * 100)}%`; bar.parentElement!.classList.toggle('warn', warn); }
+    const v = fcp.querySelector(`#${id}-v`);
+    if (v && v.textContent !== txt) v.textContent = txt;
+  };
+  const reloading = m.reloadT > 0;
+  set('mg-mag', reloading ? 1 - m.reloadT / m.spec.reload : m.rounds / m.spec.mag, reloading ? `${m.reloadT.toFixed(1)}s` : `${m.rounds}/${m.spec.mag}`, reloading);
+  set('mg-heat', m.heat, m.overheated ? 'cooling' : `${Math.round(m.heat * 100)}%`, m.overheated || m.heat > 0.75);
+  const ang = fcp.querySelector('#mg-ang');
+  const at = `${((m.angle * 180) / Math.PI).toFixed(1)}°`;
+  if (ang && ang.textContent !== at) ang.textContent = at;
+  const st = fcp.querySelector<HTMLElement>('#mgstate');
+  const txt = S.game.ended ? 'Ceasefire' : m.state;
+  if (st && st.textContent !== txt) { st.textContent = txt; st.classList.toggle('hot', txt !== 'Ready' && txt !== 'Firing'); }
+  if (mini) { const t = `${reloading ? 'reload' : m.rounds}${m.spec.heatPer ? ` · ${Math.round(m.heat * 100)}%` : ''}`; if (mini.textContent !== t) mini.textContent = t; }
 }
 
 /** gun hit: shake the meter, pulse the screen edge, float the damage over the gun */
@@ -470,6 +519,7 @@ export function updateHud() {
     (el.querySelector('.reload') as HTMLElement).style.width = g.selected === id ? `${(g.reload / g.stats.reload) * 100}%` : '0';
   });
   shownSel = g.selected;
+  $('#rack').classList.toggle('mgon', g.mg.active);
   updateFcp();
   drawMinimap();
   updateDevPanel();

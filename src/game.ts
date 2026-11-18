@@ -12,6 +12,8 @@ import { AirForce } from './aircraft';
 import { elevate } from './elevate';
 import { MotorPool } from './vehicles';
 import { Fracture } from './fracture';
+import { FieldCamera } from './camera';
+import { MachineGun } from './mg';
 import { Crew } from './engineers';
 
 type V2 = { x: number; y: number };
@@ -227,6 +229,8 @@ export class Game {
   frac = new Fracture(this);
   /** the enemy repair crew and its scaffolding (src/engineers.ts) */
   crew = new Crew(this);
+  /** the machine-gun post beside the cannon (src/mg.ts) */
+  mg = new MachineGun(this);
   /** flak burst timer, seconds after launch */
   flakFuse = 2.5;
   mastSprites = new Map<Block, THREE.Mesh>();
@@ -332,6 +336,7 @@ export class Game {
     this.root.add(this.hpBar);
     this.hpLag = 1;
     this.root.add(this.carriage, this.barrel);
+    this.mg.build();
 
     // aim preview dots
     this.previewDots = new THREE.InstancedMesh(new THREE.CircleGeometry(0.11, 10), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }), 60);
@@ -1502,6 +1507,7 @@ export class Game {
     this.updateGunFx(dt);
     this.air.update(dt, this.running && !this.ended);
     this.updateProjectiles(dt);
+    this.mg.update(dt);
     this.updatePending(dt);
     // splits and marks from this frame's hits (outside the physics step and the event drain)
     this.frac.update(dt);
@@ -1862,6 +1868,8 @@ export class Game {
         if (s.deadT > 2.2) s.rig.fade(Math.max(0, 1 - (s.deadT - 2.2) / 1.5));
         continue;
       }
+      // pinned down by machine-gun fire: flat in cover, neither moving nor firing (src/mg.ts)
+      if (this.mg.pinned(s, dt)) { s.rig.update(dt, s.x, s.y, 'sit'); continue; }
       let shooting = false;
       // saboteur engagement
       for (const sb of this.saboteurs) {
@@ -2297,68 +2305,9 @@ export class Game {
   }
 
   // ───────────────────────── Camera & view ─────────────────────────
-  private frameTop = 0;
-  private frameKey: LevelDef | null = null;
-  private groundFrac = 0.2;
-  private hudPoll = 0;
-  private hudShown = false;
-  /** share of the view below the ground line: lifted so the fire-control plate (bottom left) never hides the gun */
-  private viewGroundFrac(force: boolean) {
-    const hud = document.getElementById('hud'), fcp = document.getElementById('fcp');
-    const shown = !!hud && !hud.classList.contains('hidden');
-    // the plate's size is read (a layout query) only every 20 frames, or at once when the HUD appears or hides
-    if (!force && shown === this.hudShown && --this.hudPoll > 0) return this.groundFrac;
-    this.hudShown = shown;
-    this.hudPoll = 20;
-    let f = 0.2;
-    if (shown && fcp) {
-      const rc = fcp.getBoundingClientRect();
-      if (rc.height > 0 && rc.left < this.r.width * 0.25) f = Math.min(0.4, Math.max(0.2, (this.r.height - rc.top + 6) / this.r.height));
-      // the plate is filled in on the HUD's first frame: measure again next frame rather than 20 frames on with the gun hidden
-      if (rc.height < 120) this.hudPoll = 1;
-    }
-    this.groundFrac = f;
-    return f;
-  }
-
-  frameCamera(snap = false, dt = 0.016) {
-    const r = this.r;
-    const gl = this.viewGroundFrac(snap);
-    const fb = this.fortressBounds;
-    const x0 = this.level.cannonX - 5;
-    // big castles: the overview covers the gun and the near works; pan, zoom or use the minimap for the rest
-    const x1 = Math.min(x0 + 115, Math.max(fb.x1 + 4, ...this.level.houses.filter((h) => h.x < fb.x1 + 10).map((h) => h.x + h.w + 1)));
-    const aspect = r.width / r.height;
-    const ground = Math.min(this.groundY(this.level.cannonX), this.groundY(fb.x0));
-    let viewH = Math.max(16, (x1 - x0) / aspect, Math.min(40, (fb.y1 - this.groundY(fb.x0)) * 1.7));
-    // lifting the ground line must not crop what is in frame: the tallest work in the overview keeps a
-    // top-HUD-sized margin, up to the headroom the unlifted framing gave (0.8 of the view)
-    if (snap || this.frameKey !== this.level) {
-      this.frameKey = this.level;
-      this.frameTop = -Infinity;
-      for (const b of this.level.blocks) if (b.x + b.w / 2 < x1) this.frameTop = Math.max(this.frameTop, b.y + b.h);
-    }
-    const head = Math.min(this.frameTop - ground + viewH * 0.18, viewH * 0.8);
-    viewH = Math.max(viewH, head / (1 - gl)) / this.zoom;
-    this.baseCx = (x0 + x1) / 2;
-    // panning (drag or minimap) stops with the view centre between the gun and the far end of the works
-    this.pan = Math.max(x0 - this.baseCx, Math.min(Math.max(x1, fb.x1 + 8) - this.baseCx, this.pan));
-    let cx = this.baseCx + this.pan;
-    // keep the whole battlefield in view, expanding to include whatever is in flight
-    if (this.focus) {
-      const fx = this.focus.x, fy = this.focus.y;
-      const bx0 = Math.min(cx - (viewH * aspect) / 2, fx - 6), bx1 = Math.max(cx + (viewH * aspect) / 2, fx + 6);
-      // the view top sits (1 - gl) of the view above the ground line; a high lob must stay under it
-      const top = Math.max(ground + viewH * (1 - gl), fy + 5);
-      viewH = Math.max((bx1 - bx0) / aspect, (top - ground) / (1 - gl));
-      cx = (bx0 + bx1) / 2;
-    }
-    const cy = ground + viewH * (0.5 - gl) + this.panY;
-    const k = snap ? 1 : 1 - Math.exp(-dt * 3);
-    r.viewH += (viewH - r.viewH) * k;
-    r.cx += (cx - r.cx) * k;
-    r.cy += (cy - r.cy) * k;
-  }
+  /** framing, zoom limits, HUD-aware ground line and the threat-aware director: src/camera.ts */
+  cam = new FieldCamera(this);
+  frameCamera(snap = false, dt = 0.016) { this.cam.frame(snap, dt); }
 
   syncMeshes() {
     for (const b of this.blocks) {
