@@ -56,6 +56,8 @@ export class FieldCamera {
   private vel = { h: { v: 0 }, x: { v: 0 }, y: { v: 0 } };
   /** bottom plates (screen rects), re-measured every 20 frames */
   plates: Rect[] = [];
+  /** top plates (objectives, instruments, minimap, dev panel) */
+  tops: Rect[] = [];
   private poll = 0;
   private frameTop = -Infinity;
   private frameKey: unknown = null;
@@ -89,6 +91,13 @@ export class FieldCamera {
       }
     }
     this.plates = out;
+    this.tops = [];
+    if (hud && !hud.classList.contains('hidden')) {
+      for (const q of ['#hud-left', '#hud-right', '#minimap']) {
+        const rc = document.querySelector(q)?.getBoundingClientRect();
+        if (rc && rc.height > 0 && rc.width > 0) this.tops.push({ left: rc.left, right: rc.right, top: rc.top, bottom: rc.bottom });
+      }
+    }
   }
 
   /** fraction of the screen height covered from the bottom at screen x (bottom plates only) */
@@ -97,6 +106,14 @@ export class FieldCamera {
     let f = 0;
     for (const p of this.plates) if (sx >= p.left - 8 && sx <= p.right + 8) f = Math.max(f, (H - p.top) / H);
     return f;
+  }
+
+  /** fraction of the screen height covered from the top at screen x (top plates) */
+  private occTopAt(sx: number) {
+    const H = this.g.r.height;
+    let f = 0;
+    for (const p of this.tops) if (sx >= p.left - 8 && sx <= p.right + 8) f = Math.max(f, p.bottom / H);
+    return Math.min(0.45, f);
   }
 
   /** ground units within `d` m in front of (or on) the gun */
@@ -211,12 +228,30 @@ export class FieldCamera {
       vh = Math.min(maxH, Math.max(vh, need));
     }
     // (re-solve the bottom at the final height)
-    {
-      const left = cx - (vh * aspect) / 2;
-      bottom = ground - 0.1 * vh;
+    const solveBottom = (h: number) => {
+      const left = cx - (h * aspect) / 2;
+      let b = ground - 0.1 * h;
       for (let i = 0; i <= 48; i++) {
         const occ = Math.min(0.45, this.occAt((i / 48) * r.width) + (this.plates.length ? 0.035 : 0));
-        bottom = Math.min(bottom, g.groundY(left + ((vh * aspect) * i) / 48) - Math.max(0.1, occ) * vh);
+        b = Math.min(b, g.groundY(left + ((h * aspect) * i) / 48) - Math.max(0.1, occ) * h);
+      }
+      return b;
+    };
+    bottom = solveBottom(vh);
+    // aircraft being framed must clear the top plates (objectives, instruments, minimap) over their column
+    if (mode !== 'base') {
+      for (let it = 0; it < 3 && vh < maxH; it++) {
+        let deficit = 0;
+        for (const a of air) {
+          const ax = (a.x0 + a.x1) / 2;
+          const sx = ((ax - cx) / (vh * aspect) + 0.5) * r.width;
+          if (sx < 0 || sx > r.width) continue;
+          const occT = this.occTopAt(sx) + 0.03;
+          deficit = Math.max(deficit, (a.y - (bottom + vh * (1 - occT))) / Math.max(0.3, 1 - occT - 0.2));
+        }
+        if (deficit <= 0.05) break;
+        vh = Math.min(maxH, vh + deficit);
+        bottom = solveBottom(vh);
       }
     }
     let cy = bottom + vh / 2;

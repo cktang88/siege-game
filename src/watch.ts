@@ -39,6 +39,7 @@ export function updateWatch() {
   const fcp = document.getElementById('fcp');
   const fr = plates.find((p) => p.left < W * 0.1);
   const under = (x: number, y: number) => plates.find((p) => x > p.left && x < p.right && y > p.top - 4 && y < p.bottom);
+  const behind = (x: number, y: number) => g.cam.tops.find((p) => x > p.left && x < p.right && y > p.top && y < p.bottom + 4);
   const groups = new Map<string, { kind: Kind; x: number; y: number; n: number; dir: string }>();
   let behindFcp = false;
   const add = (kind: Kind, wx: number, wy: number) => {
@@ -50,6 +51,7 @@ export function updateWatch() {
     if (y < 4) { dir = dir || '▲'; y = 150; } else if (y > H - 4) { dir = dir || '▼'; y = H - 140; }
     if (dir) y = Math.max(150, Math.min(H - 140, y));
     else if (pl) { dir = '▼'; y = pl.top - 16; }
+    else { const tp = behind(x, y); if (tp) { dir = '▲'; y = tp.bottom + 16; } }
     if (!dir) return;
     // one marker per kind and side, gathered in 140 px bins along the edge
     const key = `${kind}${dir}${dir === '▶' || dir === '◀' ? Math.round(y / 140) : Math.round(x / 140)}`;
