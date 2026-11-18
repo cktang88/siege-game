@@ -524,7 +524,7 @@ function installValue() {
     const budget = Math.round(g.level.budget * g.stats.budgetMult);
     const own = new Set(V.prog.availableAmmo({ tech: o.tech, dev: false }));
     const anti = own.has('canister') ? 'canister' : 'shell';
-    let spent = 0, shots = 0, infShots = 0, aimT = 0, ranging = 0, lastX = NaN;
+    let spent = 0, shots = 0, infShots = 0, aimT = 0, ranging = 0, lastX = NaN, mgBursts = 0, infTurn = true;
     const cx = g.level.cannonX;
     // The gun is not lost mid-battle (the run measures what the structure costs): damage is tallied, scored, and a gun that would
     // have been destroyed is reported. What hurts it, by the size of the blow: rifle 1.1, gyro 0.7, armoured car 0.3/0.1, shells the rest.
@@ -532,9 +532,18 @@ function installValue() {
     g.damageCannon = (d) => { const k = d === 1.1 ? 'infantry' : d === 0.7 ? 'gyro' : d === 0.3 || d === 0.1 ? 'car' : 'shell'; dmgBy[k] = Math.round((dmgBy[k] || 0) + d); if (d > 0 && !g.ended) { gunDmg += d; g.cannonHp = Math.max(0, g.cannonHp - d); } };
     const fireInf = () => {
       const near = g.soldiers.filter((s) => !s.dead && !s.eng && s.x < cx + 40 && s.x > cx);
+      if (!near.length) return false;
+      near.sort((p, q) => p.x - q.x);
+      // the machine-gun post (free; it costs time): a burst of up to 3 s at the nearest man, while he is within 45 m
+      if (g.mg && o.mg !== false) {
+        const m = g.mg; m.active = true; m.trigger = true;
+        V.step(3, () => { const s = g.soldiers.find((q) => !q.dead && !q.eng && q.x > cx && q.x < cx + 45); if (!s) return true; m.aimAt(s.x, s.y + 0.55); return false; });
+        m.trigger = false; m.active = false;
+        mgBursts++;
+        return true;
+      }
       if (near.filter((s) => s.x < cx + 26).length < 2) return false;
       if (spent + priceOf(anti) > budget) return false;
-      near.sort((p, q) => p.x - q.x);
       const lead = near[0], tx = lead.x - (lead.x > lead.stopX ? 1.2 : 0);
       const ok = V.fireAt(anti, { x: tx, y: g.groundY(tx) + 0.9 }, { sigma: o.sigma });
       if (!ok) return false;
@@ -565,7 +574,8 @@ function installValue() {
     };
     for (let guard = 0; guard < 200 && !g.ended; guard++) {
       if (V.obj.every((b) => b.dead)) break;
-      if (fireInf()) continue;
+      // between cannon shots, one go at the infantry (MG burst, or canister without the post)
+      if (infTurn && fireInf()) { infTurn = false; continue; }
       if (fireAir()) continue;
       // under counter-battery fire: smoke them (if owned, 15 s a round) once the gun is hurt, and silence an
       // enemy gun that is in reach before the gun is half gone
@@ -593,7 +603,7 @@ function installValue() {
         const pt = V.drillShot(t);
         if (!pt || !V.fireAt('drill', pt, { ground: true, sigma: sig })) break;
       } else if (!V.fireAt(o.id, t, { sigma: sig })) break;
-      spent += priceOf(o.id); shots++;
+      spent += priceOf(o.id); shots++; infTurn = true;
       // a real gunner waits out the reload and lays the next shot
       const tt = V.settle(o.id === 'saboteur' || o.id === 'airstrike' ? 30 : 12, 0.6);
       if (tt < g.stats.reload) V.step(g.stats.reload - tt);
@@ -610,7 +620,7 @@ function installValue() {
     };
     const score = Math.max(0, Object.values(parts).reduce((q, v) => q + v, 0));
     const stars = won ? g.level.stars.filter((x) => score >= x).length : 0;
-    return { won, spent, budget, shots, infShots, time, par: g.level.parTime, score, stars, thresholds: g.level.stars, parts, gun: g.cannonHp / g.stats.cannonHp, gunLost: gunDmg >= g.stats.cannonHp, dmgBy, objKills: V.obj.filter((b) => b.dead).length, objTotal: V.obj.length };
+    return { won, spent, budget, shots, infShots, mgBursts, time, par: g.level.parTime, score, stars, thresholds: g.level.stars, parts, gun: g.cannonHp / g.stats.cannonHp, gunLost: gunDmg >= g.stats.cannonHp, dmgBy, objKills: V.obj.filter((b) => b.dead).length, objTotal: V.obj.length };
   };
 
   /** a flat lab level holding these blocks (an indestructible objective far off keeps it running) */

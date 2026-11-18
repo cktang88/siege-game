@@ -91,13 +91,14 @@ const T = [];
 const test = (id, claim, fn) => T.push({ id, claim, fn: fn.toString() });
 
 // ───────────── hits to break (round shot ~28 m/s, square on, 1 m blocks against a backstop) ─────────────
-test('break_hits', 'Round shot at 28 m/s breaks timber/plaster/tile in 1-2 hits, masonry 3-5, concrete 6-8; steel only dents through 8', () => {
+test('break_hits', 'Round shot at 28 m/s breaks timber/plaster/tile in 1-2 hits, masonry 3-4, firebrick 3-5, concrete 6-9; steel only dents through 8', () => {
   const L = window.__flab;
-  const want = { wood: [1, 2], plaster: [1, 2], tile: [1, 2], stone: [3, 5], fireproof: [3, 5], concrete: [6, 8], steel: [9, 99] };
+  // materials raised in the damage pass (BALANCE.md): masonry 170 hp takes 3 (was 2-3), firebrick 4, concrete 7-8 (was 6-7)
+  const want = { wood: [1, 2], plaster: [1, 2], tile: [1, 2], stone: [3, 4], fireproof: [3, 5], concrete: [6, 9], steel: [9, 99] };
   const res = {}, bad = [];
   for (const m of Object.keys(want)) {
-    const r = L.hitsToBreak(m, 28, m === 'steel' ? 8 : 10);
-    res[m] = r.hits === 99 ? `>${m === 'steel' ? 8 : 10}` : r.hits;
+    const r = L.hitsToBreak(m, 28, m === 'steel' ? 8 : 12);
+    res[m] = r.hits === 99 ? `>${m === 'steel' ? 8 : 12}` : r.hits;
     const h = r.hits === 99 ? 99 : r.hits;
     if (h < want[m][0] || h > want[m][1]) bad.push(m);
   }
