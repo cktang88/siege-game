@@ -162,14 +162,19 @@ test('ap_steel_dent', 'Armor plate stops AP: dent and a shallow hole, no split',
 });
 
 // ───────────── HE, timber, steel, earth ─────────────
-test('he_shatter_stone', 'HE against a masonry wall shatters it into several chunks (3-6) with scorch', () => {
+test('he_shatter_stone', 'HE against a masonry wall cracks it (2-3 pieces) with scorch; a second HE on the same face shatters what is left', () => {
   const L = window.__flab;
   L.setup([{ x: 30, y: 0, w: 1.2, h: 2.4, mat: 'stone' }, { x: 31.25, y: 0, w: 1, h: 3, mat: 'rock' }]);
   const s0 = L.g.frac.stats.frags;
   L.shoot('he', 27, 1.2, 28, 1); L.step(0.25);
   const ps = L.pieces(0), frags = L.g.frac.stats.frags - s0;
   const scorch = ps.some((b) => L.has(b, 'SCORCH'));
-  return { pass: L.b(0).dead && ps.length + frags >= 3 && ps.length + frags <= 7, info: `${ps.length} physics pieces + ${frags} fragments; scorch on pieces: ${scorch}` };
+  // graded (BALANCE.md, damage pass): one HE takes about half a big masonry block and cracks it; it no longer shatters it outright
+  const first = ps.length + frags;
+  const sh0 = L.g.frac.stats.shatters;
+  L.shoot('he', 27, 1.2, 28, 1); L.step(0.25);
+  const sh = L.g.frac.stats.shatters - sh0, left = L.pieces(0).length;
+  return { pass: L.b(0).dead && first >= 2 && first <= 3 && scorch && (sh >= 1 || left < first), info: `first HE: ${ps.length} physics pieces + ${frags} fragments, scorch on pieces: ${scorch}; second HE: ${sh} shattered, ${left} pieces left` };
 });
 
 test('he_scorch_survivor', 'A distant HE burst only scorches a masonry wall (no split)', () => {

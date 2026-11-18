@@ -783,11 +783,15 @@ export class Game {
     if (!b.target || p.enemy || p.pellet) return 0;
     const a = p.ammo;
     if (a.id === 'smoke' || a.id === 'flak') return 0;
-    const punch = Math.max(10, a.kinetic, (a.pen ?? 0) * 0.4);
+    // a penetrator hits with what it has left after the walls it bored through
+    const pen = a.pen ? p.pen : 0;
+    const punch = Math.max(10, a.kinetic, pen * 0.4);
     const vKill = 15 * Math.sqrt(55 / punch), vMin = vKill * 0.4;
     const vn = speed * cosI;
     if (vn < vMin) return 0;
-    return b.maxHp * 1.05 * Math.min(1, 0.34 + 0.66 * (vn - vMin) / (vKill - vMin));
+    // ... and one that spent more than half its punch getting there arrives tumbling: a share of a kill
+    const spent = a.pen ? Math.max(0.34, Math.min(1, p.pen / (a.pen * 0.5))) : 1;
+    return b.maxHp * 1.05 * spent * Math.min(1, 0.34 + 0.66 * (vn - vMin) / (vKill - vMin));
   }
 
   damageBlock(b: Block, dmg: number, cause = '') {
@@ -893,6 +897,9 @@ export class Game {
       else if (o?.t === 'house') hitHouses.push(o.h);
       return true;
     });
+    // nearest first: a block the burst destroys no longer shields the ones behind it (a breached wall lets the blast through)
+    const d2 = (b: Block) => { const t = b.body.translation(); return (t.x - x) ** 2 + (t.y - y) ** 2; };
+    hitBlocks.sort((p, q) => d2(p) - d2(q));
     for (const b of hitBlocks) {
       if (b.dead) continue;
       const t = b.body.translation();
@@ -902,8 +909,12 @@ export class Game {
       const near = b.collider.projectPoint({ x, y }, true);
       const qx = near ? near.point.x : t.x, qy = near ? near.point.y : t.y;
       const d = near ? Math.hypot(qx - x, qy - y) : Math.max(0, dist - Math.min(b.w, b.h) * 0.5);
-      let f = Math.max(0, 1 - d / radius);
-      if (f <= 0) continue;
+      // lin: share of the radius still to go; damage falls with its square, so a burst wrecks what it
+      // touches, cracks what is a metre off and only scorches what is further (it used to fall off
+      // linearly, and an HE shell shattered every masonry block within ~2.3 m)
+      const lin = Math.max(0, 1 - d / radius);
+      if (lin <= 0) continue;
+      let f = lin * lin, occ = 1;
       // occlusion: blast spends itself on the first wall between the burst and this block
       let shielded = false;
       if (d > 0.4) {
@@ -913,7 +924,8 @@ export class Game {
           return o?.t === 'block' && o.b !== b && !o.b.dead;
         });
         if (hit && hit.timeOfImpact > 0.15) {
-          f *= 0.35;
+          occ = 0.3;
+          f *= occ;
           const o = this.owners.get(hit.collider.handle);
           shielded = !(o?.t === 'block' && o.b.mat.flammable);
         }
@@ -922,13 +934,14 @@ export class Game {
       const bonus = opts.bonus?.[b.matId] ?? (opts.fuelChain && b.mat.volatile ? 0.5 : 1);
       // flak shells are thin-walled fragmentation rounds: little effect on masonry
       let bd = dmg * f * b.mat.blast * bonus * (opts.flak ? 0.4 : 1);
-      // an HE shell (or bigger) bursting close to an objective, not behind a wall, takes half its strength:
-      // two near misses finish it. Smaller charges count in proportion (a heavy shell's burst ~30%, a round shot's ~14%).
-      if (b.target && !opts.enemy && !opts.flak && !opts.smoke && f > 0.25) bd = Math.max(bd, b.maxHp * (shielded ? 0.3 : 0.55) * Math.min(1, dmg / 100));
+      // an HE shell (or bigger) bursting close to an objective (within half its radius: ~2 m for HE), not
+      // behind a wall, takes half its strength: two near misses finish it. Behind a wall it must burst within
+      // a quarter of the radius and does a quarter. Smaller charges count in proportion (a heavy shell's ~30%).
+      if (b.target && !opts.enemy && !opts.flak && !opts.smoke && lin > (occ < 1 ? 0.75 : 0.5)) bd = Math.max(bd, b.maxHp * (shielded ? 0.25 : 0.55) * Math.min(1, dmg / 100));
       this.frac.hit(b, { kind: 'blast', x: qx, y: qy, dx: d > 0.01 ? (qx - x) / d : 0, dy: d > 0.01 ? (qy - y) / d : 1, e: bd, fire: !!opts.ignite, quiet: opts.source === 'shot' || opts.smoke });
       this.damageBlock(b, bd, opts.source);
       // the fireball does not lick round a wall: a firebrick (or other non-flammable) wall in the way keeps the flames off
-      if (opts.ignite && b.mat.flammable && f > 0.25 && !shielded) this.ignite(b, opts.ignite * 2.5);
+      if (opts.ignite && b.mat.flammable && lin * occ > 0.25 && !shielded) this.ignite(b, opts.ignite * 2.5);
       // burning fuel sprays over neighbouring tanks: they catch even behind pipework, and cook off
       else if (opts.fuelChain && b.mat.volatile) this.ignite(b, 5);
       if (!b.dead) {

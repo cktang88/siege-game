@@ -180,7 +180,8 @@ test('he_masonry', 'he', 'HE: big blast on contact wrecks timber and hurts mason
   const blocks = [{ x: 29, y: 0, w: 1, h: 1.5, mat: 'wood' }, { x: 33, y: 0, w: 1, h: 2, mat: 'stone' }];
   const run = (id) => { L.setup(blocks); L.shoot(id, 31.5, 3, 0, -20); L.step(1); return [L.b(0).dead ? 1 : L.frac(0), L.b(1).dead ? 1 : L.frac(1)]; };
   const he = run('he'), rs = run('shell');
-  return { pass: he[0] >= 1 && he[1] > 0.25 && rs[0] < 0.2 && rs[1] < 0.2, info: `near miss: HE timber ${L.r(he[0] * 100, 0)}% masonry ${L.r(he[1] * 100, 0)}%; round shot ${L.r(rs[0] * 100, 0)}% / ${L.r(rs[1] * 100, 0)}%` };
+  // blast falls off with the square of distance (BALANCE.md, damage pass): 1.5 m off, masonry takes ~15% (it took ~35% under linear falloff)
+  return { pass: he[0] >= 1 && he[1] > 0.1 && rs[0] < 0.2 && rs[1] < 0.2, info: `near miss: HE timber ${L.r(he[0] * 100, 0)}% masonry ${L.r(he[1] * 100, 0)}%; round shot ${L.r(rs[0] * 100, 0)}% / ${L.r(rs[1] * 100, 0)}%` };
 });
 
 test('he_troops', 'he', 'HE kills troops in its blast', () => {
@@ -344,7 +345,8 @@ test('sticky_reactive', 'sticky', 'Sticky charge is too slow to set off reactive
   const p = L.shoot('sticky', 26, 1, 22.5, 0);
   let aliveAtStick = null;
   L.step(4, () => { if (aliveAtStick === null && p.stuck) aliveAtStick = !L.b(0).dead; });
-  return { pass: aliveAtStick === true && L.b(0).dead && L.frac(1) > 0.1, info: `reactive intact on contact: ${aliveAtStick}; broken by charge: ${L.b(0).dead}; behind ${L.r(L.frac(1) * 100, 0)}%` };
+  // the reactive plate soaks most of the charge (occlusion; blast falls off with the square of distance): the masonry behind takes a few per cent
+  return { pass: aliveAtStick === true && L.b(0).dead && L.frac(1) > 0.03, info: `reactive intact on contact: ${aliveAtStick}; broken by charge: ${L.b(0).dead}; behind ${L.r(L.frac(1) * 100, 0)}%` };
 });
 
 test('drill_foundation', 'drill', 'Drill lands short, tunnels forward and blows the foundations from below', () => {

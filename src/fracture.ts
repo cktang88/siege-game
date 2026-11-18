@@ -339,13 +339,15 @@ export class Fracture {
     const D = 1 - b.hp / b.maxHp;
     const worn = (lim: number) => D >= lim * (WORN[b.matId] ?? 1) && f >= 0.08;
     if (cls === 'brittle') {
-      if (k === 'shot' && area >= 0.3 && minDim >= 0.3 && (f >= 0.5 || worn(0.8))) return this.crack(b, dom, f >= 0.75 && area >= 1.1 ? 3 : 2);
+      if (k === 'shot' && area >= 0.3 && minDim >= 0.3 && (f >= 0.4 || worn(0.8))) return this.crack(b, dom, f >= 0.75 && area >= 1.1 ? 3 : 2);
       if (k === 'impact' && f >= 0.45 && area >= 0.4 && s.gen < 2) return this.crack(b, dom, 2);
       if (k === 'apStop' && (dom.cosI ?? 1) >= 0.5 && (f >= 0.4 || worn(0.75)) && area >= 0.4) return this.crack(b, dom, 2);
-      if (k === 'blast' && !dom.fire && (f >= 0.3 || worn(0.8)) && area >= 0.4) return this.shatter(b, dom, 3 + Math.min(3, Math.floor(f * 4)));
+      // a blast shatters only what it nearly destroys; a lesser one cracks a big block in two, and marks the rest
+      if (k === 'blast' && !dom.fire && (f >= 0.6 || worn(0.85)) && area >= 0.4) return this.shatter(b, dom, 3 + Math.min(3, Math.floor((f - 0.3) * 4)));
+      if (k === 'blast' && !dom.fire && f >= 0.35 && area >= 1.1 && minDim >= 0.5) return this.crack(b, dom, 2);
       if (k === 'charge' && f >= 0.2 && area >= 0.3) return this.shatter(b, dom, 4 + Math.min(2, Math.floor(f * 3)));
     } else if (cls === 'timber') {
-      if ((k === 'shot' || k === 'blast' || k === 'charge' || (k === 'impact' && s.gen < 2)) && !dom.fire && (f >= 0.4 || worn(0.6)) && minDim >= 0.25 && area >= 0.25)
+      if ((k === 'shot' || k === 'blast' || k === 'charge' || (k === 'impact' && s.gen < 2)) && !dom.fire && (f >= (k === 'blast' ? 0.5 : 0.4) || worn(0.6)) && minDim >= 0.25 && area >= 0.25)
         return this.splinter(b, dom, f >= 0.7 && minDim >= 0.45 ? 3 : 2);
     } else if (cls === 'steel') {
       // plate tears only under a buried charge (bunker buster, AP bomb, drill)
@@ -425,7 +427,7 @@ export class Fracture {
         this.addGouge(b, h, Math.min(0.2, (h.r ?? 0.2) * 0.7), 0.4 + 0.5 * (1 - (h.cosI ?? 0.5)));
         break;
       case 'blast': {
-        if (h.quiet || fh < 0.04) return;
+        if (h.quiet || fh < 0.015) return;
         const r = Math.min(h.fire ? 1.2 : 1.0, (h.fire ? 0.45 : 0.25) + 0.9 * fh);
         this.addMark(b, h.x, h.y, r, MarkType.SCORCH);
         if (!h.fire && fh >= 0.15) this.addMark(b, h.x, h.y, Math.min(0.4, 0.1 + 0.3 * fh), steel ? MarkType.DENT : MarkType.CRATER);
