@@ -785,10 +785,11 @@ test('mg_infantry', 'mg', 'The machine gun kills unarmoured infantry, but cleari
     L.step(1);
     let t = 99;
     const n = L.mgFire(20, () => { const s = g.soldiers.find((q) => !q.dead); return s && { x: s.x, y: s.y + 0.55 }; }, (i) => { if (g.soldiers.every((q) => q.dead)) { t = i / 60; return true; } return false; });
-    runs.push({ k: g.soldiers.filter((s) => s.dead).length, t, n });
+    // (corpses are taken off the field after ~3.7 s, so count the clear by the stop time)
+    runs.push({ t, n, left: g.soldiers.filter((s) => !s.dead).length });
   }
   const mean = runs.reduce((a, r) => a + r.t, 0) / runs.length;
-  return { pass: runs.every((r) => r.k === 6) && mean >= 1.6 && mean < 12, info: `6/6 killed in ${runs.map((r) => L.r(r.t, 1)).join(', ')} s (${runs.map((r) => r.n).join(', ')} rounds)` };
+  return { pass: runs.every((r) => r.t < 99) && mean >= 1.6 && mean < 12, info: `file of six cleared in ${runs.map((r) => (r.t < 99 ? L.r(r.t, 1) : `not (${r.left} left)`)).join(', ')} s (${runs.map((r) => r.n).join(', ')} rounds)` };
 });
 
 test('mg_engineer', 'mg', 'Engineers are men in the open too', () => {
