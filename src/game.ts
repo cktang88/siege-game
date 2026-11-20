@@ -129,6 +129,8 @@ const FIRE_REACH = 0.4;
 const FIRE_TICK = 0.5;
 /** ignition hazard (per second) for full contact, full face, side-on, still air, timber neighbour */
 const FIRE_RATE = 0.11;
+/** velocity change (m/s) in one step below which a knock does no damage (a fall of about 0.5 m) */
+const IMPACT_DV = 3.2;
 export interface BlastOpts { fuelChain?: boolean; flak?: boolean; bonus?: Partial<Record<MatId, number>>; ignite?: number; enemy?: boolean; under?: boolean; push?: number; visual?: number; smoke?: boolean; source?: string }
 
 export type GameEvent =
@@ -1680,8 +1682,8 @@ export class Game {
       const v = b.body.linvel();
       if (settle && !b.body.isSleeping()) {
         const dv = Math.hypot(v.x - b.lastVel.x, v.y - b.lastVel.y);
-        if (dv > 4.5 && !this.frac.inGrace(b)) {
-          const id = Math.pow(dv - 4.5, 1.5) * 3 * b.mat.kinetic;
+        if (dv > IMPACT_DV && !this.frac.inGrace(b)) {
+          const id = this.impactDamage(b, dv);
           const t = b.body.translation();
           this.frac.hit(b, { kind: 'impact', x: t.x, y: t.y, dx: (v.x - b.lastVel.x) / dv, dy: (v.y - b.lastVel.y) / dv, e: id });
           this.damageBlock(b, id, 'impact');
@@ -2259,6 +2261,21 @@ export class Game {
       if (hit) return true;
     }
     return false;
+  }
+
+  /**
+    Knocks from falls and collisions, by the sudden change of velocity (a fall of h metres lands at about
+    sqrt(2gh): 1 m ≈ 4.4 m/s, 3 m ≈ 7.7, 5 m ≈ 9.9). Ordinary blocks take minor damage, at most 30% of
+    their strength per knock (a 2 m drop chips masonry ~5%, a 5 m one ~20%). Objectives are the soft
+    contents of a work and take four times as much with no cap (an HQ dropped a storey is badly hurt, two
+    storeys wrecks it); a munitions store six times (a stack of powder dropped 3 m goes up).
+  */
+  impactDamage(b: Block, dv: number) {
+    let d = Math.pow(dv - IMPACT_DV, 1.5) * 2.4 * b.mat.kinetic;
+    if (b.target === 'ammo') d *= 6;
+    else if (b.target) d *= 4;
+    else d = Math.min(d, b.maxHp * 0.3);
+    return d;
   }
 
   /** enemy infantry or vehicles close to the player's gun: their own artillery won't fire on them */

@@ -886,6 +886,22 @@ test('mg_cannon_reload', 'mg', 'The cannon keeps reloading while the machine gun
   return { pass: Math.abs(g.reload - 2) < 0.05 && g.mg.fired > 3, info: `cannon reload 3.0 → ${L.r(g.reload, 2)} s over 1 s of MG fire (${g.mg.fired} rounds)` };
 });
 
+test('fall_damage', 'shell', 'Falls hurt: ordinary blocks take minor damage growing with height (capped), objectives much more, a munitions store dropped a storey goes up', () => {
+  const L = window.__lab; const out = {};
+  const drop = (mat, target, h) => {
+    L.setup([{ x: 30, y: 0, w: 1.2, h: 1, mat, target }]);
+    // (the loader seats blocks on what is under them: lift this one to the drop height after loading)
+    const bl = L.b(0); bl.body.setTranslation({ x: 30.6, y: h + 0.5 }, true); bl.body.setLinvel({ x: 0, y: 0 }, true); bl.body.wakeUp(); bl.lastVel = { x: 0, y: 0 };
+    L.step(2.5);
+    return L.b(0).dead ? 1 : L.frac(0);
+  };
+  for (const [k, mat, target] of [['stone', 'stone', undefined], ['wood', 'wood', undefined], ['hq', 'stone', 'command'], ['ammo', 'crate', 'ammo']]) out[k] = [1, 3, 5].map((h) => drop(mat, target, h));
+  const pct = (a) => a.map((v) => (v === 1 ? 'gone' : Math.round(v * 100) + '%')).join('/');
+  const pass = out.stone[0] < 0.08 && out.stone[2] > out.stone[1] && out.stone[2] <= 0.31 && out.wood[2] <= 0.31
+    && out.hq[1] > out.stone[1] * 2.5 && out.hq[2] > 0.3 && out.ammo[1] === 1;
+  return { pass, info: `1/3/5 m drops: stone ${pct(out.stone)}, timber ${pct(out.wood)}, HQ ${pct(out.hq)}, munitions ${pct(out.ammo)}` };
+});
+
 // ───────────────────────── runner ─────────────────────────
 module.exports = { installLab };
 if (require.main === module) (async () => {
