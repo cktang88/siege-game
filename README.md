@@ -195,4 +195,6 @@ OPENROUTER_API_KEY=... node scripts/gen-ui.mjs [name ...]        # UI art → pu
 python3 scripts/process-ui.py                                    # border-sampled flood-fill key, despill → public/ui/
 ```
 
+Objective blocks wear a picture of what they are on their face (`public/sprites/obj_*.png`, modern and medieval variants picked by the castle's era): a command post's map table, a munitions store's crates and shells or powder kegs and round shot, the engineers' workbench and hoist, barracks bunks and weapon racks, the flak gun (or a springald) and the motor pool's drums and tyres. The picture fits inside the block above its floor line, in a frame of the target colour, and rides, burns, topples and leaves with the block; a walled-up room hides it (`src/objgfx.ts`). Generate candidates with `name@tag` (`node scripts/gen-sprites.mjs obj_hq_mod@b`), copy the one you keep over `raw/name.png`, then `python3 scripts/process-sprites.py obj_hq_mod`.
+
 Blocks, terrain, particles, debris and soldier legs are drawn procedurally. Research notes and sources are in `docs/RESEARCH.md`.
