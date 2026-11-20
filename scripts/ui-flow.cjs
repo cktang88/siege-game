@@ -488,10 +488,14 @@ const sections = {
       return all.length;
     });
     // two at once (a chain), then the rest one by one through the frame loop's 'target' events
-    await ev(page, () => { const g = window.siege.game; g.destroyBlock(window.__kill[0]); if (window.__kill.length > 2) g.destroyBlock(window.__kill[1]); });
-    await page.waitForFunction(() => document.querySelector('#objplate.swell'), null, { timeout: 15000 }).catch(() => {});
-    const mid = await ev(page, async () => ({ log: [...(await window.__mod('hud.ts')).objectiveFxLog], fresh: document.querySelectorAll('#objectives li.fresh, #objectives li.part').length }));
-    check('objectives: a kill swells the plate and plays its row', mid.log.length >= 1 && mid.fresh === 1, JSON.stringify(mid));
+    // (read in the same task as the kills: at software-GL frame rates the first moment can be over before the next call)
+    const mid = await ev(page, async () => {
+      const g = window.siege.game, hud = await window.__mod('hud.ts');
+      g.destroyBlock(window.__kill[0]); if (window.__kill.length > 2) g.destroyBlock(window.__kill[1]);
+      hud.updateObjectives();
+      return { log: [...hud.objectiveFxLog], fresh: document.querySelectorAll('#objectives li.fresh, #objectives li.part').length, swell: !!document.querySelector('#objplate.swell') };
+    });
+    check('objectives: a kill swells the plate and plays its row', mid.log.length >= 1 && mid.fresh === 1 && mid.swell, JSON.stringify(mid));
     check('objectives: two kills at once are queued, not played together', mid.log.length === 1, JSON.stringify(mid.log));
     await ev(page, () => { const g = window.siege.game; for (const b of window.__kill.slice(2)) g.destroyBlock(b); });
     const t0 = Date.now();
