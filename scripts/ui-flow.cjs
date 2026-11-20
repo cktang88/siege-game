@@ -7,8 +7,8 @@
     BASE=http://127.0.0.1:5198 node scripts/ui-flow.cjs [sections,comma,separated]
     SHOTS=/some/dir BASE=... node scripts/ui-flow.cjs shots
 
-  Sections: fresh research armory battle rewards campaign saves storage settings dev picker input
-            resize leaks audio shots (default: all)
+  Sections: fresh research armory battle objectives rewards campaign saves storage settings dev picker
+            input resize leaks audio shots (default: all)
   Needs playwright (npm i -D playwright, or a global install).
 */
 let chromium;
@@ -93,8 +93,11 @@ async function startOp(page, nodeId, cart) {
     const { AMMO_BY_ID } = await window.__mod('config.ts');
     const cost = Object.entries(cart).reduce((s, [k, n]) => s + AMMO_BY_ID[k].price * n, 0);
     startBattle(cart, cost, 2000);
+    (await window.__mod('hud.ts')).dismissBriefing(true);
   }, [nodeId, cart]);
 }
+/** put the orders card away at once (a battle started through the UI opens on it) */
+const noBrief = (page) => ev(page, async () => (await window.__mod('hud.ts')).dismissBriefing(true));
 async function winOp(page, nodeId, slow = false) {
   await startOp(page, nodeId, { shell: 3 });
   if (slow) await ev(page, () => { window.siege.game.battleTime = 900; });
@@ -315,6 +318,9 @@ const sections = {
     await page.click('.munition button[data-a="shell"][data-d="1"]');
     await page.click('#deploy');
     check('battle: Deploy starts the battle', (await mode(page)) === 'battle');
+    check('battle: the battle opens on the orders card, held', await ev(page, () => !!document.querySelector('#brief') && window.siege.paused));
+    await page.keyboard.press('Space');
+    check('battle: Space puts the orders card away without firing', await ev(page, () => !window.siege.paused && window.siege.game.inventory.shell === 2));
     const hud = await ev(page, () => ({
       labels: document.querySelectorAll('#labels .tlabel').length,
       targets: window.siege.game.blocks.filter((b) => b.target).length,
@@ -384,6 +390,7 @@ const sections = {
     check('battle: Retry returns to the armory with the same cart', re.mode === 'armory' && re.cart.shell === 2, JSON.stringify(re.cart));
     check('battle: no stale target labels over the armory', re.labels === 0, `${re.labels} labels`);
     await page.click('#deploy');
+    await noBrief(page);
     // pause during the win countdown: Withdraw there must not turn a win into a defeat
     await knockOut(page, 1);
     await ev(page, () => { const g = window.siege.game; for (let i = 0; i < 10; i++) g.update(1 / 60); });
@@ -395,6 +402,124 @@ const sections = {
     await waitReport(page);
     check('battle: Withdraw in the pause menu cannot undo a win', (await page.textContent('.aar')).includes('Accomplished'));
     noErrors(page, 'battle');
+    await close(page);
+  },
+
+  async objectives() {
+    const page = await open();
+    const hudMod = () => window.__mod('hud.ts');
+    const state = () => ev(page, async () => ({ brief: !!document.querySelector('#brief:not(.leaving)'), paused: window.siege.paused, t: window.siege.game.time, bt: window.siege.game.battleTime, menu: !!document.querySelector('#pause'), mode: window.siege.mode }));
+    const deploy = async () => {
+      await ev(page, async () => { const S = window.siege; S.nodeId = 'outpost'; S.cart = { shell: 3 }; (await window.__mod('screens.ts')).showArmory((await window.__mod('campaign.ts')).NODE_BY_ID.outpost.level(), true); });
+      await page.click('#deploy');
+    };
+    // the card is up at the start, and the battle is held behind it
+    await deploy();
+    const s0 = await state();
+    const card = await ev(page, () => ({ name: document.querySelector('#brief h2')?.textContent, rows: document.querySelectorAll('#brief .bobj li').length, prim: document.querySelectorAll('#brief .bsec:not(.opt) .bobj li').length, par: /Par/.test(document.querySelector('#brief .bhead')?.textContent || ''), plateHidden: getComputedStyle(document.querySelector('#objplate')).visibility === 'hidden', obj: window.siege.game.level.objectives.length, kinds: Object.keys(window.siege.game.targetsTotal).length }));
+    check('objectives: the orders card is up when the battle starts', s0.brief && s0.paused && s0.mode === 'battle', JSON.stringify(s0));
+    check('objectives: the card names the operation, par and every objective (primaries first)', card.name === 'Outpost Varn' && card.par && card.rows === card.kinds && card.prim === card.obj, JSON.stringify(card));
+    check('objectives: the plate is hidden behind the card', card.plateHidden);
+    await page.waitForTimeout(1500);
+    const s1 = await state();
+    check('objectives: the battle clock and enemy timers are held while the card is up', s1.t === s0.t && s1.bt === 0, `${s0.t} -> ${s1.t}`);
+    // the camera measures the plate (where the card goes), not the card
+    const cam = await ev(page, () => { const g = window.siege.game; g.cam.measure?.(true); const r = document.querySelector('#hud-left').getBoundingClientRect(); return { tops: g.cam.tops.map((t) => Math.round(t.right - t.left)), plate: Math.round(r.width) }; });
+    check('objectives: the camera measures the plate, not the card', cam.tops.includes(cam.plate) && cam.tops.every((w) => w < 560), JSON.stringify(cam));
+    // Esc puts it away (and does not open the pause menu)
+    await page.keyboard.press('Escape');
+    const s2 = await state();
+    check('objectives: Esc puts the card away without opening the pause menu', !s2.brief && !s2.paused && !s2.menu, JSON.stringify(s2));
+    await page.waitForTimeout(1500);
+    const s3 = await state();
+    check('objectives: the battle runs once the card is away', s3.t > s2.t);
+    check('objectives: the card has flown into the plate and is gone', await ev(page, () => !document.querySelector('#brief') && getComputedStyle(document.querySelector('#objplate')).visibility === 'visible' && document.querySelector('#objplate').getAnimations().length === 0));
+    // a click (anywhere: on the card or the dimmed field) puts it away too
+    await ev(page, () => window.siege.game.end(false, 't'));
+    await waitReport(page);
+    await deploy();
+    await page.mouse.click(30, 300);
+    check('objectives: a click puts the card away (and does not fire)', await ev(page, () => !window.siege.paused && !document.querySelector('#brief:not(.leaving)') && window.siege.game.inventory.shell === 3));
+    // Enter
+    await ev(page, () => window.siege.game.end(false, 't'));
+    await waitReport(page);
+    await deploy();
+    await page.keyboard.press('Enter');
+    check('objectives: Enter puts the card away', await ev(page, () => !window.siege.paused && !document.querySelector('#brief:not(.leaving)')));
+    // left alone, it goes by itself after about 6 s
+    await ev(page, () => window.siege.game.end(false, 't'));
+    await waitReport(page);
+    await deploy();
+    check('objectives: the card shows its countdown', await ev(page, () => !!document.querySelector('#brief .bclock i')));
+    await page.waitForTimeout(4500);
+    check('objectives: the card is still up after 4.5 s', (await state()).brief);
+    await page.waitForFunction(() => !window.siege.paused, null, { timeout: 8000 }).catch(() => {});
+    check('objectives: the card goes by itself after about 6 s', !(await state()).paused);
+    // the pause menu cannot open over the card
+    await ev(page, () => window.siege.game.end(false, 't'));
+    await waitReport(page);
+    await deploy();
+    await ev(page, async () => (await window.__mod('hud.ts')).togglePause(true));
+    check('objectives: the Menu cannot open over the card', !(await state()).menu);
+    // the battle ending under the card (a test, a cook-off) takes the card away and lets the report run
+    await knockOut(page, 1);
+    await settle(page);
+    await waitReport(page);
+    check('objectives: a battle ending under the card clears it', await ev(page, () => !document.querySelector('#brief') && !window.siege.paused));
+    // completion moments: one per target destroyed, played in turn, never repeated
+    await page.click('#tomap').catch(() => {});
+    await deploy();
+    await page.keyboard.press('Space');
+    const look = await ev(page, () => {
+      const g = window.siege.game; g.pan = 0;
+      const li = [...document.querySelectorAll('#objectives li')].find((l) => !l.classList.contains('done') && !l.querySelector('.label'));
+      li?.click();
+      return { k: li?.dataset.k, pan: g.pan };
+    });
+    check('objectives: clicking a row looks at that objective', look.k && look.pan !== 0, JSON.stringify(look));
+    const n = await ev(page, () => {
+      const g = window.siege.game;
+      // (the enemy is held still, so nothing else ends the battle meanwhile)
+      g.artT = g.barT = g.repT = g.rebT = 999;
+      const all = g.blocks.filter((b) => !b.dead && b.target);
+      // secondaries first, then the primaries: the win only comes with the last one
+      all.sort((a, b) => +g.level.objectives.includes(a.target) - +g.level.objectives.includes(b.target));
+      window.__kill = all;
+      return all.length;
+    });
+    // two at once (a chain), then the rest one by one through the frame loop's 'target' events
+    await ev(page, () => { const g = window.siege.game; g.destroyBlock(window.__kill[0]); if (window.__kill.length > 2) g.destroyBlock(window.__kill[1]); });
+    await page.waitForFunction(() => document.querySelector('#objplate.swell'), null, { timeout: 15000 }).catch(() => {});
+    const mid = await ev(page, async () => ({ log: [...(await window.__mod('hud.ts')).objectiveFxLog], fresh: document.querySelectorAll('#objectives li.fresh, #objectives li.part').length }));
+    check('objectives: a kill swells the plate and plays its row', mid.log.length >= 1 && mid.fresh === 1, JSON.stringify(mid));
+    check('objectives: two kills at once are queued, not played together', mid.log.length === 1, JSON.stringify(mid.log));
+    await ev(page, () => { const g = window.siege.game; for (const b of window.__kill.slice(2)) g.destroyBlock(b); });
+    const t0 = Date.now();
+    let fx = [];
+    while (Date.now() - t0 < 40000) {
+      fx = await ev(page, async () => [...(await window.__mod('hud.ts')).objectiveFxLog]);
+      if (fx.filter((e) => e !== 'all-primary').length >= n && fx.includes('all-primary')) break;
+      await page.waitForTimeout(500);
+    }
+    const kills = fx.filter((e) => e !== 'all-primary');
+    check('objectives: one completion moment per target destroyed', kills.length === n, `${kills.length}/${n}: ${fx.join(',')}`);
+    check('objectives: no moment played twice', new Set(kills).size === kills.length, fx.join(','));
+    check('objectives: the last primary brings the "all primary objectives destroyed" banner, once', fx.filter((e) => e === 'all-primary').length === 1 && fx[fx.length - 1] === 'all-primary', fx.join(','));
+    // re-reading the objectives (another 'target' event) plays nothing again
+    await ev(page, async () => (await window.__mod('hud.ts')).updateObjectives());
+    await page.waitForTimeout(300);
+    check('objectives: a repeated update plays nothing again', (await ev(page, async () => (await window.__mod('hud.ts')).objectiveFxLog.length)) === fx.length);
+    const rows = await ev(page, () => ({ done: document.querySelectorAll('#objectives li.done').length, ticks: document.querySelectorAll('#objectives li.done .tick').length, all: document.querySelectorAll('#objectives li').length }));
+    check('objectives: every row is struck through and stamped', rows.done === rows.all && rows.ticks === rows.all, JSON.stringify(rows));
+    await page.waitForFunction(() => !document.querySelector('#objplate.swell') || window.siege.mode !== 'battle', null, { timeout: 8000 }).catch(() => {});
+    check('objectives: the plate settles back after the moments', await ev(page, () => !document.querySelector('#objplate.swell')));
+    // the setting skips the card
+    await settle(page);
+    await waitReport(page).catch(() => {});
+    await ev(page, async () => (await window.__mod('settings.ts')).setSetting('briefCard', false));
+    await deploy();
+    check('objectives: with the orders card set to skip, the battle starts at once', await ev(page, () => !document.querySelector('#brief') && !window.siege.paused && getComputedStyle(document.querySelector('#objplate')).visibility === 'visible'));
+    noErrors(page, 'objectives');
     await close(page);
   },
 
@@ -610,6 +735,7 @@ const sections = {
     await page.click('#plan');
     check('dev: sandbox rack: Deploy enabled with nothing bought', !(await page.$eval('#deploy', (b) => b.disabled)));
     await page.click('#deploy');
+    await noBrief(page);
     const inv = await ev(page, () => ({ unl: window.siege.game.dev.unlimited, n: Object.keys(window.siege.game.inventory).length, panel: !!document.querySelector('#devpanel') }));
     check('dev: sandbox battle issues every munition, unlimited, with the dev panel', inv.unl && inv.n >= 15 && inv.panel, JSON.stringify(inv));
     // switch on god mode, freeze, instant reload, slow-mo: these must not leak into a scored battle
@@ -637,6 +763,7 @@ const sections = {
     await page.click('#plan');
     await page.click('.munition button[data-a="shell"][data-d="1"]');
     await page.click('#deploy');
+    await noBrief(page);
     const leak = await ev(page, () => ({ ...window.siege.game.dev, timeScale: window.siege.timeScale, devBattle: window.siege.devBattle, panel: !!document.querySelector('#devpanel') }));
     check('dev: dev switches do not carry into a scored battle', !leak.god && !leak.freeze && !leak.instantReload && !leak.unlimited && !leak.devBattle && !leak.panel, JSON.stringify(leak));
     await ev(page, () => window.siege.game.end(false, 't'));
@@ -814,6 +941,7 @@ const sections = {
         S.nodeId = 'kestrel'; showArmory(NODE_BY_ID.kestrel.level());
         const { startBattle } = await window.__mod('hud.ts');
         if (dev) startBattle({ shell: 1 }, 0, 0, true); else startBattle({ shell: 4, he: 3, canister: 2, flak: 2, smoke: 1 }, 100, 2000);
+        (await window.__mod('hud.ts')).dismissBriefing(true);
       }, dev);
       for (const [w, h] of sizes) {
         await page.setViewportSize({ width: w, height: h });
@@ -935,6 +1063,12 @@ const sections = {
           await shot(page, `${name}-${tag}`);
         }
         await page.click('#deploy');
+        await page.waitForTimeout(800);
+        const lc = await layoutProblems(page, ['#brief .bcard']);
+        const ofc = await overflowing(page, '#brief');
+        check(`shots: orders card at ${tag}: on screen, no clipped text`, lc.length === 0 && ofc.length === 0 && (await ev(page, () => !!document.querySelector('#brief'))), [...lc, ...ofc].join('; '));
+        await shot(page, `brief-${tag}`);
+        await page.keyboard.press('Enter');
         await page.waitForTimeout(1500);
         const lp = await layoutProblems(page, ['#hud-left', '#hud-right', '#rack', '#fcp', '#minimap', '#help', '#coach']);
         check(`shots: battle at ${tag}: HUD plates clear of each other`, lp.length === 0, lp.join('; '));
@@ -960,6 +1094,7 @@ const sections = {
         await shot(page, `picker-${tag}`);
         await page.click('#pk-go');
         await page.click('#deploy');
+        await noBrief(page);
         await page.waitForTimeout(1500);
         const ld = await layoutProblems(page, ['#hud-left', '#hud-right', '#rack', '#fcp', '#minimap', '#devpanel', '#help']);
         check(`shots: dev battle at ${tag}: HUD plates clear of each other`, ld.length === 0, ld.join('; '));

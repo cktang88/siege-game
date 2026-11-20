@@ -38,6 +38,7 @@ function installLab() {
     const inv = {};
     for (const a of L.cfg.SHOP_AMMO()) inv[a.id] = 99;
     L.hud.startBattle(inv, 0, 999999);
+    L.hud.dismissBriefing(true);
     S.mode = 'map'; // the page's own frame loop stops stepping the battle: the lab steps it
     const g = S.game;
     g.wind = 0;
