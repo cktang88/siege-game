@@ -44,8 +44,8 @@ export const SOUNDS = {
   win: [tone('square', [523, 523], 160, 0.06), tone('square', [659, 659], 160, 0.06, 170), tone('square', [784, 784], 160, 0.06, 340), tone('square', [1046, 1046], 700, 0.07, 510)],
   shovel: [noise('bandpass', [1600, 1100], 120, 0.18, 1.5), noise('bandpass', [1300, 900], 100, 0.14, 1.5, 180)],
   // the machine-gun post (src/mg.ts): a short hard crack with a little chest per round, so a burst reads as a stutter
-  mgShot: [snap(5500, 0.45), crack(2100, 55, 0.5), thump(130, 70, 0.35), noise('lowpass', [2600, 500], 120, 0.12)],
-  ribShot: [snap(4200, 0.5), crack(1300, 120, 0.55), thump(110, 200, 0.5), noise('lowpass', [1800, 200], 500, 0.25)],
+  mgShot: [snap(5000, 0.55), crack(1700, 90, 0.85), noise('bandpass', [750, 260], 150, 0.6, 0.9), thump(115, 160, 0.8), tone('sine', [88, 44], 200, 0.6, 0, 3), noise('lowpass', [1400, 160], 480, 0.3, 1, 40, 30)],
+  ribShot: [snap(3800, 0.45), crack(1100, 150, 0.8), noise('bandpass', [600, 200], 220, 0.55, 0.9), thump(95, 280, 0.85), tone('sine', [72, 34], 450, 0.7, 0, 5), noise('lowpass', [1000, 90], 1000, 0.4, 1.1, 40, 40)],
   mgBelt: [tone('square', [900, 860], 30, 0.05), noise('bandpass', [2400, 1800], 60, 0.25, 2), noise('bandpass', [1800, 1400], 80, 0.22, 2, 260), tone('triangle', [700, 680], 60, 0.08, 280)],
   mgHiss: [noise('highpass', [3500, 2500], 1400, 0.18, 0.7, 0, 120), noise('bandpass', [5000, 4000], 900, 0.08, 1, 200)],
 } satisfies Record<string, Layer[]>;
@@ -60,7 +60,7 @@ const CAP = 56;
   what lets a laptop speaker or earbuds (little below ~80 Hz) still hear it as a deep boom rather than
   a pop. The gain going in sets how hard it drives.
 */
-const DRIVE: Partial<Record<SoundId, number>> = { blastBig: 3.2, blast: 2.6, blastSmall: 1.8, cannon: 1.6, enemyGun: 1.5, flak: 1.4 };
+const DRIVE: Partial<Record<SoundId, number>> = { mgShot: 2.2, ribShot: 2.4, blastBig: 3.2, blast: 2.6, blastSmall: 1.8, cannon: 1.6, enemyGun: 1.5, flak: 1.4 };
 /** music bus gain at full music volume (the default 0.6 gives the original 0.32) */
 const MUSIC_LEVEL = 0.53;
 

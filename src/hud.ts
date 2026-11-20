@@ -112,7 +112,7 @@ export function requestWithdraw() {
 
 export function helpText() {
   const aim = SET.aimDistance ? 'mouse aims · distance from gun = velocity · shift holds velocity · wheel trims' : 'mouse sets elevation · wheel sets velocity';
-  return `${aim} · click fires · alt+↑↓ elevation · alt+←→ velocity · space fire · 1-9 munitions · G / Tab machine gun (hold to fire, B belt) · WASD / arrows scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute · Esc menu${S.save.dev ? ' · ` dev panel' : ''}`;
+  return `${aim} · click fires · alt+↑↓ elevation · alt+←→ velocity · space fire · 1-9 munitions · G / Tab machine gun (hold to fire, B reload) · WASD / arrows scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute · Esc menu${S.save.dev ? ' · ` dev panel' : ''}`;
 }
 
 // ───────────────────────── pause menu ─────────────────────────
@@ -293,7 +293,7 @@ function buildFcp() {
         <div class="opt"><span class="label">Elevation</span><span class="readout" id="mg-ang" style="grid-column: span 2"></span></div>
       </div>
       <div class="hint">Point and hold the mouse (or Space) to fire. Kills men in the open and engineers; shields stop it from the front until they break; it only sparks off armour. ${m.modern ? 'Bursts keep the jacket from boiling.' : 'All eight barrels, then a long reload.'} The cannon keeps reloading meanwhile.</div>
-      <div class="firerow"><span class="mini" id="fcp-mini"></span><button class="btn firebtn" id="mgstate" disabled>Ready</button><button class="btn ghost small" id="mgreload" title="B: ${m.modern ? 'change the belt now' : 'reload the barrels now'}">${m.modern ? 'Belt' : 'Reload'} <i>B</i></button></div>`;
+      <div class="firerow"><span class="mini" id="fcp-mini"></span><button class="btn firebtn" id="mgstate" disabled>Ready</button><button class="btn ghost small" id="mgreload" title="B: ${m.modern ? 'load a fresh strip now' : 'reload the barrels now'}">Reload <i>B</i></button></div>`;
   } else if (a.mode === 'airstrike') {
     const types = st.bombTypes;
     html += `<div class="opts">

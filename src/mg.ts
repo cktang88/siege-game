@@ -11,7 +11,7 @@ import { makeSprite } from './render';
   meanwhile, but while you work the gun you are not laying the cannon: it costs time, not money.
 
   Era: modern levels mount a water-cooled Vickers-type gun on a tripod behind sandbags: 9 rounds/s, a
-  100-round belt and a 5 s belt change, and a jacket that boils after ~7 s of continuous fire (it locks
+  30-round strip and a 3.5 s reload (strip-fed, like the Hotchkiss), and a jacket that boils after ~7 s of continuous fire (it locks
   until it has cooled to 35%; heat also opens the cone). Medieval levels mount a ribauldequin, the
   14th-15th-century "organ gun" of small iron barrels on one bed, behind gabions and a mantlet: it
   ripples its 8 barrels at 6/s and then takes 6 s to reload them all; no overheating, a wider cone.
@@ -27,8 +27,8 @@ import { makeSprite } from './render';
 
 interface Spec { rate: number; mag: number; reload: number; heatPer: number; cool: number; spread: number; speed: number; range: number; len: number; h: number; pivot: number; sprite: string; nest: string; nestH: number; name: string; magName: string }
 const SPECS: Record<'modern' | 'medieval', Spec> = {
-  modern: { rate: 7, mag: 100, reload: 5, heatPer: 0.02, cool: 0.2, spread: 2.6, speed: 160, range: 75, len: 1.9, h: 0.5, pivot: 0.3, sprite: 'mg_gun', nest: 'mg_nest', nestH: 0.95, name: 'MG', magName: 'Belt' },
-  medieval: { rate: 6, mag: 8, reload: 6, heatPer: 0, cool: 1, spread: 3.5, speed: 120, range: 60, len: 1.9, h: 0.6, pivot: 0.42, sprite: 'rib_gun', nest: 'mg_mantlet', nestH: 1.15, name: 'MG', magName: 'Barrels' },
+  modern: { rate: 7, mag: 30, reload: 3.5, heatPer: 0.028, cool: 0.11, spread: 1.1, speed: 160, range: 75, len: 1.9, h: 0.5, pivot: 0.3, sprite: 'mg_gun', nest: 'mg_nest', nestH: 0.95, name: 'MG', magName: 'Strip' },
+  medieval: { rate: 6, mag: 8, reload: 6, heatPer: 0, cool: 1, spread: 1.8, speed: 120, range: 60, len: 1.9, h: 0.6, pivot: 0.42, sprite: 'rib_gun', nest: 'mg_mantlet', nestH: 1.15, name: 'MG', magName: 'Barrels' },
 };
 /** damage per round to aircraft */
 export const MG_AIR = { gyro: 1.5, airship: 0.12 };
@@ -38,8 +38,8 @@ const RECOVER = 0.35;
 const MIN_DEG = -35, MAX_DEG = 70;
 
 interface Bullet { x: number; y: number; vx: number; vy: number; left: number; bright: boolean }
-/** share of rounds striking a man in the open that put him down (the rest graze him and he drops flat) */
-export const MG_LETHAL = 0.35;
+/** rounds it takes to put a man in the open down: the first wounds him (he drops flat), the second kills */
+export const MG_HITS = 2;
 const MAX_BULLETS = 96;
 
 export class MachineGun {
@@ -60,6 +60,8 @@ export class MachineGun {
   private group: THREE.Group | null = null;
   private gun: THREE.Group | null = null;
   private pin = new Map<Soldier, number>();
+  /** rounds each man has taken */
+  private wounds = new Map<Soldier, number>();
   private toldArmour = false;
   private steamT = 0;
   private streaks: THREE.InstancedMesh | null = null;
@@ -80,7 +82,7 @@ export class MachineGun {
     this.spec = g.level.era === 'medieval' ? SPECS.medieval : SPECS.modern;
     this.active = false; this.trigger = false; this.heat = 0; this.overheated = false;
     this.rounds = this.spec.mag; this.reloadT = 0; this.shotT = 0; this.angle = -0.15;
-    this.bullets = []; this.pin.clear(); this.fired = 0; this.kills = 0; this.toldArmour = false;
+    this.bullets = []; this.pin.clear(); this.wounds.clear(); this.fired = 0; this.kills = 0; this.toldArmour = false;
     const s = this.spec;
     const gy = g.groundY(this.x);
     this.group = new THREE.Group();
@@ -137,7 +139,7 @@ export class MachineGun {
   /** can a round go now (gun alive, battle on, ammo up, not cooling or reloading) */
   get ready() { const g = this.g; return g.running && !g.ended && g.cannonHp > 0 && this.reloadT <= 0 && !this.overheated && this.rounds > 0; }
   get state(): string {
-    if (this.reloadT > 0) return `${this.modern ? 'Changing belt' : 'Reloading barrels'} ${this.reloadT.toFixed(1)}s`;
+    if (this.reloadT > 0) return `${this.modern ? 'Loading strip' : 'Reloading barrels'} ${this.reloadT.toFixed(1)}s`;
     if (this.overheated) return 'Overheated: cooling';
     if (this.trigger && this.ready) return 'Firing';
     return 'Ready';
@@ -177,13 +179,14 @@ export class MachineGun {
       }
     }
     for (const p of this.pin.keys()) if (p.dead) this.pin.delete(p);
+    for (const p of this.wounds.keys()) if (p.dead) this.wounds.delete(p);
     this.stepBullets(dt);
   }
 
   private shoot() {
     const g = this.g, s = this.spec;
     const m = this.muzzle;
-    const sd = ((s.spread + this.heat * 1.2) * Math.PI) / 180;
+    const sd = ((s.spread + this.heat * 1.4) * Math.PI) / 180;
     const an = this.angle + (Math.random() + Math.random() + Math.random() - 1.5) * sd;
     const sp = s.speed * (0.96 + Math.random() * 0.08);
     const bright = this.fired % 3 === 0;
@@ -197,7 +200,7 @@ export class MachineGun {
     // spent cases (modern) or wadding smoke (medieval)
     if (this.modern) g.r.debris.spawn(this.pivot.x, this.pivot.y, -1 - Math.random() * 1.5, 2 + Math.random() * 2, 0.04, new THREE.Color(0.75, 0.6, 0.25));
     else g.r.smoke.spawn({ x: m.x, y: m.y, vx: b.vx * 0.02, vy: 0.4, max: 1.4, size0: 0.2, size1: 1.1, c0: [0.7, 0.68, 0.64], c1: [0.8, 0.78, 0.75], a0: 0.55, a1: 0, drag: 1.2 });
-    audio.play(this.modern ? 'mgShot' : 'ribShot', m.x, this.modern ? 0.55 : 0.7);
+    audio.play(this.modern ? 'mgShot' : 'ribShot', m.x, this.modern ? 0.8 : 0.9);
     if (this.rounds <= 0) this.reload();
   }
 
@@ -247,12 +250,18 @@ export class MachineGun {
         if (s.dead || Math.abs(x - s.x) > 1.3) continue;
         const prone = this.pin.has(s);
         const top = s.y + (prone ? 0.75 : 1.4);
-        if (Math.abs(x - s.x) < 0.28 && y > s.y - 0.05 && y < top) {
+        if (Math.abs(x - s.x) < 0.36 && y > s.y - 0.05 && y < top) {
           const had = s.shield > 0;
-          // a graze: he drops flat (a shield in the way still takes the round)
+          // a shield facing the gun takes the round; otherwise every hit tells: a puff where it struck, the
+          // first round drops him wounded, the second kills
           const blocked = had && b.vx > 0 && -b.vy < b.vx * 1.2;
-          if (!blocked && Math.random() > MG_LETHAL) { this.pin.set(s, 1.5 + Math.random()); return false; }
-          if (g.shotSoldier(s, b.vx, b.vy, MG_SHIELD)) { this.kills++; return false; }
+          if (!blocked) {
+            const n = (this.wounds.get(s) ?? 0) + 1;
+            this.wounds.set(s, n);
+            g.r.smoke.spawn({ x, y, vx: b.vx * 0.01, vy: 0.4, max: 0.35, size0: 0.12, size1: 0.35, c0: [0.55, 0.12, 0.1], c1: [0.4, 0.32, 0.28], a0: 0.9, a1: 0, drag: 2 });
+            if (n < MG_HITS) { this.pin.set(s, 1.8 + Math.random() * 0.6); audio.play('thud', x, 0.35, 1.6); return false; }
+          }
+          if (g.shotSoldier(s, b.vx, b.vy, MG_SHIELD)) { this.kills++; this.wounds.delete(s); return false; }
           // a shield took it (the shield's own sparks and clang)
           if (had) return false;
         }
@@ -274,7 +283,8 @@ export class MachineGun {
       if (y < g.groundY(x)) { this.dust(x, g.groundY(x), [0.5, 0.42, 0.32]); return false; }
       if (i % 2 === 0 || i === n) {
         const blk = g.pickBlock(x, y);
-        if (blk) {
+        // loose rubble lying about the field doesn't soak up aimed fire: rounds pass over/through it
+        if (blk && !g.frac.isRubble(blk)) {
           if (!blk.mat.indestructible) g.frac.addMark(blk, x, y, 0.03, MarkType.POCK);
           g.sparks(x, y, 1);
           this.dust(x, y, [0.55, 0.52, 0.48]);

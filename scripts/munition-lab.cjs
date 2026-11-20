@@ -864,7 +864,7 @@ test('mg_air', 'mg', 'Machine-gun fire hurts a gyrocopter a little and an airshi
   return { pass: gyro > 0.1 && ship < 0.05, info: `gyrocopter lost ${L.r(gyro * 100, 0)}% in ${n1} rounds, airship ${L.r(ship * 100, 1)}% in ${n2}` };
 });
 
-test('mg_overheat', 'mg', 'Continuous fire boils the jacket: the gun locks until it cools, then fires again; an empty belt is changed', () => {
+test('mg_overheat', 'mg', 'Continuous fire boils the jacket: the gun locks until it cools, then fires again; an empty strip is reloaded', () => {
   const L = window.__lab; const g = L.setup([]);
   const m = g.mg;
   let hotAt = -1, backAt = -1, reloadAt = -1;
@@ -875,7 +875,7 @@ test('mg_overheat', 'mg', 'Continuous fire boils the jacket: the gun locks until
     return false;
   });
   const steady = m.spec.rate * 30;
-  return { pass: hotAt > 3 && hotAt < 12 && backAt > hotAt + 1.5 && reloadAt > 0 && n < steady * 0.85, info: `overheated at ${L.r(hotAt, 1)} s, firing again at ${L.r(backAt, 1)} s, belt change at ${L.r(reloadAt, 1)} s; ${n} rounds in 30 s (${steady} at the cyclic rate)` };
+  return { pass: hotAt > 3 && hotAt < 16 && backAt > hotAt + 1.5 && reloadAt > 0 && n < steady * 0.85, info: `overheated at ${L.r(hotAt, 1)} s, firing again at ${L.r(backAt, 1)} s, strip reload at ${L.r(reloadAt, 1)} s; ${n} rounds in 30 s (${steady} at the cyclic rate)` };
 });
 
 test('mg_cannon_reload', 'mg', 'The cannon keeps reloading while the machine gun is manned', () => {
