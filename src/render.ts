@@ -253,7 +253,7 @@ void main(){
   // dressed objective (src/objgfx.ts): a frame in the target colour inside the edge, a darker panel within
   // for its picture to stand out against
   if (uTarget > 1.5) {
-    col = mix(col, col * 0.62, step(0.13, dmin));
+    col = mix(col, mix(col * 0.6, uColor * 0.5 + 0.05, 0.7), step(0.13, dmin));
     col = mix(col, uTargetColor, step(0.045, dmin) * (1.0 - step(0.115, dmin)) * 0.9);
   }
   // cel lighting: bevel bands, key light from the top-left
