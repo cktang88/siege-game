@@ -126,9 +126,10 @@ function bastion(): LevelDef {
   const b = new Builder();
   const g = 2;
   // reactive armor skirt disguised as masonry, in front of the curtain wall
-  b.wall(57.4, g, 0.6, 4, 'reactive', 1, { disguise: 'stone' });
-  b.wall(58, g, 1.2, 5, 'stone', 1);
-  b.add(58, g + 5, 0.6, 0.6, 'stone');
+  b.wall(57.4, g, 0.6, 3, 'reactive', 1, { disguise: 'stone' });
+  // a curtain low enough that a lobbed round clears it onto the bunker (it was 5 m: only a steep lob got over)
+  b.wall(58, g, 1.2, 3.6, 'stone', 1);
+  b.add(58, g + 3.6, 0.6, 0.6, 'stone');
   // concrete bunker (HQ) with counter-battery gun on the roof
   b.col(62, g, 1, 2.6, 'concrete', 1.3);
   b.col(69, g, 1, 2.6, 'concrete', 1.3);

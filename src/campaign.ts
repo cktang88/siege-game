@@ -69,7 +69,7 @@ const TUNE: Record<string, { budget: number; par: number }> = {
   cleancut: { budget: 900, par: 140 },
   redhill: { budget: 750, par: 60 },
   saltworks: { budget: 3400, par: 230 },
-  bastion: { budget: 800, par: 90 },
+  bastion: { budget: 1050, par: 110 }, // the casual gunner only won it 1 in 2 at 91%: more slack, and a lower curtain (levels.ts)
   causeway: { budget: 1200, par: 115 },
   ironmill: { budget: 3000, par: 260 },
   citadel: { budget: 1150, par: 60 },
