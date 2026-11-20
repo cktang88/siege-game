@@ -508,3 +508,21 @@ button { font: inherit; color: inherit; }
 #fcp.compact .mgpanel { display: none; }
 #rack.mgon .slot.sel { opacity: 0.55; }
 #aimtip .bar.heat span { background: linear-gradient(90deg, #8fc46a, #ffb347 60%, #e2503a); }
+
+/* weapon tabs over the fire-control panel: which gun is manned, and the call to switch */
+#wpnbar { position: fixed; z-index: 21; display: flex; gap: 4px; pointer-events: auto; }
+#wpnbar.hidden { display: none; }
+#wpnbar button { font: 700 12px var(--ui); letter-spacing: 0.12em; text-transform: uppercase; padding: 6px 12px 5px; border: 0; cursor: pointer;
+  background: rgba(20, 22, 24, 0.85); color: #b9b2a2; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 100%, 0 100%); }
+#wpnbar button i { font-style: normal; opacity: 0.55; margin-left: 4px; }
+#wpnbar button:hover { color: #fff; }
+#wpnbar button.on { background: #ff5a1f; color: #1a1410; box-shadow: none; }
+#wpnbar button.alert { animation: wpnalert 0.7s steps(2) infinite; color: #fff; }
+@keyframes wpnalert { 0% { background: #c8281e; box-shadow: 0 0 14px rgba(255, 60, 40, 0.8); } 100% { background: rgba(60, 14, 10, 0.9); box-shadow: inset 0 0 0 2px #ff4a32; } }
+#mgcall { position: fixed; z-index: 22; pointer-events: none; padding: 6px 10px 7px; background: rgba(150, 26, 18, 0.92); color: #fff; font: 12px/1.35 var(--ui);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); border-left: 3px solid #ffb347; white-space: nowrap; animation: callbob 1.1s ease-in-out infinite; }
+#mgcall.hidden { display: none; }
+#mgcall b { display: block; font: 700 11px var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: #ffd38a; }
+#mgcall kbd { font: 700 11px var(--mono); padding: 0 5px; background: #1a1410; color: #ffb347; border-radius: 2px; }
+#mgcall::after { content: ''; position: absolute; left: 18px; bottom: -8px; border: 8px solid transparent; border-bottom: 0; border-top-color: rgba(150, 26, 18, 0.92); }
+@keyframes callbob { 50% { transform: translateY(-4px); } }

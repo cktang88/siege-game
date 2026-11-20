@@ -48,7 +48,9 @@ export function buildHud() {
       <div class="row" id="blind-row"><span class="label">Enemy guns</span><span id="blind" class="readout"></span></div>
     </div>
     <div id="rack" class="plate"></div>
+    <div id="wpnbar"><button data-w="cannon" title="1–9 or G: the cannon">Cannon <i>G</i></button><button data-w="mg" title="G or Tab: the MG post, for men in the open">MG <i>G</i></button></div>
     <div id="fcp" class="plate"></div>
+    <div id="mgcall" class="hidden"></div>
     <canvas id="minimap" class="plate" width="520" height="84" title="Click to look there"></canvas>
     <div id="toasts"></div>
     <div id="dmgflash"></div>
@@ -57,6 +59,8 @@ export function buildHud() {
   $('#lvl-name').textContent = S.game.level.name;
   $('#withdraw').addEventListener('click', requestWithdraw);
   $('#menu').addEventListener('click', () => togglePause(true));
+  document.querySelectorAll<HTMLElement>('#wpnbar button').forEach((b) => b.addEventListener('click', () => { if ((b.dataset.w === 'mg') !== S.game.mg.active) switchWeapon(); }));
+  callT = 0; callShown = '';
   buildDevPanel();
   // a new commander (no stars yet) gets the controls spelled out until the first shot
   if (!S.save.dev && !Object.values(S.save.stars).some((n) => n > 0)) {
@@ -282,8 +286,8 @@ function buildFcp() {
   fcpFor = fcpKey();
   fcp.classList.toggle('compact', SET.compactFcp);
   let html = `<div class="head"><span class="stencil">${a.mode === 'airstrike' ? 'Bomb run' : a.mode === 'drone' ? 'Recon flight' : a.mode === 'saboteur' ? 'Demolition team' : 'Fire control'}</span><span class="label">${a.name}</span><button class="fold" id="fold" title="${SET.compactFcp ? 'Unfold the fire-control panel (dials and settings)' : 'Fold the fire-control panel to one row, so more of the field shows'}">${SET.compactFcp ? '▴' : '▾'}</button></div>`;
-  const wpn = `<button class="wpn" id="wpn" title="G or Tab: switch between the cannon and the MG post">${g.mg.active ? 'Cannon' : 'MG'} <i>G</i></button>`;
-  html = html.replace('<span class="label">', `${wpn}<span class="label">`);
+  // (which gun is manned is shown by the weapon tabs over this panel: #wpnbar)
+  const wpn = '';
   if (g.mg.active) {
     const m = g.mg;
     html = `<div class="head"><span class="stencil">${m.spec.name}</span>${wpn}<span class="label">${m.modern ? 'water-cooled · tripod' : 'volley gun · eight barrels'}</span><button class="fold" id="fold" title="Fold or unfold the panel">${SET.compactFcp ? '▴' : '▾'}</button></div>
@@ -332,7 +336,6 @@ function buildFcp() {
   fcp.querySelector('#fire')?.addEventListener('click', () => { if (!g.triggerAbility()) g.fire(); });
   fcp.querySelector('#aimtoggle')?.addEventListener('click', () => { S.mouseAim = !S.mouseAim; });
   fcp.querySelector('#fold')?.addEventListener('click', () => { setSetting('compactFcp', !SET.compactFcp); buildFcp(); });
-  fcp.querySelector('#wpn')?.addEventListener('click', switchWeapon);
   fcp.querySelector('#mgreload')?.addEventListener('click', () => g.mg.reload());
   fcp.querySelector('#clear-sab')?.addEventListener('click', () => { g.sabTarget = null; });
   fcp.querySelectorAll<HTMLElement>('[data-dir]').forEach((b) => b.addEventListener('click', () => { g.strike.dir = +b.dataset.dir! as 1 | -1; buildFcp(); }));
@@ -491,8 +494,45 @@ export function gunHit(dmg: number) {
   setTimeout(() => el.remove(), 1300);
 }
 
+/**
+  The weapon tabs over the fire-control panel, and the call to switch. When men are at the gun (in the valley,
+  closing or firing) and the cannon is manned, the MG tab flashes red and a callout by the MG post says so;
+  when armour closes while the MG is manned (it only sparks off armour) the cannon tab does.
+*/
+let callT = 0, callShown = '';
+function updateWeaponCall() {
+  const g = S.game, bar = document.getElementById('wpnbar'), call = document.getElementById('mgcall'), fcp = document.getElementById('fcp');
+  if (!bar || !call || !fcp) return;
+  const r = fcp.getBoundingClientRect();
+  bar.style.left = `${r.left}px`; bar.style.top = `${r.top - 30}px`;
+  bar.classList.toggle('hidden', g.ended);
+  const cx = g.level.cannonX;
+  const men = g.soldiers.filter((s) => !s.dead && !s.eng && s.x > cx - 4 && s.x < cx + 26).length;
+  const armour = g.motor.units.some((u) => u.wreckT < 0 && u.x < cx + 30);
+  const want = !g.ended && (g.mg.active ? (armour && !men ? 'cannon' : '') : men ? 'mg' : '');
+  const [tc, tm] = bar.querySelectorAll('button');
+  tc.classList.toggle('on', !g.mg.active); tm.classList.toggle('on', g.mg.active);
+  tm.classList.toggle('alert', want === 'mg'); tc.classList.toggle('alert', want === 'cannon');
+  tm.innerHTML = `MG${want === 'mg' ? ` · ${men} at the gun` : ''} <i>G</i>`;
+  tc.innerHTML = `Cannon${want === 'cannon' ? ' · armour' : ''} <i>G</i>`;
+  // the callout hangs over the MG post on the field
+  if (want) {
+    const p = S.renderer.worldToScreen(g.mg.x, g.groundY(g.mg.x) + 2.6);
+    call.style.left = `${Math.max(8, Math.min(innerWidth - 220, p.x - 20))}px`; call.style.top = `${Math.max(60, p.y - 52)}px`;
+    if (callShown !== want) {
+      callShown = want;
+      call.innerHTML = want === 'mg' ? '<b>Infantry at the gun</b> press <kbd>G</kbd> for the MG' : '<b>Armour closing</b> MG only sparks off it · <kbd>G</kbd> back to the cannon';
+      if (callT <= 0) audio.play('click', undefined, 1.2, 0.6);
+      callT = 6;
+    }
+    call.classList.remove('hidden');
+  } else { callShown = ''; call.classList.add('hidden'); }
+  callT = Math.max(0, callT - 1 / 60);
+}
+
 export function updateHud() {
   const g = S.game;
+  updateWeaponCall();
   $('#timer').textContent = `T+${fmtTime(g.battleTime)}  ·  par ${fmtTime(g.level.parTime)}`;
   // past par the time bonus is gone: the clock turns red
   $('#timer').classList.toggle('over', g.battleTime > g.level.parTime);
