@@ -15,6 +15,7 @@ import { Fracture } from './fracture';
 import { FieldCamera } from './camera';
 import { MachineGun } from './mg';
 import { Crew } from './engineers';
+import { makeDressing, updateDressing } from './objgfx';
 
 type V2 = { x: number; y: number };
 
@@ -452,6 +453,9 @@ export class Game {
     if (d.target) {
       sm.uniforms.uTarget.value = 1;
       sm.uniforms.uTargetColor.value = new THREE.Color(TARGETS[d.target].color);
+      // what the objective is, pictured on its face (src/objgfx.ts); it rides and leaves with the mesh
+      const dress = makeDressing(d.target, this.crew.era, d.w, d.h);
+      if (dress) { mesh.add(dress); sm.uniforms.uTarget.value = 2; }
     }
     this.root.add(mesh);
     const hp = mat.hp * (d.target ? 1.2 : 1) * Math.min(2, Math.sqrt(Math.max(0.3, d.w * d.h)));
@@ -2448,6 +2452,10 @@ export class Game {
       if (ua) ua.value += ((b.burning > 0 ? Math.min(1, 0.4 + b.burning / 3) * Math.min(1, 0.3 + b.fireT / 3) : 0) - ua.value) * 0.05;
       b.uni.uTime.value = this.time;
       b.uni.uHighlight.value = b.highlight;
+      if (b.target) {
+        const dress = b.mesh.children[0] as THREE.Mesh | undefined;
+        if (dress?.name === 'objDressing') updateDressing(dress, b.burnAmt, b.uni.uDamage.value, b.flash, this.garrison.rooms.conceals(b));
+      }
       if (b.rebuilt < 1) { b.rebuilt = Math.min(1, b.rebuilt + 0.02); b.uni.uFade.value = b.rebuilt; }
     }
     for (const p of this.projectiles) if (!p.dead) p.mesh.position.set(p.x, p.y, 10);

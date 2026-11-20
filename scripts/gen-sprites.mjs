@@ -13,6 +13,8 @@ const STYLE = 'Toon cel-shaded game art, clean bold dark outlines, 2-3 flat shad
   'serious tone, NOT comic, NOT cartoony-goofy, no text, no watermark, single isolated object centered, ' +
   'side view facing right, on a perfectly flat solid pure magenta (#FF00FF) background with no shadow on the ground.';
 
+const OBJ = 'Composition wider than tall, a group of objects standing on one flat floor line, seen exactly from the side (straight-on elevation, no top-down, no three-quarter view), filling the frame edge to edge, no room walls, no floor, no background scenery.';
+
 const SPRITES = {
   airship: `A steampunk military airship (rigid zeppelin) with a riveted gondola, propellers and gun turrets, seen from the side, facing left. ${STYLE.replace('facing right', 'facing left')}`,
   gyro: `A small steampunk gyrocopter gunship with a single rotor, pilot and machine gun, seen from the side, facing left. ${STYLE.replace('facing right', 'facing left')}`,
@@ -40,6 +42,21 @@ const SPRITES = {
   rib_gun: `A medieval ribauldequin volley gun WITHOUT wheels or cart: five long thin black wrought-iron gun tubes (each about ten times longer than wide, open muzzle at the right end, a small touch-hole and a rounded breech at the left end) stacked one above another on a thick oak plank and bound to it with iron straps, muzzles pointing right, lying perfectly horizontal, seen exactly from the side. ${STYLE}`,
   mg_nest: `A low curved WW1 machine-gun nest wall of stacked hessian sandbags, three courses high, about four sandbags long, khaki and tan, seen exactly from the side, no gun, no people. ${STYLE.replace('side view facing right, ', '')}`,
   mg_mantlet: `A low medieval field fortification: two round wicker gabions filled with earth beside a short slanted wooden mantlet of oak planks, seen exactly from the side, no weapon, no people. ${STYLE.replace('side view facing right, ', '')}`,
+  // objective dressings drawn on the objective block's face (src/objgfx.ts): a wide shallow vignette, about 16:10,
+  // showing what the block is at the scale of a room's contents (a block is ~1-3 m wide, ~1-1.5 m tall)
+  obj_hq_mod: `${OBJ} A 1940s army command post: a wide heavy wooden map table covered with spread-out paper maps and charts with pins, a field telephone in a leather case and a green field radio set with a hand microphone on the table, a hooded green desk lamp lit, a small folding stool. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_hq_med: `${OBJ} A medieval castle war council table: a wide heavy oak trestle table with a parchment map unrolled across it, held down by a dagger and an iron candlestick with lit candles, a small wooden chest, and at one end of the table a short pole with a small deep red heraldic war banner, the pole no taller than twice the table. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_ammo_mod: `${OBJ} A 1940s munitions store: a low wide stack of olive-green wooden ammunition crates with rope handles and plain yellow stencil stripes (no letters), and beside them a rack of brass artillery shells standing upright, a few shells lying in a cradle on top. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_ammo_med: `${OBJ} A medieval castle powder store: several wooden gunpowder kegs with iron hoops stacked two rows high, one keg marked with a plain painted black band, and beside them a neat pyramid of black iron cannonballs on a wooden pallet, a coil of slow match on a hook. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_eng_mod: `${OBJ} A compact 1940s army engineers' workshop corner, about 3:2, everything tightly grouped: a heavy wooden workbench with a steel vice and tools on it, behind and above it a wall board of hanging spanners and saws, a tall stack of sawn timber planks leaning on one side, sandbags under the bench, and a small steel A-frame chain hoist with a hook at the other end, as tall as the timber. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_eng_med: `${OBJ} A medieval castle carpenters' and masons' workshop: a heavy oak workbench with mallets, chisels, an axe and a bow saw, a stack of squared timber beams and cut stone blocks, burlap sacks, a small wooden hand winch with rope and hook on a timber frame at one end. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_bar_mod: `${OBJ} A compact 1940s army barracks corner, about 3:2, everything tightly grouped: one two-tier steel bunk bed with grey-green wool blankets and pillows, canvas kit bags and a steel helmet on the floor beside it, and a wooden rifle rack holding four bolt-action rifles standing upright next to it, as tall as the bunk. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_bar_med: `${OBJ} A compact medieval castle barracks corner, about 3:2, everything tightly grouped: one two-tier heavy wooden bunk with straw pallets and rough brown wool blankets, a wooden chest at its foot, and a tall weapon rack with spears and halberds standing upright next to it with a round wooden shield leaning on it. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_flak_mod: `${OBJ} A 1940s twin-barrel anti-aircraft gun on a low round steel pedestal mount with hand wheels and a gunner's seat, the two long barrels raised steeply toward the upper left sky, ready racks of clip-loaded shells around the base, a low sandbag ring in front. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_flak_med: `${OBJ} A medieval springald (great torsion crossbow) on a heavy timber platform, its long bolt and arms tilted steeply up toward the upper left sky, a rack of long iron-tipped bolts and a windlass beside it. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_gun_mod: `${OBJ} The breech end of a heavy 1940s fortress gun on a steel pedestal mount with elevation and traverse hand wheels, its thick barrel running out horizontally to the left and cut off cleanly at the left edge of the image, a riveted steel recoil cradle, a ready rack of brass shells and a rammer staff beside it. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_gun_med: `${OBJ} The rear end of a big medieval bombard (wrought-iron siege cannon with iron hoops) lying on a massive oak bed with wooden wedges, its barrel running out horizontally to the left and cut off cleanly at the left edge of the image, a pile of stone cannonballs, a rammer and a powder ladle beside it. ${STYLE.replace('side view facing right, ', '')}`,
+  obj_depot: `${OBJ} A military motor pool supply corner: a stack of steel fuel drums, several jerrycans, a stack of spare truck tyres, a spare spoked wheel, a mechanic's tool chest and a small chain hoist frame with an engine block hanging from it. ${STYLE.replace('side view facing right, ', '')}`,
   plane: `A 1940s twin-propeller bomber airplane seen from the side, olive drab. ${STYLE}`,
   saboteur: `A crouching commando saboteur in dark clothes carrying a satchel charge, running, full body. ${STYLE}`,
   drone: `A small quadcopter scout drone, dark grey with a camera, side view. ${STYLE}`,
@@ -48,7 +65,9 @@ const SPRITES = {
     'distant blue-grey mountain silhouettes, rolling hills, no buildings, no characters, no text, flat ground band along the bottom, 16:9.',
 };
 
-async function gen(name) {
+async function gen(arg) {
+  // 'name@tag' generates another candidate of 'name' into raw/name@tag.* (pick one, rename it to name.* before processing)
+  const name = arg.split('@')[0];
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
@@ -56,11 +75,11 @@ async function gen(name) {
   });
   const j = await res.json();
   const url = j?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-  if (!url) throw new Error(`${name}: no image in response: ${JSON.stringify(j).slice(0, 300)}`);
+  if (!url) throw new Error(`${arg}: no image in response: ${JSON.stringify(j).slice(0, 300)}`);
   const m = url.match(/^data:image\/(\w+);base64,(.*)$/);
   const ext = m[1] === 'jpeg' ? 'jpg' : m[1];
-  await fs.writeFile(path.join(OUT, `${name}.${ext}`), Buffer.from(m[2], 'base64'));
-  console.log('wrote', name, ext);
+  await fs.writeFile(path.join(OUT, `${arg}.${ext}`), Buffer.from(m[2], 'base64'));
+  console.log('wrote', arg, ext);
 }
 
 const names = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SPRITES);

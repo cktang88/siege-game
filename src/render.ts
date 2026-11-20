@@ -6,6 +6,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { DECAL_GLSL, markUniforms } from './decals';
 import { FireFX } from './fx';
+import { OBJ_SPRITES } from './objgfx';
 
 // ───────────────────────── Shaders ─────────────────────────
 const NOISE = /* glsl */ `
@@ -233,8 +234,8 @@ void main(){
   } else {                         // bedrock
     col *= 0.85 + 0.25 * fbm(p * 2.0);
   }
-  // target tint band
-  if (uTarget > 0.5) {
+  // target tint band (a dressed objective, uTarget 2, gets a frame instead: see below)
+  if (uTarget > 0.5 && uTarget < 1.5) {
     vec2 c = p - fullSz * .5;
     float band = step(abs(c.y - fullSz.y * 0.18), 0.12);
     col = mix(col, uTargetColor, band * 0.85);
@@ -249,6 +250,12 @@ void main(){
   vec2 gd = vec2(dFdx(dmin), dFdy(dmin));
   float mpp = max(length(gd), 1e-5);
   vec2 nrm = -gd / mpp;
+  // dressed objective (src/objgfx.ts): a frame in the target colour inside the edge, a darker panel within
+  // for its picture to stand out against
+  if (uTarget > 1.5) {
+    col = mix(col, mix(col * 0.6, uColor * 0.5 + 0.05, 0.7), step(0.13, dmin));
+    col = mix(col, uTargetColor, step(0.045, dmin) * (1.0 - step(0.115, dmin)) * 0.9);
+  }
   // cel lighting: bevel bands, key light from the top-left
   float bev = 0.07;
   float lit = 1.0;
@@ -495,7 +502,7 @@ export const textures: Record<string, THREE.Texture> = {};
 export async function loadTextures() {
   const loader = new THREE.TextureLoader();
   const names = ['carriage', 'barrel', 'mg_gun', 'rib_gun', 'mg_nest', 'mg_mantlet', 'soldier', 'plane', 'saboteur', 'drone', 'house', 'airship', 'gyro', 'mast', 'armoredcar', 'tank', 'eng_med', 'eng_mod',
-    'p_barrel', 'p_table', 'p_bunk', 'p_rack', 'p_banner', 'p_shells', 'p_radio', 'p_cauldron', 'p_shelf', 'p_cannon'];
+    'p_barrel', 'p_table', 'p_bunk', 'p_rack', 'p_banner', 'p_shells', 'p_radio', 'p_cauldron', 'p_shelf', 'p_cannon', ...OBJ_SPRITES];
   await Promise.all([
     ...names.map((n) => loader.loadAsync(`sprites/${n}.png`).then((t) => { t.anisotropy = 4; textures[n] = t; }).catch(() => {})),
     loader.loadAsync('sprites/background.jpg').then((t) => { t.wrapS = THREE.MirroredRepeatWrapping; textures.background = t; }).catch(() => {}),
