@@ -9,7 +9,7 @@ import { S } from './state';
 */
 
 type NumKey = 'master' | 'music' | 'sfx' | 'chargeDist' | 'panSpeed' | 'shake';
-type BoolKey = 'muted' | 'mouseAim' | 'aimDistance' | 'trajectory' | 'helpLine' | 'autoCam';
+type BoolKey = 'muted' | 'mouseAim' | 'aimDistance' | 'trajectory' | 'helpLine' | 'autoCam' | 'briefCard';
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const FMT: Record<NumKey, (v: number) => string> = {
@@ -62,6 +62,7 @@ export function settingsSheets(inBattle = false) {
       ${row('Effects quality', `<span data-qnote>${QUALITY_NOTE[SET.quality]}</span>`, seg('quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]))}
       ${row('UI scale', 'panels, plates and screens', seg('uiScale', [[90, '90%'], [100, '100%'], [115, '115%']]))}
       ${row('Controls line', 'the one-line key reminder along the bottom of the battle screen', sw('helpLine', 'Shown', 'Hidden'))}
+      ${row('Orders card', 'the operation and its objectives in the middle of the screen before the battle clock starts (Space to dismiss)', sw('briefCard', 'Shown', 'Skip'))}
       <div class="srow foot"><button class="btn ghost small" data-act="defaults">Restore default settings</button></div>
     </section>
     ${inBattle ? '' : `<section class="plate sheet-s">
