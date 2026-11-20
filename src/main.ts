@@ -37,13 +37,16 @@ const typing = (t: EventTarget | null) => {
 };
 
 /*
-  Point the barrel at the cursor; how far the cursor is from the gun sets muzzle velocity. Distance is
+  The cursor is a point on the shot's arc: the gun is laid so the round's path (wind and all, as the
+  trajectory preview draws it) passes through it. How far the cursor is from the gun sets muzzle velocity. Distance is
   measured on screen, so it feels the same at any zoom: right by the gun is the slowest charge, about
   60% of the screen width away (a setting) is full charge for the loaded round. The wheel trims on top of
   that, and holding Shift keeps the velocity while only the elevation follows the mouse. With the
   distance setting off, the mouse sets elevation only and the wheel, keys and dial set velocity.
 */
 let trim = 0;
+let lastAimW = { x: NaN, y: NaN };
+let lastAimSel = '';
 const NEAR_PX = 40;
 const fullPx = () => Math.max(NEAR_PX + 120, S.renderer.width * SET.chargeDist);
 function speedFor(px: number) {
@@ -62,12 +65,18 @@ function aimAtMouse(fromMove = false) {
   const p = g.barrel.position;
   const dx = w.x - p.x, dy = w.y - p.y;
   if (Math.hypot(dx, dy) < 0.6) return;
-  // behind the gun: pin to the nearest stop instead of flipping across the arc
-  const deg = dx >= 0 ? (Math.atan2(dy, dx) * 180) / Math.PI : dy >= 0 ? 90 : -90;
-  g.setAngleDeg(deg);
+  // the charge: from how far the cursor is from the gun (or held with Shift, or set by the wheel/dial)
+  let v = g.launchSpeed;
   if (SET.aimDistance && !(fromMove && shiftHeld)) {
     const s = S.renderer.worldToScreen(p.x, p.y);
-    g.setSpeed(Math.min(g.maxSpeedFor, Math.max(PHYS.minSpeed, speedFor(Math.hypot(mouse.x - s.x, mouse.y - s.y)))));
+    v = Math.min(g.maxSpeedFor, Math.max(PHYS.minSpeed, speedFor(Math.hypot(mouse.x - s.x, mouse.y - s.y))));
+  }
+  // the elevation that puts the cursor on the arc (raising the charge if it can't reach); points behind or
+  // on top of the muzzle fall back to pointing the barrel, pinned to the nearest stop behind the gun
+  if (!g.aimThrough(w.x, w.y, v, SET.aimDistance && !(fromMove && shiftHeld))) {
+    const deg = dx >= 0 ? (Math.atan2(dy, dx) * 180) / Math.PI : dy >= 0 ? 90 : -90;
+    g.setAngleDeg(deg);
+    if (SET.aimDistance && !(fromMove && shiftHeld)) g.setSpeed(v);
   }
   showTip();
 }
@@ -290,6 +299,13 @@ function frame(now: number) {
   g.frameCamera(false, dt);
   const a = AMMO_BY_ID[g.selected];
   if (S.mode === 'battle') {
+    // the cursor stays on the arc while the camera moves under a still mouse: re-lay when the cursor's world point changes
+    g.previewTo = null;
+    if (mouseAiming() && !S.paused && (!down || !down.dragged)) {
+      const w = S.renderer.screenToWorld(mouse.x, mouse.y);
+      g.previewTo = w.x;
+      if (Math.abs(w.x - lastAimW.x) > 0.05 || Math.abs(w.y - lastAimW.y) > 0.05 || g.selected !== lastAimSel) { lastAimW = w; lastAimSel = g.selected; aimAtMouse(true); }
+    }
     g.updatePreview(!g.mg.active && SET.trajectory && a.mode !== 'airstrike' && a.mode !== 'drone' && a.mode !== 'saboteur' && (mouseAiming() || !g.focus));
     g.updateStrikePreview(a.mode === 'airstrike' && g.planes.length === 0);
     const tgt = a.mode === 'drone' ? g.droneTarget?.x : a.mode === 'saboteur' ? g.sabTarget : null;

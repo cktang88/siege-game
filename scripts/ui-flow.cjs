@@ -694,11 +694,11 @@ const sections = {
     // (the camera eases in at the start of a battle: settle it so screen positions hold still)
     const field = await ev(page, () => { const g = window.siege.game; g.frameCamera(true); const p = window.siege.renderer.worldToScreen(g.barrel.position.x, g.barrel.position.y); return { gx: p.x, gy: p.y, W: innerWidth, H: innerHeight }; });
     // mouse aim with distance-velocity on: near the gun is slow, far is fast
-    const aimAt = async (x, y) => { await page.mouse.move(x, y, { steps: 2 }); await page.waitForTimeout(150); return ev(page, () => ({ v: window.siege.game.launchSpeed, a: (window.siege.game.angle * 180) / Math.PI, tip: getComputedStyle(document.querySelector('#aimtip')).display })); };
+    const aimAt = async (x, y) => { await page.mouse.move(x, y, { steps: 2 }); await page.waitForTimeout(150); return ev(page, ([x, y]) => { const S = window.siege, g = S.game, w = S.renderer.screenToWorld(x, y); return { v: g.launchSpeed, a: (g.angle * 180) / Math.PI, tip: getComputedStyle(document.querySelector('#aimtip')).display, miss: g.pathYAt(g.angle, g.launchSpeed, w.x) - w.y }; }, [x, y]); };
     const near = await aimAt(field.gx + 60, field.gy - 60);
     const far = await aimAt(field.gx + field.W * 0.62, field.gy - 60);
     check('input: mouse aim: distance sets velocity (near slow, far full)', near.v < far.v && far.v >= 29.9, `${near.v} → ${far.v}`);
-    check('input: mouse aim: the barrel follows the cursor', near.a > 30 && far.a < 15, `${near.a.toFixed(1)}°, ${far.a.toFixed(1)}°`);
+    check('input: mouse aim: the arc passes through the cursor (near and far)', Math.abs(near.miss) < 0.3 && Math.abs(far.miss) < 0.3 && near.a > far.a, `miss ${near.miss.toFixed(2)} / ${far.miss.toFixed(2)} m at ${near.a.toFixed(1)}°, ${far.a.toFixed(1)}°`);
     check('input: aim readout follows the cursor', far.tip === 'block');
     // shift holds velocity
     await page.keyboard.down('Shift');
@@ -752,7 +752,8 @@ const sections = {
     await ev(page, (v) => { window.siege.game.pan = v; }, p0);
     await page.keyboard.press('t');
     // a focused range slider keeps its arrows (cluster/fuse sliders): use the dev fuse range on 'delayed'
-    await ev(page, () => { const g = window.siege.game; g.inventory.delayed = 2; });
+    // (mouse aim off: with it on, a change of round re-lays the gun so its arc still meets the resting cursor)
+    await ev(page, () => { const g = window.siege.game; g.inventory.delayed = 2; window.siege.mouseAim = false; });
     await ev(page, async () => (await window.__mod('hud.ts')).buildHud());
     await ev(page, () => { window.siege.game.selected = 'delayed'; });
     await page.waitForSelector('#o-fuse');
@@ -764,6 +765,7 @@ const sections = {
     await page.keyboard.press('ArrowRight');
     const f1 = await ev(page, () => ({ a: window.siege.game.angle, f: window.siege.game.fuseSetting, focus: document.activeElement?.id }));
     check('input: arrows on a focused slider move only the slider, step after step', f1.a === f0.a && Math.abs(f1.f - f0.f - 0.3) < 1e-6 && f1.focus === 'o-fuse', `${JSON.stringify(f0)} ${JSON.stringify(f1)}`);
+    await ev(page, () => { window.siege.mouseAim = true; });
     // a slider dragged with the mouse lets go of the keyboard afterwards
     const sb = await (await page.$('#o-fuse')).boundingBox();
     await page.mouse.click(sb.x + sb.width * 0.8, sb.y + sb.height / 2);

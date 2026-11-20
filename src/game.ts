@@ -521,6 +521,74 @@ export class Game {
   setAngleDeg(d: number) { this.angle = (Math.max(this.stats.minAngle, Math.min(this.stats.maxAngle, d)) * Math.PI) / 180; }
   setSpeed(v: number) { this.speed = Math.max(PHYS.minSpeed, Math.min(this.stats.maxSpeed, v)); }
 
+  /**
+    Height of the selected round's path where it crosses x = tx, fired at angle th and speed v from the
+    muzzle that angle puts it at (the same integration the trajectory preview draws). NaN if it never gets there.
+  */
+  pathYAt(th: number, v: number, tx: number): number {
+    const a = AMMO_BY_ID[this.selected];
+    const bx = this.barrel.position.x, by = this.barrel.position.y;
+    let x = bx + Math.cos(th) * 2.5, y = by + Math.sin(th) * 2.5;
+    if (tx <= x) return NaN;
+    let vx = Math.cos(th) * v, vy = Math.sin(th) * v;
+    for (let i = 0; i < 2400; i++) {
+      vy += PHYS.gravity * DT; vx += this.wind * a.wind * 0.35 * DT;
+      const nx = x + vx * DT, ny = y + vy * DT;
+      if (nx >= tx) return y + (ny - y) * ((tx - x) / (nx - x || 1));
+      if (vx <= 0 || ny < y - 400) return NaN;
+      x = nx; y = ny;
+    }
+    return NaN;
+  }
+
+  /**
+    Lay the gun so the round's arc passes through (tx, ty): the flattest elevation that does at speed v.
+    Out of reach at v, the charge goes up to the least that reaches (up to the round's maximum); still out
+    of reach, the gun takes the elevation that comes closest. With `raise` off (velocity held) the charge never changes. Returns false if the point is behind or on the muzzle.
+  */
+  aimThrough(tx: number, ty: number, v: number, raise = true): boolean {
+    const mx = this.barrel.position.x;
+    if (tx < mx + 2.8) return false;
+    const lo = this.stats.minAngle, hi = this.stats.maxAngle;
+    const solve = (s: number): number | null => {
+      // (a path that never gets to x = tx counts as passing below the point)
+      const F = (deg: number) => { const y = this.pathYAt((deg * Math.PI) / 180, s, tx); return Number.isNaN(y) ? -1e9 : y - ty; };
+      let prev = NaN, prevA = lo;
+      for (let d = lo; d <= hi; d += 1.5) {
+        const f = F(d);
+        if (!Number.isNaN(prev) && prev < 0 && f >= 0) {
+          // bisect between the last angle below the point and this one
+          let a0 = prevA, a1 = d;
+          for (let k = 0; k < 18; k++) {
+            const m = (a0 + a1) / 2;
+            if (F(m) < 0) a0 = m; else a1 = m;
+          }
+          return a1;
+        }
+        if (f >= 0 && d === lo) return lo; // even the lowest elevation passes over it
+        prev = f; prevA = d;
+      }
+      return null;
+    };
+    let s = Math.max(PHYS.minSpeed, Math.min(v, this.maxSpeedFor));
+    let ang = solve(s);
+    if (ang === null) {
+      // raise the charge to the least that reaches the point (unless the velocity is held: then the nearest elevation)
+      let s0 = s, s1 = raise ? this.maxSpeedFor : s;
+      if (solve(s1) === null) {
+        // out of reach even at full charge: the elevation that gets closest
+        let best = lo, bestY = -Infinity;
+        for (let d = lo; d <= hi; d += 1) { const y = this.pathYAt((d * Math.PI) / 180, s1, tx); if (y > bestY) { bestY = y; best = d; } }
+        this.setSpeed(s1); this.setAngleDeg(best);
+        return true;
+      }
+      for (let k = 0; k < 14; k++) { const m = (s0 + s1) / 2; if (solve(m) === null) s0 = m; else s1 = m; }
+      s = s1; ang = solve(s)!;
+    }
+    this.setSpeed(s); this.setAngleDeg(ang);
+    return true;
+  }
+
   canFire() {
     return this.running && !this.ended && this.reload <= 0 && (this.inventory[this.selected] ?? 0) > 0;
   }
@@ -2372,6 +2440,8 @@ export class Game {
 
   private tmpM = new THREE.Matrix4();
   /** trajectory preview: only the first stretch, so reading wind & drop remains a skill */
+  /** with mouse aim, the preview always reaches at least this far (the cursor, which sits on the arc) */
+  previewTo: number | null = null;
   updatePreview(show: boolean) {
     const a = AMMO_BY_ID[this.selected];
     const m = this.tmpM;
@@ -2381,10 +2451,19 @@ export class Game {
     const s = this.launchSpeed;
     let { x, y } = this.muzzle;
     let vx = Math.cos(this.angle) * s, vy = Math.sin(this.angle) * s;
-    let n = Math.min(60, this.stats.previewSteps);
+    // research sets how much of the arc is shown, but never less than the stretch from the muzzle to the cursor
+    let steps = Math.min(60, this.stats.previewSteps) * 4;
+    if (this.previewTo !== null && this.previewTo > x) {
+      let px = x, pvx = vx;
+      let k = 0;
+      for (; k < 1200 && px < this.previewTo; k++) { pvx += this.wind * a.wind * 0.35 * DT; px += pvx * DT; if (pvx <= 0) break; }
+      steps = Math.max(steps, k + 2);
+    }
+    const stride = Math.max(4, Math.ceil(steps / 60));
+    let n = Math.min(60, Math.ceil(steps / stride));
     for (let i = 0; i < 60; i++) {
       if (i < n) {
-        for (let k = 0; k < 4; k++) {
+        for (let k = 0; k < stride; k++) {
           vy += PHYS.gravity * DT; vx += this.wind * a.wind * 0.35 * DT;
           x += vx * DT; y += vy * DT;
         }
