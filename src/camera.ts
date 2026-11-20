@@ -215,6 +215,9 @@ export class FieldCamera {
       maxW = cap * 1.5;
     }
     // the player's own round (or bomber, drone, saboteur) in flight
+    // planning a bomb run: the whole run (release points, the bombs' fall paths and where they strike) stays in view
+    const sb = g.mg.active ? null : g.strikeBox;
+    if (sb) { fx0 = Math.min(fx0, sb.x0); fx1 = Math.max(fx1, sb.x1); top = Math.max(top, sb.top); maxW = Math.max(maxW, Math.min(cap * 1.5, sb.x1 - x0 + 6)); }
     const f = g.mg.active ? null : g.focus;
     if (f) { fx0 = Math.min(fx0, f.x - 6); fx1 = Math.max(fx1, f.x + 6); top = Math.max(top, f.y + 5); }
 
@@ -254,10 +257,11 @@ export class FieldCamera {
     };
     bottom = solveBottom(vh);
     // aircraft being framed must clear the top plates (objectives, instruments, minimap) over their column
-    if (mode !== 'base') {
+    const clear = [...(mode !== 'base' ? air : []), ...(sb ? [{ x0: sb.x0, x1: sb.x1, y: sb.top }] : [])];
+    if (clear.length) {
       for (let it = 0; it < 3 && vh < maxH; it++) {
         let deficit = 0;
-        for (const a of air) {
+        for (const a of clear) {
           const ax = (a.x0 + a.x1) / 2;
           const sx = ((ax - cx) / (vh * aspect) + 0.5) * r.width;
           if (sx < 0 || sx > r.width) continue;

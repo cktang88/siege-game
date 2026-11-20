@@ -112,7 +112,7 @@ export function requestWithdraw() {
 
 export function helpText() {
   const aim = SET.aimDistance ? 'mouse aims · distance from gun = velocity · shift holds velocity · wheel trims' : 'mouse sets elevation · wheel sets velocity';
-  return `${aim} · click fires · ↑↓ elevation · ←→ velocity · space fire · 1-9 munitions · G / Tab machine gun (hold to fire, B belt) · WASD scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute · Esc menu${S.save.dev ? ' · ` dev panel' : ''}`;
+  return `${aim} · click fires · alt+↑↓ elevation · alt+←→ velocity · space fire · 1-9 munitions · G / Tab machine gun (hold to fire, B belt) · WASD / arrows scroll · ctrl+wheel / Q E zoom · drag pan · R reset view · T mouse aim · M mute · Esc menu${S.save.dev ? ' · ` dev panel' : ''}`;
 }
 
 // ───────────────────────── pause menu ─────────────────────────
@@ -307,7 +307,7 @@ function buildFcp() {
         <button data-ord="penetrator" class="${g.strike.ordnance === 'penetrator' ? 'on' : ''}" ${types.includes('penetrator') ? '' : 'disabled title="Research AP Bombs"'}>AP</button></div></div>
       <div class="opt"><span class="label">Aim point</span>${numRow('sx', 'm').replace('class="numrow"', 'class="numrow" style="grid-column: span 2;justify-content:flex-start"')}</div>
     </div>
-    <div class="hint">${st.bombs} bombs. Click the battlefield to set the aim point. The dashed line is the flight path; rings are release points and impacts${st.dive ? '' : '. Dive angle needs research'}.</div>
+    <div class="hint">${st.bombs} bombs. Click the battlefield to set the aim point. The dashed line is the flight path, the thin lines each bomb's fall; small rings are releases, big rings where each bomb strikes${st.dive ? '' : '. Dive angle needs research'}.</div>
     <div class="firerow"><button class="btn firebtn" id="fire">Commit strike</button></div>`;
   } else if (a.mode === 'drone') {
     html += `<div class="hint">Click the battlefield to choose where the drone loiters (${st.droneTime}s). It reveals disguised armor, true HP and load-bearing members.</div>

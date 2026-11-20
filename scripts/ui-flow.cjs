@@ -744,8 +744,12 @@ const sections = {
     await page.keyboard.press('t');
     await ev(page, () => window.siege.game.setAngleDeg(30));
     const a0 = await ev(page, () => window.siege.game.angle);
-    await page.keyboard.down('ArrowUp'); await page.waitForTimeout(1200); await page.keyboard.up('ArrowUp');
-    check('input: ↑ raises the elevation', (await ev(page, () => window.siege.game.angle)) > a0);
+    await page.keyboard.down('Alt'); await page.keyboard.down('ArrowUp'); await page.waitForTimeout(1200); await page.keyboard.up('ArrowUp'); await page.keyboard.up('Alt');
+    check('input: Alt+↑ raises the elevation', (await ev(page, () => window.siege.game.angle)) > a0);
+    const p0 = await ev(page, () => window.siege.game.pan);
+    await page.keyboard.down('ArrowRight'); await page.waitForTimeout(1200); await page.keyboard.up('ArrowRight');
+    check('input: plain → pans the camera like D', (await ev(page, () => window.siege.game.pan)) > p0);
+    await ev(page, (v) => { window.siege.game.pan = v; }, p0);
     await page.keyboard.press('t');
     // a focused range slider keeps its arrows (cluster/fuse sliders): use the dev fuse range on 'delayed'
     await ev(page, () => { const g = window.siege.game; g.inventory.delayed = 2; });

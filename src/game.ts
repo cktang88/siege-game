@@ -220,6 +220,10 @@ export class Game {
   hpBar!: THREE.Group;
   aimMarker!: THREE.Mesh;
   strikeLine!: THREE.Line;
+  /** the bomb-run preview's fall paths: one arc per bomb, from release to where it first strikes */
+  bombArcs!: THREE.LineSegments;
+  /** while a bomb run is being planned: the box (release points, fall paths, strikes) the camera keeps in view */
+  strikeBox: { x0: number; x1: number; top: number } | null = null;
   strikeMarks!: THREE.InstancedMesh;
   airMarker: number | null = null;
   lastCollateralToast = -10;
@@ -359,6 +363,13 @@ export class Game {
     this.strikeMarks = new THREE.InstancedMesh(new THREE.RingGeometry(0.28, 0.45, 16), new THREE.MeshBasicMaterial({ color: 0xff5a1f }), 24);
     this.strikeMarks.position.z = 13; this.strikeMarks.frustumCulled = false; this.strikeMarks.visible = false;
     this.root.add(this.strikeLine, this.strikeMarks);
+    {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(Game.ARC_MAX * 2 * 3), 3));
+      this.bombArcs = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xffe2a8, transparent: true, opacity: 0.95, depthTest: false }));
+      this.bombArcs.position.z = 13; this.bombArcs.frustumCulled = false; this.bombArcs.visible = false; this.bombArcs.renderOrder = 20;
+      this.root.add(this.bombArcs);
+    }
 
     // settle the structures quietly
     for (let i = 0; i < 90; i++) this.world.step(this.eq);
@@ -2387,12 +2398,60 @@ export class Game {
     this.previewDots.instanceMatrix.needsUpdate = true;
   }
 
-  /** bomb-run preview: flight path, release points and predicted impacts */
+  static ARC_MAX = 12 * 110;
+  /**
+    One bomb's fall from its release point, integrated as predictImpact does, stopping where it first
+    meets a block, a house or the ground: the rings mark that real strike point, not the ground behind a wall.
+  */
+  bombPath(x: number, y: number, vx: number, vy: number, windSens: number, out: number[]): V2 {
+    let px = x, py = y;
+    for (let i = 0; i < 900; i++) {
+      vy += PHYS.gravity * DT; vx += this.wind * windSens * 0.35 * DT;
+      const nx = px + vx * DT, ny = py + vy * DT;
+      if (i % 3 === 2 || ny <= this.groundY(nx)) {
+        const dx = nx - x, dy = ny - y, len = Math.hypot(dx, dy);
+        let stop: V2 | null = null;
+        if (len > 1e-4) {
+          const hit = this.world.castRay(new RAPIER.Ray({ x, y }, { x: dx / len, y: dy / len }), len, true, undefined, undefined, undefined, undefined, (c) => {
+            const o = this.owners.get(c.handle);
+            return (o?.t === 'block' && !o.b.dead) || o?.t === 'house';
+          });
+          if (hit) stop = { x: x + (dx / len) * hit.timeOfImpact, y: y + (dy / len) * hit.timeOfImpact };
+        }
+        const gy = this.groundY(nx);
+        const end = stop ?? (ny <= gy ? { x: nx, y: gy } : { x: nx, y: ny });
+        out.push(x, y, end.x, end.y);
+        if (stop || ny <= gy) return end;
+        x = nx; y = ny;
+      }
+      px = nx; py = ny;
+    }
+    return { x: px, y: py };
+  }
+
+  /** bomb-run preview: flight path, each bomb's fall path, release points and where each bomb strikes */
   updateStrikePreview(show: boolean) {
     this.strikeLine.visible = show;
     this.strikeMarks.visible = show;
-    if (!show) return;
+    this.bombArcs.visible = show;
+    if (!show) { this.strikeBox = null; return; }
     const sol = this.planStrike();
+    // the full fall of every bomb in the stick, and its first strike (a wall in the way is where it goes off)
+    const segs: number[] = [];
+    const a = this.bombAmmo();
+    const hits = sol.releasePts.map((q) => this.bombPath(q.x, q.y, sol.ux * sol.speed, sol.uy * sol.speed, a.wind, segs));
+    {
+      const pa = this.bombArcs.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const n = Math.min(Game.ARC_MAX, segs.length / 4);
+      for (let i = 0; i < n; i++) { pa.setXYZ(i * 2, segs[i * 4], segs[i * 4 + 1], 0); pa.setXYZ(i * 2 + 1, segs[i * 4 + 2], segs[i * 4 + 3], 0); }
+      pa.needsUpdate = true;
+      this.bombArcs.geometry.setDrawRange(0, n * 2);
+    }
+    sol.impacts = hits;
+    {
+      const xs = [...sol.releasePts.map((q) => q.x), ...hits.map((q) => q.x)];
+      this.strikeBox = { x0: Math.min(...xs) - 4, x1: Math.max(...xs) + 4, top: Math.max(...sol.releasePts.map((q) => q.y)) + 4 };
+    }
     const last = Math.max(...sol.releases);
     // the run is a straight line: two vertices with their dash distances, updated in place every frame
     // (it used to rebuild a fresh geometry of one vertex per metre each frame)

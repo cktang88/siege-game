@@ -180,7 +180,7 @@ canvas.addEventListener('wheel', (e) => {
 const keys = new Set<string>();
 const keyName = (e: KeyboardEvent) => (e.key.length === 1 ? e.key.toLowerCase() : e.key);
 window.addEventListener('keydown', (e) => {
-  if (S.mode !== 'battle' || typing(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (S.mode !== 'battle' || typing(e.target) || e.ctrlKey || e.metaKey || (e.altKey && e.key !== 'Alt' && !e.key.startsWith('Arrow'))) return;
   const g = S.game;
   const k = keyName(e);
   // Esc opens (and closes) the pause menu; while it is up the battle keys are off
@@ -199,7 +199,7 @@ window.addEventListener('keydown', (e) => {
   if (k === 'b' && g.mg.active) { g.mg.reload(); return; }
   // arrows on a focused slider move the slider only
   if ((e.target as HTMLInputElement).type === 'range' && k.startsWith('Arrow')) return;
-  if (k.startsWith('Arrow')) e.preventDefault();
+  if (k.startsWith('Arrow') || k === 'Alt') e.preventDefault();
   keys.add(k);
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= 9) { const ids = rackIds(); if (ids[n - 1]) { g.selected = ids[n - 1]; g.mg.active = false; g.mg.trigger = false; } }
@@ -214,25 +214,31 @@ function handleKeys(dt: number) {
   const g = S.game;
   const fine = keys.has('Shift') ? 0.15 : 1;
   const deg = (g.angle * 180) / Math.PI;
-  if (g.mg.active) {
-    const md = (g.mg.angle * 180) / Math.PI;
-    if (keys.has('ArrowUp')) g.mg.setAngleDeg(md + dt * 30 * fine);
-    if (keys.has('ArrowDown')) g.mg.setAngleDeg(md - dt * 30 * fine);
-  } else {
-    if (keys.has('ArrowUp')) g.setAngleDeg(deg + dt * 20 * fine);
-    if (keys.has('ArrowDown')) g.setAngleDeg(deg - dt * 20 * fine);
+  // Alt+arrows lay the gun (↑↓ elevation, ←→ velocity; Shift for fine steps); plain arrows pan like WASD
+  const lay = keys.has('Alt');
+  if (lay) {
+    if (g.mg.active) {
+      const md = (g.mg.angle * 180) / Math.PI;
+      if (keys.has('ArrowUp')) g.mg.setAngleDeg(md + dt * 30 * fine);
+      if (keys.has('ArrowDown')) g.mg.setAngleDeg(md - dt * 30 * fine);
+    } else {
+      if (keys.has('ArrowUp')) g.setAngleDeg(deg + dt * 20 * fine);
+      if (keys.has('ArrowDown')) g.setAngleDeg(deg - dt * 20 * fine);
+    }
+    if (keys.has('ArrowRight')) g.setSpeed(Math.min(g.maxSpeedFor, g.launchSpeed + dt * 8 * fine));
+    if (keys.has('ArrowLeft')) g.setSpeed(g.launchSpeed - dt * 8 * fine);
   }
-  if (keys.has('ArrowRight')) g.setSpeed(Math.min(g.maxSpeedFor, g.launchSpeed + dt * 8 * fine));
-  if (keys.has('ArrowLeft')) g.setSpeed(g.launchSpeed - dt * 8 * fine);
   if (keys.has('e')) zoomBy(Math.exp(dt * 1.5));
   if (keys.has('q')) zoomBy(Math.exp(-dt * 1.5));
-  // WASD scrolls the camera (pan speed scales with how much is in view; Shift faster)
+  // WASD or the arrow keys scroll the camera (pan speed scales with how much is in view; Shift faster)
   const span = S.renderer.viewW;
   const fast = (keys.has('Shift') ? 2.2 : 1) * SET.panSpeed;
-  if (keys.has('a')) g.pan -= span * 0.6 * dt * fast;
-  if (keys.has('d')) g.pan += span * 0.6 * dt * fast;
-  if (keys.has('w')) g.panY += S.renderer.viewH * 0.6 * dt * fast;
-  if (keys.has('s')) g.panY = Math.max(-S.renderer.viewH * 0.25, g.panY - S.renderer.viewH * 0.6 * dt * fast);
+  const L = keys.has('a') || (!lay && keys.has('ArrowLeft')), Rt = keys.has('d') || (!lay && keys.has('ArrowRight'));
+  const U = keys.has('w') || (!lay && keys.has('ArrowUp')), Dn = keys.has('s') || (!lay && keys.has('ArrowDown'));
+  if (L) g.pan -= span * 0.6 * dt * fast;
+  if (Rt) g.pan += span * 0.6 * dt * fast;
+  if (U) g.panY += S.renderer.viewH * 0.6 * dt * fast;
+  if (Dn) g.panY = Math.max(-S.renderer.viewH * 0.25, g.panY - S.renderer.viewH * 0.6 * dt * fast);
 }
 
 // ───────────────────────── loop ─────────────────────────
