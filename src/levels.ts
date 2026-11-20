@@ -131,7 +131,10 @@ function bastion(): LevelDef {
   b.wall(58, g, 1.2, 3.6, 'stone', 1);
   b.add(58, g + 3.6, 0.6, 0.6, 'stone');
   // concrete bunker (HQ) with counter-battery gun on the roof
-  b.col(62, g, 1, 2.6, 'concrete', 1.3);
+  // the bunker's front is a firing embrasure: a steel post carries the roof over a low concrete sill, so a
+  // well-laid round can go in through the slit (it used to be a solid concrete pier: no line to the command post at all)
+  b.add(61.85, g, 0.3, 2.6, 'steel');
+  b.add(62.3, g, 1.0, 1.3, 'concrete');
   b.col(69, g, 1, 2.6, 'concrete', 1.3);
   b.add(64.5, g, 2.4, 1.4, 'stone', { target: 'command' });
   b.add(61.8, g + 2.6, 8.4, 0.8, 'concrete');
@@ -157,7 +160,7 @@ function bastion(): LevelDef {
   return {
     id: 'bastion', elevation: 7, gunCap: 30, name: 'Bastion Kell',
     brief: 'A modern bastion. Command is buried in a concrete bunker topped by a counter-battery gun that will fire on you. Engineers patch cracked walls, slowly, from the bottom up.',
-    intel: ['Concrete laughs at HE: bring bunker busters or go underneath.', 'Front curtain wall may be hiding something. A drone would tell you.', 'The gun bracket-fires: each shot lands closer.'],
+    intel: ['Concrete laughs at HE: bring bunker busters, go underneath, or put a round through the bunker\'s firing slit.', 'Front curtain wall may be hiding something. A drone would tell you.', 'The gun bracket-fires: each shot lands closer.'],
     budget: 1300, wind: [-3, 3], parTime: 90,
     ground: [[-80, 0], [46, 0], [54, g], [92, g], [98, 0], [220, 0]],
     cannonX: 20, blocks: b.blocks,
