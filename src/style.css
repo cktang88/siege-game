@@ -192,13 +192,13 @@ button { font: inherit; color: inherit; }
 /* ── battle HUD ─────────────────────────────────────────── */
 #hud { position: fixed; inset: 0; pointer-events: none; }
 #hud .plate { pointer-events: auto; }
-#hud-left { position: absolute; left: 12px; top: 12px; padding: 10px 18px 12px; min-width: 230px; }
+#hud-left { position: absolute; left: 12px; top: 12px; z-index: 2; }
+#objplate { padding: 10px 18px 12px; min-width: 230px; transform-origin: 0 0; transition: transform 0.25s cubic-bezier(0.3, 1.4, 0.5, 1); }
 #lvl-name { font: 800 22px/1 var(--stencil); letter-spacing: 0.06em; text-transform: uppercase; }
 #timer { font: 13px var(--mono); color: var(--amber); margin: 4px 0 6px; }
 #objectives { list-style: none; padding: 0; margin: 0; font: 600 14px var(--ui); letter-spacing: 0.03em; }
 #objectives li { padding: 2px 0; display: flex; gap: 8px; align-items: center; }
 #objectives li .dot { width: 8px; height: 8px; transform: rotate(45deg); flex: none; }
-#objectives li.done { color: var(--ok); text-decoration: line-through; }
 #objectives li.opt { color: var(--bone-dim); font-weight: 500; }
 #hud-right { position: absolute; right: 12px; top: 12px; padding: 10px 18px 12px; width: 260px; }
 #hud-right .row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; gap: 10px; }
@@ -528,3 +528,87 @@ button { font: inherit; color: inherit; }
 @keyframes callbob { 50% { transform: translateY(-4px); } }
 
 .munition .qty b .cap { font-size: 0.7em; opacity: 0.55; margin-left: 1px; }
+
+/* ── objectives: the orders card at battle start, and the plate's completion moments (src/hud.ts) ── */
+#hud-left.briefing #objplate { visibility: hidden; }
+#objectives li { position: relative; }
+#objectives li .nm { position: relative; }
+#objectives li .ct { font: 700 13px var(--mono); color: var(--amber); display: inline-block; }
+/* a destroyed kind: dimmed, struck through in red ink and stamped with a tick (ochre for secondaries) */
+#objectives li.done { color: var(--bone-dim); --ink-c: #e2503a; }
+#objectives li.done.opt { --ink-c: #c99a3a; }
+#objectives li.done .dot { opacity: 0.45; }
+#objectives li.done .nm { opacity: 0.7; }
+#objectives li.done .ct { color: inherit; }
+#objectives li.done .nm::after { content: ''; position: absolute; left: -3px; right: -3px; top: 50%; height: 2px; margin-top: -1px;
+  background: var(--ink-c); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.4); transform: rotate(-1.5deg); transform-origin: 0 50%; }
+#objectives li .tick { flex: none; width: 21px; height: 17px; margin-left: auto; display: grid; place-items: center; color: var(--ink-c);
+  border: 2px solid currentColor; transform: rotate(-9deg); opacity: 0.9; }
+#objectives li .tick svg { width: 15px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: square; }
+/* the moment itself: the line is drawn across, then the stamp comes down */
+#objectives li.fresh .nm::after { animation: strike 0.38s cubic-bezier(0.6, 0, 0.3, 1) 0.12s both; }
+#objectives li.fresh .tick { animation: stampin 0.32s cubic-bezier(0.2, 0.8, 0.3, 1.2) 0.42s both; }
+#objectives li.fresh, #objectives li.part { animation: rowflash 1.1s ease-out; }
+#objectives li.part .ct { animation: ctpop 0.5s cubic-bezier(0.2, 0.8, 0.3, 1.3); }
+@keyframes strike { from { transform: rotate(-1.5deg) scaleX(0); } to { transform: rotate(-1.5deg) scaleX(1); } }
+@keyframes stampin { 0% { transform: rotate(-24deg) scale(2.8); opacity: 0; } 60% { transform: rotate(-7deg) scale(0.88); opacity: 1; } 100% { transform: rotate(-9deg) scale(1); opacity: 0.9; } }
+@keyframes rowflash { 0%, 30% { background: rgba(255, 179, 71, 0.22); box-shadow: -18px 0 0 rgba(255, 179, 71, 0.22), 18px 0 0 rgba(255, 179, 71, 0.22); } 100% { background: transparent; } }
+#objectives li.sec { animation-duration: 0.8s; }
+@keyframes ctpop { 0% { transform: scale(1); } 35% { transform: scale(1.7); color: var(--gold); } 100% { transform: scale(1); } }
+/* the plate swells toward the centre while a kill is played (more for a primary objective), then settles */
+#objplate.swell { transform: translate(14px, 10px) scale(1.14); }
+#objplate.swell.big { transform: translate(30px, 22px) scale(1.32); }
+#objplate.flash::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(255, 90, 31, 0.35), rgba(255, 179, 71, 0.08));
+  animation: plateflash 0.9s ease-out forwards; }
+@keyframes plateflash { to { opacity: 0; } }
+#objbanner { position: absolute; left: 50%; top: 31%; transform: translate(-50%, -50%) rotate(-3deg); zoom: var(--ui-zoom, 1); pointer-events: none; z-index: 24; text-align: center;
+  padding: 10px 26px 9px; background: rgba(13, 15, 18, 0.88); border: 4px solid var(--bad); color: var(--bad); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: bannerin 0.35s cubic-bezier(0.2, 0.8, 0.3, 1.2) both, bannerout 0.5s ease-in 2.1s forwards; }
+#objbanner .label { display: block; color: var(--bone-dim); margin-bottom: 4px; }
+#objbanner b { font: 800 30px/1 var(--stencil); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+@keyframes bannerin { from { transform: translate(-50%, -50%) rotate(-12deg) scale(2.2); opacity: 0; } }
+@keyframes bannerout { to { opacity: 0; transform: translate(-50%, -50%) rotate(-3deg) scale(0.96); } }
+
+/* the orders card: centred over a dimmed field, the battle held until it is put away */
+#brief { position: absolute; inset: 0; z-index: 28; display: grid; place-items: center; pointer-events: auto; cursor: pointer; }
+#brief::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 45%, rgba(8, 9, 11, 0.22), rgba(8, 9, 11, 0.62)); animation: briefdim 0.3s ease-out; transition: opacity 0.4s; }
+#brief.leaving { pointer-events: none; }
+#brief.leaving::before { opacity: 0; }
+@keyframes briefdim { from { opacity: 0; } }
+#brief .bcard { zoom: var(--ui-zoom, 1); width: min(540px, calc(100vw - 40px)); padding: 18px 26px 0; transform-origin: 0 0; animation: cardin 0.35s cubic-bezier(0.2, 0.8, 0.3, 1.1); cursor: default; }
+@keyframes cardin { from { transform: translateY(14px) scale(0.96); opacity: 0; } }
+.bcard .bhead { display: flex; justify-content: space-between; gap: 12px; padding-right: 10px; }
+.bcard .bhead b { color: var(--amber); font: 700 13px var(--mono); letter-spacing: 0; }
+.bcard h2 { margin: 6px 0 4px; font-size: 38px; line-height: 1; }
+.bcard .bline { margin: 0 0 12px; font: 13px/1.45 var(--mono); color: var(--bone-dim); }
+.bcard .bsec { border-top: 1px dashed rgba(255, 255, 255, 0.12); padding: 8px 0 6px; display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: baseline; }
+.bcard .bsec > .label { color: var(--signal); }
+.bcard .bsec.opt > .label { color: var(--bone-dim); }
+.bobj { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.bobj li { display: flex; align-items: center; gap: 10px; font: 700 20px/1.1 var(--ui); letter-spacing: 0.04em; text-transform: uppercase; }
+.bsec.opt .bobj li { font-size: 16px; font-weight: 600; color: var(--bone-dim); }
+.bobj li .dot { width: 11px; height: 11px; transform: rotate(45deg); flex: none; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5); }
+.bobj li .n { font: 700 16px var(--mono); color: var(--amber); }
+.bcard .bintel { margin: 4px 0 0; padding-top: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.12); font: 12px/1.45 var(--mono); color: var(--bone-dim); }
+.bcard .bintel .label { color: var(--amber); margin-right: 6px; }
+.bcard .bfoot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-bottom: 14px; }
+.bcard .bfoot .mono { font-size: 11.5px; color: var(--bone-dim); }
+.bcard .bfoot .btn { font-size: 19px; flex: none; }
+.bcard .bfoot .btn i { font: 11px var(--mono); opacity: 0.6; margin-left: 6px; font-style: normal; }
+.bcard .bclock { height: 4px; margin: 0 -26px; background: rgba(0, 0, 0, 0.45); }
+.bcard .bclock i { display: block; height: 100%; background: var(--signal); transform-origin: 0 50%; animation: bclock linear forwards; }
+@keyframes bclock { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (max-height: 640px) {
+  .bcard h2 { font-size: 30px; }
+  .bcard .bline { margin-bottom: 8px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .bcard .bintel { display: none; }
+  .bobj li { font-size: 17px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #objplate { transition: none; }
+  #objplate.swell, #objplate.swell.big { transform: none; }
+}
+/* the struck row stays bright while it is played, then dims */
+#objectives li.done, #objectives li.done .nm, #objectives li.done .dot { transition: color 0.6s, opacity 0.6s; }
+#objectives li.fresh { color: var(--bone); }
+#objectives li.fresh .nm, #objectives li.fresh .dot { opacity: 1; }

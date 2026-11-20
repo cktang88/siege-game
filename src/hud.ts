@@ -5,6 +5,7 @@ import { audio } from './audio';
 import { SET, setSetting } from './settings';
 import { settingsSheets, wireSettings } from './settingsui';
 import { buildDevPanel, updateDevPanel } from './devpanel';
+import { NODE_BY_ID } from './campaign';
 import { $, S, icon } from './state';
 
 /** short names for target kinds (TARGETS[].desc is a sentence for some kinds) */
@@ -33,13 +34,15 @@ export function startBattle(cart: Partial<Record<AmmoId, number>>, spent: number
   audio.cancelPending();
   S.game.start(cart, spent, budget, unlimited && S.save.dev);
   buildHud();
+  if (SET.briefCard) showBriefing();
 }
 
 export function buildHud() {
   const hud = $('#hud');
   hud.classList.remove('hidden');
+  resetObjectiveFx();
   hud.innerHTML = `
-    <div id="hud-left" class="plate"><div id="lvl-name"></div><div id="timer"></div><ul id="objectives"></ul><div class="hbtns"><button id="menu" title="Pause: resume, settings or withdraw (Esc)">Menu</button><button id="withdraw" title="Abandon the attack and go to the after-action report">Withdraw</button></div></div>
+    <div id="hud-left"><div id="objplate" class="plate"><div id="lvl-name"></div><div id="timer"></div><ul id="objectives"></ul><div class="hbtns"><button id="menu" title="Pause: resume, settings or withdraw (Esc)">Menu</button><button id="withdraw" title="Abandon the attack and go to the after-action report">Withdraw</button></div></div></div>
     <div id="hud-right" class="plate">
       <div class="row"><span class="label">Wind</span><span class="windvane"><svg viewBox="0 0 38 14"><path id="windarrow" d="M2 7 H30 M24 2 L32 7 L24 12" stroke="#ffb347" stroke-width="2.4" fill="none"/></svg><span id="wind" class="readout"></span></span></div>
       <div class="row"><span class="label">Gun</span><div class="meter" id="hp"></div><span id="hpnum" class="readout"></span></div>
@@ -123,7 +126,7 @@ export function helpText() {
 /** Esc (or the Menu button) halts the battle behind a small menu: resume, settings, withdraw */
 export function togglePause(on = !S.paused) {
   const g = S.game;
-  if (on && (S.mode !== 'battle' || g.ended)) return;
+  if (on && (S.mode !== 'battle' || g.ended || brief)) return;
   S.paused = on;
   document.querySelector('#pause')?.remove();
   // a whistle queued for a shell in the air would sound over the menu (the shell itself is frozen)
@@ -169,19 +172,210 @@ export function togglePause(on = !S.paused) {
 
 export function rackIds() { return Array.from(document.querySelectorAll<HTMLElement>('.slot')).map((el) => el.dataset.a as AmmoId); }
 
+// ───────────────────────── objectives: the orders card and the plate ─────────────────────────
+/*
+  The objectives plate (top left) shows each target kind with how many are down. It lags the battle on
+  purpose: every block destroyed is queued and played one at a time (the plate swells toward the
+  centre, the row is struck through and stamped, then it settles back), so a chain of blasts reads as
+  several moments instead of one blur. `shown` holds what the plate has played so far.
+*/
+const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+const TICK = '<svg viewBox="0 0 20 16"><path d="M3 8.5 L8 13 L17 3"/></svg>';
+const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+type ObjHit = { k: TargetKind; primary: boolean; full: boolean };
+let shown: Partial<Record<TargetKind, number>> = {};
+let seen: Partial<Record<TargetKind, number>> = {};
+const fxQueue: ObjHit[] = [];
+let fxBusy = false;
+let fxTimers: number[] = [];
+const later = (fn: () => void, ms: number) => { fxTimers.push(window.setTimeout(fn, ms)); };
+/** every completion moment played this battle, in order (read by the UI tests) */
+export const objectiveFxLog: string[] = [];
+
+function resetObjectiveFx() {
+  fxTimers.forEach((t) => clearTimeout(t));
+  fxTimers = [];
+  fxQueue.length = 0;
+  fxBusy = false;
+  objectiveFxLog.length = 0;
+  shown = { ...S.game.targetsDestroyed };
+  seen = { ...S.game.targetsDestroyed };
+  if (brief) { clearTimeout(brief.timer); brief = null; S.paused = false; }
+}
+
+const objKinds = () => {
+  const g = S.game, l = g.level;
+  const kinds = Object.keys(g.targetsTotal) as TargetKind[];
+  return kinds.sort((a, b) => +l.objectives.includes(b) - +l.objectives.includes(a));
+};
+
+function objRow(k: TargetKind, d: number) {
+  const g = S.game;
+  const tot = g.targetsTotal[k] ?? 0;
+  const obj = g.level.objectives.includes(k);
+  const unknown = d < tot && g.garrison.rooms.unknownKind(k);
+  const done = d >= tot;
+  return {
+    cls: `${done ? 'done' : ''} ${obj ? '' : 'opt'}`.trim(),
+    title: `${TARGETS[k].desc}${!done && !unknown ? '. Click to look at it.' : ''}`,
+    html: `<span class="dot" style="background:${TARGETS[k].color}"></span><span class="nm">${targetName(k)}${tot > 1 ? ` <span class="ct">${d}/${tot}</span>` : ''}</span>${obj ? '' : '<span class="label">secondary</span>'}${unknown ? '<span class="label">location unknown</span>' : ''}${done ? `<span class="tick">${TICK}</span>` : ''}`,
+  };
+}
+
+/** draw the plate's rows from `shown`; rows are updated in place so a running animation is not cut off */
+function renderObjectives() {
+  const ul = document.querySelector<HTMLElement>('#objectives');
+  if (!ul) return;
+  const kinds = objKinds();
+  if (ul.children.length !== kinds.length || kinds.some((k, i) => (ul.children[i] as HTMLElement).dataset.k !== k)) {
+    ul.innerHTML = kinds.map((k) => `<li data-k="${k}"></li>`).join('');
+    ul.querySelectorAll<HTMLElement>('li').forEach((li) => li.addEventListener('click', () => lookAtTarget(li.dataset.k as TargetKind)));
+  }
+  kinds.forEach((k, i) => {
+    const li = ul.children[i] as HTMLElement;
+    const r = objRow(k, shown[k] ?? 0);
+    // (the animation classes ride on top of the row's state classes)
+    const fx = ['fresh', 'part', 'sec'].filter((c) => li.classList.contains(c));
+    const cls = [r.cls, ...fx].join(' ').trim();
+    if (li.className !== cls) li.className = cls;
+    if (li.title !== r.title) li.title = r.title;
+    if (li.dataset.h !== r.html) { li.dataset.h = r.html; li.innerHTML = r.html; }
+  });
+}
+
+/** a target was destroyed (or a concealed room found): queue a moment for each new kill */
 export function updateObjectives() {
   const g = S.game;
-  const l = g.level;
-  const kinds = Object.keys(g.targetsTotal) as TargetKind[];
-  kinds.sort((a, b) => +l.objectives.includes(b) - +l.objectives.includes(a));
-  $('#objectives').innerHTML = kinds.map((k) => {
-    const tot = g.targetsTotal[k] ?? 0, d = g.targetsDestroyed[k] ?? 0;
-    const obj = l.objectives.includes(k);
-    const unknown = g.garrison.rooms.unknownKind(k) ? ' <span class="label">location unknown</span>' : '';
-    return `<li class="${d >= tot ? 'done' : ''} ${obj ? '' : 'opt'}" data-k="${k}" title="${TARGETS[k].desc}${d < tot && !unknown ? '. Click to look at it.' : ''}"><span class="dot" style="background:${TARGETS[k].color}"></span>${targetName(k)}${tot > 1 ? ` ${d}/${tot}` : ''}${obj ? '' : ' <span class="label">secondary</span>'}${unknown}</li>`;
-  }).join('');
-  $('#objectives').querySelectorAll<HTMLElement>('li').forEach((li) => li.addEventListener('click', () => lookAtTarget(li.dataset.k as TargetKind)));
+  for (const k of objKinds()) {
+    const d = g.targetsDestroyed[k] ?? 0;
+    const tot = g.targetsTotal[k] ?? 0;
+    for (let n = (seen[k] ?? 0) + 1; n <= d; n++) fxQueue.push({ k, primary: g.level.objectives.includes(k), full: n >= tot });
+    seen[k] = Math.max(seen[k] ?? 0, d);
+  }
+  renderObjectives();
+  pumpObjectiveFx();
 }
+
+function pumpObjectiveFx() {
+  if (fxBusy) return;
+  const h = fxQueue.shift();
+  const plate = document.querySelector<HTMLElement>('#objplate');
+  if (!h || !plate) { if (plate) plate.classList.remove('swell', 'big'); return; }
+  fxBusy = true;
+  const g = S.game;
+  shown[h.k] = Math.min(g.targetsTotal[h.k] ?? 0, (shown[h.k] ?? 0) + 1);
+  objectiveFxLog.push(`${h.k}:${shown[h.k]}/${g.targetsTotal[h.k] ?? 0}`);
+  const li = document.querySelector<HTMLElement>(`#objectives li[data-k="${h.k}"]`);
+  li?.classList.remove('fresh', 'part', 'sec');
+  renderObjectives();
+  if (li) { void li.offsetWidth; li.classList.add(h.full ? 'fresh' : 'part'); if (!h.primary) li.classList.add('sec'); }
+  // a primary objective swells the plate further than a secondary one, or one of several
+  const big = h.primary && h.full;
+  plate.classList.toggle('big', big);
+  plate.classList.remove('flash'); void plate.offsetWidth; plate.classList.add('swell', 'flash');
+  audio.play('stamp', undefined, big ? 1 : 0.7, big ? 0.9 : 1.15, h.full ? 330 : 120);
+  const allPrimary = big && g.level.objectives.every((k) => (shown[k] ?? 0) >= (g.targetsTotal[k] ?? 0));
+  if (allPrimary) later(primaryBanner, 650);
+  const hold = reduced() ? 500 : allPrimary ? 1900 : big ? 1300 : 900;
+  later(() => {
+    li?.classList.remove('fresh', 'part', 'sec');
+    fxBusy = false;
+    // more queued: play the next while still swollen; otherwise settle back
+    if (fxQueue.length) pumpObjectiveFx();
+    else plate.classList.remove('swell', 'big');
+  }, hold);
+}
+
+function primaryBanner() {
+  const hud = document.querySelector('#hud');
+  if (!hud || S.mode !== 'battle') return;
+  document.querySelector('#objbanner')?.remove();
+  const el = document.createElement('div');
+  el.id = 'objbanner';
+  el.innerHTML = '<span class="label">Operation orders</span><b>All primary objectives destroyed</b>';
+  hud.appendChild(el);
+  audio.play('stamp', undefined, 1.1, 0.75);
+  objectiveFxLog.push('all-primary');
+  later(() => el.remove(), 2600);
+}
+
+/* the orders card: the operation and its objectives in the middle of the screen at the start of a battle.
+   The battle is held (as by the pause menu) until it is dismissed: a click, Space, Enter, Esc, or 6 s. */
+const BRIEF_MS = 6000;
+let brief: { el: HTMLElement; timer: number } | null = null;
+export const briefingUp = () => !!brief;
+
+function showBriefing() {
+  const g = S.game, l = g.level;
+  const node = S.nodeId ? NODE_BY_ID[S.nodeId] : null;
+  const kinds = objKinds();
+  const line = (k: TargetKind) => {
+    const tot = g.targetsTotal[k] ?? 0;
+    const unknown = g.garrison.rooms.unknownKind(k);
+    return `<li><span class="dot" style="background:${TARGETS[k].color}"></span><b>${targetName(k)}</b>${tot > 1 ? `<span class="n">× ${tot}</span>` : ''}${unknown ? '<span class="label">location unknown</span>' : ''}</li>`;
+  };
+  const prim = kinds.filter((k) => l.objectives.includes(k)), sec = kinds.filter((k) => !l.objectives.includes(k));
+  const el = document.createElement('div');
+  el.id = 'brief';
+  el.innerHTML = `<div class="plate bcard" role="dialog" aria-label="Operation orders">
+    <div class="bhead"><span class="label">Operation orders${node ? ` · ${esc(node.region)} sector` : ''}${S.devBattle ? ' · dev' : ''}</span><span class="label">Par <b>${fmtTime(l.parTime)}</b></span></div>
+    <h2 class="stencil">${esc(l.name)}</h2>
+    <p class="bline">${esc(l.brief)}</p>
+    <div class="bsec"><span class="label">Destroy</span><ul class="bobj">${prim.map(line).join('')}</ul></div>
+    ${sec.length ? `<div class="bsec opt"><span class="label">Secondary</span><ul class="bobj">${sec.map(line).join('')}</ul></div>` : ''}
+    ${l.intel[0] ? `<p class="bintel"><span class="label">Intel</span> ${esc(l.intel[0])}</p>` : ''}
+    <div class="bfoot"><span class="mono">The battle clock starts when you take the field</span><button class="btn" id="brief-go">Take the field <i>Space</i></button></div>
+    <div class="bclock"><i style="animation-duration:${BRIEF_MS}ms"></i></div>
+  </div>`;
+  $('#hud').appendChild(el);
+  $('#hud-left').classList.add('briefing');
+  S.paused = true;
+  el.addEventListener('pointerdown', (e) => { e.stopPropagation(); dismissBriefing(); });
+  brief = { el, timer: window.setTimeout(() => dismissBriefing(), BRIEF_MS) };
+}
+
+/** put the orders card away: it shrinks into the objectives plate, and the battle clock starts */
+export function dismissBriefing(instant = false) {
+  if (!brief) return;
+  const { el, timer } = brief;
+  brief = null;
+  clearTimeout(timer);
+  S.paused = false;
+  const wrap = document.querySelector<HTMLElement>('#hud-left');
+  const plate = document.querySelector<HTMLElement>('#objplate');
+  const card = el.querySelector<HTMLElement>('.bcard');
+  wrap?.classList.remove('briefing');
+  if (instant || !plate || !card || reduced() || !el.isConnected) { el.remove(); return; }
+  // FLIP: the card flies to the plate's place and size while the plate grows out of the card's
+  const cr = card.getBoundingClientRect(), pr = plate.getBoundingClientRect();
+  const z = SET.uiScale / 100;
+  const s = pr.width / cr.width;
+  const opts: KeyframeAnimationOptions = { duration: 450, easing: 'cubic-bezier(0.55, 0, 0.25, 1)', fill: 'both' };
+  el.classList.add('leaving');
+  const fly = card.animate([
+    { transform: 'none', opacity: 1 },
+    { opacity: 1, offset: 0.55 },
+    { transform: `translate(${(pr.left - cr.left) / z}px, ${(pr.top - cr.top) / z}px) scale(${s})`, opacity: 0 },
+  ], opts);
+  plate.animate([
+    { transform: `translate(${(cr.left - pr.left) / z}px, ${(cr.top - pr.top) / z}px) scale(${1 / s})`, opacity: 0 },
+    { opacity: 0, offset: 0.4 },
+    { transform: 'none', opacity: 1 },
+  ], opts).finished.then((a) => a.cancel(), () => {});
+  // (an animation that is cancelled rejects: the card goes either way)
+  fly.finished.then(() => el.remove(), () => el.remove());
+}
+
+// the card's keys: Space, Enter and Esc put it away (and go no further: Esc must not also open the pause menu)
+window.addEventListener('keydown', (e) => {
+  if (!brief || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === ' ' || e.key === 'Enter' || e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.repeat) dismissBriefing();
+  }
+}, true);
 
 /** pan the view to the nearest standing block of this kind (big castles run off the edge of the overview) */
 function lookAtTarget(k: TargetKind) {

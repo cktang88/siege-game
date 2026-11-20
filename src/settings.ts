@@ -32,6 +32,8 @@ export interface Settings {
   uiScale: 90 | 100 | 115;
   /** the fire-control panel folded to one row (the dials hidden) */
   compactFcp: boolean;
+  /** the orders card (operation, objectives, par) in the middle of the screen when a battle starts */
+  briefCard: boolean;
 }
 
 export const SETTINGS_KEY = 'siege-settings-v1';
@@ -39,7 +41,7 @@ export const SETTINGS_KEY = 'siege-settings-v1';
 export const DEFAULTS: Settings = {
   master: 0.8, music: 0.6, sfx: 1, muted: false,
   mouseAim: true, aimDistance: true, chargeDist: 0.6, autoCam: true, panSpeed: 1,
-  shake: 1, quality: 'high', trajectory: true, helpLine: true, uiScale: 100, compactFcp: false,
+  shake: 1, quality: 'high', trajectory: true, helpLine: true, uiScale: 100, compactFcp: false, briefCard: true,
 };
 
 const num = (v: unknown, lo: number, hi: number, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
@@ -65,6 +67,7 @@ export function sanitize(raw: unknown): Settings {
     helpLine: bool(r.helpLine, D.helpLine),
     uiScale: pick(r.uiScale, [90, 100, 115] as const, D.uiScale),
     compactFcp: bool(r.compactFcp, D.compactFcp),
+    briefCard: bool(r.briefCard, D.briefCard),
   };
 }
 

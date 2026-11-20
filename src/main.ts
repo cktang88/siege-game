@@ -5,7 +5,7 @@ import { audio } from './audio';
 import { AMMO_BY_ID, PHYS } from './config';
 import { Game } from './game';
 import { toggleDevPanel } from './devpanel';
-import { gunHit, helpText, hideTooltip, onFired, rackIds, switchWeapon, toast, togglePause, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
+import { dismissBriefing, gunHit, helpText, hideTooltip, onFired, rackIds, switchWeapon, toast, togglePause, updateHud, updateLabels, updateObjectives, updateTooltip } from './hud';
 import { writeSave } from './progress';
 import { updateWatch } from './watch';
 import { Renderer, loadTextures } from './render';
@@ -284,7 +284,7 @@ function frame(now: number) {
       else if (ev.type === 'target') updateObjectives();
       else if (ev.type === 'gunhit') gunHit(ev.dmg);
       else if (ev.type === 'fired') onFired();
-      else if (ev.type === 'end') showResult(ev.win, ev.reason);
+      else if (ev.type === 'end') { dismissBriefing(true); showResult(ev.win, ev.reason); }
     }
     g.events.length = 0;
     const f = pickFocus();
