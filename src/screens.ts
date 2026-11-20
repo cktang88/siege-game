@@ -226,6 +226,12 @@ function stepCart(id: AmmoId, d: number, mult = 1) {
   let n = Math.max(0, have + d * mult);
   // never overspend
   while (n > have && cartCost() + (n - have) * price(id) > budget()) n--;
+  // the airfield flies only so many sorties for one battle (research adds more); the dev sandbox has no limit
+  if (id === 'airstrike' && !S.devSandbox) {
+    const cap = computeStats(S.save).sorties;
+    if (n > cap) n = Math.max(have, cap);
+    if (n === have) return false;
+  }
   if (n === have) return false;
   S.cart[id] = n;
   if (!S.cart[id]) delete S.cart[id];
@@ -285,7 +291,7 @@ function renderArmory() {
           <img src="${icon(a.id)}" alt="">
           <div class="nm">${a.name}<span>$${p}</span></div>
           <div class="d">${a.desc}</div>
-          <div class="qty"><button data-a="${a.id}" data-d="-1" ${n ? '' : 'disabled'} title="Remove one">−</button><b>${n}</b><button data-a="${a.id}" data-d="1" ${p <= left ? 'title="Add one (shift-click: five)"' : `disabled title="Not enough funds left ($${left})"`}>+</button></div>
+          <div class="qty"><button data-a="${a.id}" data-d="-1" ${n ? '' : 'disabled'} title="Remove one">−</button><b>${n}${a.id === 'airstrike' ? `<span class="cap">/${st.sorties}</span>` : ''}</b><button data-a="${a.id}" data-d="1" ${a.id === 'airstrike' && n >= st.sorties ? `disabled title="The airfield flies ${st.sorties} sorties a battle (Extended Bomb Bay and Heavy Bomber add more)"` : p <= left ? 'title="Add one (shift-click: five)"' : `disabled title="Not enough funds left ($${left})"`}>+</button></div>
           <div class="gb"><span class="g">+ ${a.good}</span> &nbsp; <span class="b">− ${a.bad}</span></div>
         </div>`;
       }).join('')}</div>

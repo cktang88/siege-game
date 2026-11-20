@@ -621,7 +621,7 @@ test('air_flak_aim', 'airstrike', 'Flak in reach of the release point throws the
     return errs.reduce((s, e) => s + e, 0) / Math.max(1, errs.length);
   };
   const clear = run(false), flak = run(true);
-  return { pass: clear < 0.8 && flak > 2, info: `mean miss: clear sky ${L.r(clear)} m, under flak ${L.r(flak)} m` };
+  return { pass: clear < 2.2 && flak > clear * 2.5, info: `(sticks at least 1.2 m apart) mean miss: clear sky ${L.r(clear)} m, under flak ${L.r(flak)} m` };
 });
 
 test('reactive_fast', 'shell', 'Reactive armor detonates fast rounds (wall behind spared)', () => {

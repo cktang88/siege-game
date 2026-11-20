@@ -769,7 +769,7 @@ export class Game {
     const impacts: V2[] = [];
     const releasePts: V2[] = [];
     for (let i = 0; i < n; i++) {
-      const sp = (i - (n - 1) / 2) * Math.max(0.15, st.spacing);
+      const sp = (i - (n - 1) / 2) * Math.max(1.2, st.spacing); // a bomb rack can't salvo a whole stick onto one spot
       releases.push(sp);
       impacts.push(impactAt(sp));
       releasePts.push({ x: rx + ux * sp, y: ry + uy * sp });

@@ -40,6 +40,7 @@ export interface Stats {
   pen: Partial<Record<AmmoId, number>>;
   priceMult: Partial<Record<AmmoId, number>>;
   bombs: number;             // bombs per air strike
+  sorties: number;           // air strikes the airfield can fly for one battle
   dive: boolean;             // dive-bomb angle control
   bombTypes: ('he' | 'incendiary' | 'penetrator')[];
   ecm: boolean;              // bomber survives flak longer
@@ -55,7 +56,7 @@ export interface Stats {
 export const baseStats = (): Stats => ({
   maxSpeed: 30, minAngle: -30, maxAngle: 80, reload: 1.6, previewSteps: 10, windReadout: false, cannonHp: 100,
   budgetMult: 1, shieldedGun: false, dmg: {}, radius: {}, pen: {}, priceMult: {},
-  bombs: 3, dive: false, bombTypes: ['he'], ecm: false, droneTime: 3, droneStealth: false,
+  bombs: 3, sorties: 2, dive: false, bombTypes: ['he'], ecm: false, droneTime: 3, droneStealth: false,
   saboteurs: 1, sabCharge: 1, clusterCount: 6, stickyFuse: 2.5, drillRange: 12,
 });
 
@@ -91,13 +92,13 @@ export const TECH: TechNode[] = [
   { id: 'gun_range2', branch: 'gunnery', tier: 5, name: 'Fire Control Computer', desc: 'Full trajectory preview.', cost: 900, requires: ['gun_range', 'gun_charge2'], fx: { previewSteps: 60 } },
 
   // Air wing
-  { id: 'air_strike', branch: 'air', tier: 2, name: 'Air Support', desc: 'Unlocks bomber strikes (3 bombs).', cost: 400, requires: [], unlocks: ['airstrike'] },
-  { id: 'air_bay', branch: 'air', tier: 3, name: 'Extended Bomb Bay', desc: '5 bombs per strike.', cost: 450, requires: ['air_strike'], fx: { bombs: 5 } },
+  { id: 'air_strike', branch: 'air', tier: 2, name: 'Air Support', desc: 'Unlocks bomber strikes (3 bombs; the airfield flies 2 sorties a battle).', cost: 400, requires: [], unlocks: ['airstrike'] },
+  { id: 'air_bay', branch: 'air', tier: 3, name: 'Extended Bomb Bay', desc: '5 bombs per strike; 3 sorties a battle.', cost: 450, requires: ['air_strike'], fx: { bombs: 5, sorties: 3 } },
   { id: 'air_dive', branch: 'air', tier: 3, name: 'Dive Bombing', desc: 'Set the dive angle: steep dives hit walls and bunkers precisely.', cost: 500, requires: ['air_strike'], fx: { dive: true } },
   { id: 'air_inc', branch: 'air', tier: 4, name: 'Firebombs', desc: 'Bombers can carry incendiaries.', cost: 450, requires: ['air_bay'], fx: (s) => { s.bombTypes.push('incendiary'); } },
   { id: 'air_pen', branch: 'air', tier: 4, name: 'Armor-Piercing Bombs', desc: 'Bombers can carry penetrating bombs.', cost: 600, requires: ['air_dive'], fx: (s) => { s.bombTypes.push('penetrator'); } },
   { id: 'air_ecm', branch: 'air', tier: 5, name: 'Chaff & Jammers', desc: 'Bombers survive flak long enough to finish their run.', cost: 800, requires: ['air_pen', 'air_inc'], fx: { ecm: true } },
-  { id: 'air_bay2', branch: 'air', tier: 5, name: 'Heavy Bomber', desc: '8 bombs per strike; air strikes −20% price.', cost: 900, requires: ['air_bay'], fx: (s) => { s.bombs = 8; mul('priceMult', 'airstrike', 0.8)(s); } },
+  { id: 'air_bay2', branch: 'air', tier: 5, name: 'Heavy Bomber', desc: '8 bombs per strike; 4 sorties a battle; air strikes −20% price.', cost: 900, requires: ['air_bay'], fx: (s) => { s.bombs = 8; s.sorties = 4; mul('priceMult', 'airstrike', 0.8)(s); } },
 
   // Special ops
   { id: 'sp_drone', branch: 'special', tier: 1, name: 'Scout Drone', desc: 'Unlocks scout drones.', cost: 100, requires: [], unlocks: ['drone'] },

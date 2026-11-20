@@ -526,3 +526,5 @@ button { font: inherit; color: inherit; }
 #mgcall kbd { font: 700 11px var(--mono); padding: 0 5px; background: #1a1410; color: #ffb347; border-radius: 2px; }
 #mgcall::after { content: ''; position: absolute; left: 18px; bottom: -8px; border: 8px solid transparent; border-bottom: 0; border-top-color: rgba(150, 26, 18, 0.92); }
 @keyframes callbob { 50% { transform: translateY(-4px); } }
+
+.munition .qty b .cap { font-size: 0.7em; opacity: 0.55; margin-left: 1px; }
