@@ -245,7 +245,8 @@ function pickFocus(): { x: number; y: number } | null {
   const g = S.game;
   const own = g.projectiles.filter((p) => !p.enemy && !p.dead && !p.pellet);
   if (own.length) { const p = own[own.length - 1]; return { x: p.x, y: p.y }; }
-  if (g.planes.length) return { x: g.planes[0].x, y: g.planes[0].y };
+  // a bomber run: watch the aim point (the bombs, once released, are followed as own rounds above), not the plane
+  if (g.planes.length) return { x: g.strike.x, y: g.groundY(g.strike.x) + 6 };
   if (g.drones.length) return { x: g.drones[0].x, y: g.drones[0].y };
   if (g.saboteurs.length) return { x: g.saboteurs[0].x + 4, y: g.saboteurs[0].y + 4 };
   return null;

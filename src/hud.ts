@@ -282,11 +282,11 @@ function buildFcp() {
   fcpFor = fcpKey();
   fcp.classList.toggle('compact', SET.compactFcp);
   let html = `<div class="head"><span class="stencil">${a.mode === 'airstrike' ? 'Bomb run' : a.mode === 'drone' ? 'Recon flight' : a.mode === 'saboteur' ? 'Demolition team' : 'Fire control'}</span><span class="label">${a.name}</span><button class="fold" id="fold" title="${SET.compactFcp ? 'Unfold the fire-control panel (dials and settings)' : 'Fold the fire-control panel to one row, so more of the field shows'}">${SET.compactFcp ? '▴' : '▾'}</button></div>`;
-  const wpn = `<button class="wpn" id="wpn" title="G or Tab: switch between the cannon and the ${g.mg.spec.name.toLowerCase()} post">${g.mg.active ? 'Cannon' : g.mg.spec.name === 'Machine gun' ? 'MG' : 'Volley gun'} <i>G</i></button>`;
+  const wpn = `<button class="wpn" id="wpn" title="G or Tab: switch between the cannon and the MG post">${g.mg.active ? 'Cannon' : 'MG'} <i>G</i></button>`;
   html = html.replace('<span class="label">', `${wpn}<span class="label">`);
   if (g.mg.active) {
     const m = g.mg;
-    html = `<div class="head"><span class="stencil">${m.spec.name}</span>${wpn}<span class="label">${m.modern ? 'water-cooled · tripod' : 'eight barrels · trestle'}</span><button class="fold" id="fold" title="Fold or unfold the panel">${SET.compactFcp ? '▴' : '▾'}</button></div>
+    html = `<div class="head"><span class="stencil">${m.spec.name}</span>${wpn}<span class="label">${m.modern ? 'water-cooled · tripod' : 'volley gun · eight barrels'}</span><button class="fold" id="fold" title="Fold or unfold the panel">${SET.compactFcp ? '▴' : '▾'}</button></div>
       <div class="mgpanel">
         <div class="opt"><span class="label">${m.spec.magName}</span><div class="mgbar" id="mg-mag"><i></i></div><span class="readout" id="mg-mag-v"></span></div>
         ${m.spec.heatPer ? '<div class="opt"><span class="label">Jacket heat</span><div class="mgbar heat" id="mg-heat"><i></i></div><span class="readout" id="mg-heat-v"></span></div>' : ''}

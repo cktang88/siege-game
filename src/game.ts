@@ -196,7 +196,7 @@ export class Game {
   artilleryShots = 0;
   /** how far the enemy gunners have walked their fall of shot onto your gun */
   bracket = 0;
-  artT = 9; barT = 12; repT = 5; rebT = 14;
+  artT = 25; barT = 12; repT = 5; rebT = 14;
   carriage!: THREE.Mesh;
   barrel!: THREE.Group;
   enemyGuns = new Map<Block, THREE.Mesh>();
@@ -267,7 +267,7 @@ export class Game {
     this.cannonHp = 100;
     this.time = 0; this.battleTime = 0;
     this.ended = false; this.running = false; this.revealed = false;
-    this.artilleryShots = 0; this.bracket = 0; this.artT = 10; this.barT = 12; this.repT = 5; this.rebT = 14; this.repairing = null;
+    this.artilleryShots = 0; this.bracket = 0; this.artT = 25; this.barT = 12; this.repT = 5; this.rebT = 14; this.repairing = null;
     this.collateral = 0; this.enemyBlind = 0; this.winT = -1; this.idleT = 0;
     this.targetsDestroyed = {}; this.targetsTotal = {}; this.shieldsSeen = false;
     this.lastPath = [];
@@ -999,7 +999,8 @@ export class Game {
     // player cannon
     const cx = this.level.cannonX, cy = this.groundY(cx) + 1;
     const cd = Math.hypot(cx - x, cy - y);
-    if (cd < radius + 1.2) this.damageCannon((dmg * 0.32 * (1 - cd / (radius + 1.2)) + (opts.enemy ? 6 : 0)) * (opts.enemy && this.stats.shieldedGun ? 0.5 : 1));
+    // enemy shells do ~40% less to the gun than they did: being hit should hurt, not end the battle in four rounds
+    if (cd < radius + 1.2) this.damageCannon((dmg * 0.32 * (1 - cd / (radius + 1.2)) + (opts.enemy ? 6 : 0)) * (opts.enemy ? 0.6 : 1) * (opts.enemy && this.stats.shieldedGun ? 0.5 : 1));
   }
 
   burst(x: number, y: number, s: number, smokeOnly = false, fuel = false) {
@@ -2181,6 +2182,12 @@ export class Game {
     return false;
   }
 
+  /** enemy infantry or vehicles close to the player's gun: their own artillery won't fire on them */
+  dangerClose() {
+    const cx = this.level.cannonX;
+    return this.soldiers.some((s) => !s.dead && !s.eng && Math.abs(s.x - cx) < 14) || this.motor.units.some((u) => u.wreckT < 0 && Math.abs(u.x - cx) < 14);
+  }
+
   updateEnemy(dt: number) {
     // counter-battery fire with bracketing
     const guns = this.liveTargets('artillery');
@@ -2199,11 +2206,14 @@ export class Game {
         if (this.enemyBlind > 0) {
           // smoke hides the fall of shot: once it clears the gunners have to re-bracket
           this.artT = 1; this.bracket = Math.min(this.bracket, 2);
+        } else if (this.dangerClose()) {
+          // their own infantry are at the player's gun: the battery won't shell its own men. Hold and look again.
+          this.artT = 2;
         } else {
           // bracketing: each shot lands closer (the layers correct for wind from the fall of shot);
           // once bracketed, shots still scatter 1-3 m around the gun
-          const errs = [11, 6.5, 3.5];
-          const err = (this.bracket < errs.length ? errs[this.bracket] : 1 + Math.random() * 2) * (Math.random() < 0.5 ? -1 : 1);
+          const errs = [14, 10, 7, 4.5, 3.5];
+          const err = (this.bracket < errs.length ? errs[this.bracket] : 2 + Math.random() * 2.5) * (Math.random() < 0.5 ? -1 : 1);
           const tx = this.level.cannonX + err;
           // guns whose line of fire is masked by their own walls hold fire; try the others
           let shot: ReturnType<Game['solveCounterBattery']> = null;
@@ -2213,7 +2223,8 @@ export class Game {
             shot = this.solveCounterBattery(g, tx);
           }
           if (!shot) { this.artT = 2; } else {
-            this.artT = 11;
+            // a slow, deliberate battery: the player gets time to lay, fire and see their own shot land between rounds
+            this.artT = 17 + Math.random() * 4;
             this.artilleryShots++; this.bracket++;
             this.gunElev.set(g, shot.elev);
             this.spawnProjectile(AMMO_BY_ID.he, shot.sx, shot.sy, shot.vx, shot.vy, true);

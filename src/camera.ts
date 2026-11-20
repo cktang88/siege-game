@@ -189,7 +189,14 @@ export class FieldCamera {
     g.pan = Math.max(x0 - g.baseCx, Math.min(Math.max(x0 + ow, fb.x1 + 8) - g.baseCx, g.pan));
     // the zoom can't wind past the width limits (else the wheel would first have to unwind it)
     g.zoom = Math.max(ow / (cap * 1.5), Math.min(ow / 16, g.zoom));
-    if (mode === 'threat') {
+    if (g.mg.active) {
+      // manning the MG: always the ground in front of the base, where its targets are, whatever else is going on
+      const tight = Math.max(40, cap * 0.5);
+      fx1 = Math.max(x0 + tight, ...near.map((p) => p.x + 6));
+      top = Math.max(ground + 9, ...near.map((p) => p.y + 3));
+      minW = tight; maxW = Math.max(tight, cap * 0.75);
+      this.cue = near.length ? this.cue : '';
+    } else if (mode === 'threat') {
       // tight on the gun and the men or vehicles in front of it (wider for a far one)
       const tight = Math.max(40, cap * 0.5);
       fx1 = Math.max(x0 + tight, ...near.map((p) => p.x + 6));
@@ -208,7 +215,7 @@ export class FieldCamera {
       maxW = cap * 1.5;
     }
     // the player's own round (or bomber, drone, saboteur) in flight
-    const f = g.focus;
+    const f = g.mg.active ? null : g.focus;
     if (f) { fx0 = Math.min(fx0, f.x - 6); fx1 = Math.max(fx1, f.x + 6); top = Math.max(top, f.y + 5); }
 
     // ── width within the limits; if the frame is wider than allowed keep the focus (or the gun) in view

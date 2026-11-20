@@ -27,8 +27,8 @@ import { makeSprite } from './render';
 
 interface Spec { rate: number; mag: number; reload: number; heatPer: number; cool: number; spread: number; speed: number; range: number; len: number; h: number; pivot: number; sprite: string; nest: string; nestH: number; name: string; magName: string }
 const SPECS: Record<'modern' | 'medieval', Spec> = {
-  modern: { rate: 7, mag: 100, reload: 5, heatPer: 0.02, cool: 0.2, spread: 2.6, speed: 160, range: 75, len: 1.9, h: 0.5, pivot: 0.3, sprite: 'mg_gun', nest: 'mg_nest', nestH: 0.95, name: 'Machine gun', magName: 'Belt' },
-  medieval: { rate: 6, mag: 8, reload: 6, heatPer: 0, cool: 1, spread: 3.5, speed: 120, range: 60, len: 1.9, h: 0.6, pivot: 0.42, sprite: 'rib_gun', nest: 'mg_mantlet', nestH: 1.15, name: 'Volley gun', magName: 'Barrels' },
+  modern: { rate: 7, mag: 100, reload: 5, heatPer: 0.02, cool: 0.2, spread: 2.6, speed: 160, range: 75, len: 1.9, h: 0.5, pivot: 0.3, sprite: 'mg_gun', nest: 'mg_nest', nestH: 0.95, name: 'MG', magName: 'Belt' },
+  medieval: { rate: 6, mag: 8, reload: 6, heatPer: 0, cool: 1, spread: 3.5, speed: 120, range: 60, len: 1.9, h: 0.6, pivot: 0.42, sprite: 'rib_gun', nest: 'mg_mantlet', nestH: 1.15, name: 'MG', magName: 'Barrels' },
 };
 /** damage per round to aircraft */
 export const MG_AIR = { gyro: 1.5, airship: 0.12 };
